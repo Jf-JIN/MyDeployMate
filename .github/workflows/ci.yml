@@ -26,7 +26,7 @@ jobs:
       rust: ${{ steps.detect.outputs.rust }}
       frontend: ${{ steps.detect.outputs.frontend }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - id: detect
         run: |
           if [ -f "$APP_DIR/Cargo.toml" ]; then
@@ -52,7 +52,7 @@ jobs:
         shell: bash
         working-directory: ${{ env.APP_DIR }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -72,6 +72,16 @@ jobs:
         run: |
           locked=$([ -f Cargo.lock ] && echo --locked || true)
           cargo test --workspace $locked
+      # cargo test 会重新生成 ts-rs 类型绑定；提交的绑定必须与 Rust 类型一致。
+      - name: TypeScript bindings up to date
+        run: |
+          if [ -d src/ipc/bindings ]; then
+            git add -N src/ipc/bindings
+            git diff --exit-code -- src/ipc/bindings || {
+              echo "::error::src/ipc/bindings 与 Rust 类型不一致，请在本地运行 cargo test 后提交生成的文件"
+              exit 1
+            }
+          fi
 
   frontend:
     needs: detect
@@ -81,8 +91,8 @@ jobs:
       run:
         working-directory: ${{ env.APP_DIR }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - name: Install dependencies
@@ -112,7 +122,7 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - name: Commit messages

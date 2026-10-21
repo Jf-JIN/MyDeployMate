@@ -1,0 +1,13 @@
+dist
+node_modules
+target
+src-tauri
+crates
+spikes
+demo
+test-env
+docs
+design
+src/ipc/bindings
+package-lock.json
+*.md
