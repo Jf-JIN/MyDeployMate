@@ -76,6 +76,22 @@ pub enum IssueCode {
     WrongEnvironment,
     Reserved,
     NotAllowed,
+    // Preflight (RUN-01), reported by `plan::build_plan`.
+    /// `${...}` that cannot be parsed.
+    InvalidExpression,
+    UndefinedVariable,
+    VariableCycle,
+    VariableTooDeep,
+    /// `${server.*}` in a local or confirm step (VAR-02).
+    ServerContext,
+    /// Environment variable or Credential Manager value missing on this computer.
+    MissingValue,
+    /// The pipeline has remote steps but no target is selected.
+    NoTargets,
+    /// A selected server is not bound to the project in this environment.
+    NotBound,
+    /// Nothing would run.
+    NoTasks,
 }
 
 pub const ENV_NAME_MAX: usize = 32;
@@ -679,6 +695,7 @@ impl Validator {
                             "WSL 步骤必须选择发行版",
                         );
                     }
+                    // The project root is a Windows path; WSL never guesses a mapping (STEP-02).
                     match cwd {
                         Some(c) if !has_template(c) && !c.starts_with('/') => self.at(
                             at,
@@ -686,11 +703,11 @@ impl Validator {
                             IssueCode::InvalidFormat,
                             "WSL 工作目录必须是 Linux 绝对路径，例如 /home/user/app",
                         ),
-                        None if !has_root => self.at(
+                        None => self.at(
                             at,
                             "spec.cwd",
                             IssueCode::Required,
-                            "未设置项目根目录时必须填写工作目录",
+                            "WSL 步骤必须填写 Linux 工作目录",
                         ),
                         _ => {}
                     }
@@ -814,7 +831,7 @@ fn unique(
 
 /// `${...}` makes a path depend on variables; its syntax is checked after resolution.
 fn has_template(s: &str) -> bool {
-    s.contains("${")
+    crate::template::has_expressions(s)
 }
 
 pub fn is_identifier(s: &str) -> bool {
