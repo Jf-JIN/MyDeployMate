@@ -1,0 +1,24 @@
+name: PR title
+
+# squash 合并时 PR 标题会成为最终提交标题，所以同样要符合提交规范。
+# 单独成一个工作流，并监听 edited：改标题后会重新检查，不必推送新提交，也不重跑 CI。
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+concurrency:
+  group: pr-title-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  pr-title:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: PR title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: scripts/check-commit-msg.sh --title "$TITLE"
