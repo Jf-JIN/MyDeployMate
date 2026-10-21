@@ -42,7 +42,9 @@ fn count_processes(image: &str) -> usize {
         .output()
         .map(|o| o.stdout)
         .unwrap_or_default();
-    String::from_utf8_lossy(&out).lines().filter(|l| l.contains(image)).count()
+    // tasklist prints the on-disk name (e.g. "PING.EXE"), so compare case-insensitively.
+    let image = image.to_ascii_lowercase();
+    decode_auto(&out).0.lines().filter(|l| l.to_ascii_lowercase().contains(&image)).count()
 }
 
 fn which(exe: &str) -> bool {
@@ -59,7 +61,7 @@ fn run_bytes(program: &str, args: &[&str]) -> Result<Vec<u8>> {
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut ok = true;
-    println!("ANSI code page: {}", String::from_utf8_lossy(&run_bytes("cmd", &["/c", "chcp"])?).trim());
+    println!("ANSI code page: {}", decode_auto(&run_bytes("cmd", &["/c", "chcp"])?).0.trim());
 
     // 1. Job Object: cmd starts a detached grandchild; killing the job must take both down.
     ok &= report("job object kills process tree", (|| {
