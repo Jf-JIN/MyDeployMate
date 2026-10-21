@@ -1,0 +1,67 @@
+//! Error type returned by every Tauri command (architecture ARC-36).
+
+use serde::Serialize;
+use ts_rs::TS;
+
+use mdm_core::ValidationReport;
+use mdm_store::StoreError;
+
+#[derive(Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct AppError {
+    pub kind: AppErrorKind,
+    /// User-facing message in Chinese, free of secrets.
+    pub message: String,
+    /// Field-level problems when `kind` is `validation`.
+    pub validation: Option<ValidationReport>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum AppErrorKind {
+    Validation,
+    RevisionConflict,
+    ExternalChange,
+    UnsupportedVersion,
+    /// Another process holds the data directory.
+    Locked,
+    StorageUnavailable,
+    Internal,
+}
+
+impl AppError {
+    pub fn new(kind: AppErrorKind, message: impl Into<String>) -> Self {
+        Self {
+            kind,
+            message: message.into(),
+            validation: None,
+        }
+    }
+
+    pub fn validation(report: ValidationReport) -> Self {
+        Self {
+            kind: AppErrorKind::Validation,
+            message: format!("配置校验未通过（{} 个问题）", report.issues.len()),
+            validation: Some(report),
+        }
+    }
+}
+
+impl From<StoreError> for AppError {
+    fn from(err: StoreError) -> Self {
+        let message = err.to_string();
+        let kind = match err {
+            StoreError::Invalid(report) => return Self::validation(report),
+            StoreError::RevisionConflict { .. } => AppErrorKind::RevisionConflict,
+            StoreError::ExternalChange => AppErrorKind::ExternalChange,
+            StoreError::UnsupportedVersion { .. } | StoreError::Migration { .. } => {
+                AppErrorKind::UnsupportedVersion
+            }
+            StoreError::Locked(_) => AppErrorKind::Locked,
+            StoreError::Io { .. } | StoreError::Corrupt { .. } => AppErrorKind::StorageUnavailable,
+        };
+        Self::new(kind, message)
+    }
+}
