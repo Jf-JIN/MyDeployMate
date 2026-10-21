@@ -19,7 +19,7 @@
 
 ## 开发
 
-前置：Rust（MSVC 工具链）、Node.js 22、WebView2（Windows 11 自带）。
+前置：Rust（MSVC 工具链）、Node.js 22.22 及以上（或 24 LTS）、WebView2（Windows 11 自带）。
 
 ```powershell
 cd MyDeployMate-Tauri

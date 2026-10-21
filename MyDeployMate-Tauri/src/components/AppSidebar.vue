@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { FolderKanban, History, LayoutTemplate, Server, Settings } from 'lucide-vue-next'
+import { FolderKanban, History, LayoutTemplate, Server, Settings } from '@lucide/vue'
 
 const items = [
   { to: '/projects', label: '项目与流程', icon: FolderKanban },
