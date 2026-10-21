@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  APP_DIR: MyDeployMate-Tauri
+  CARGO_TERM_COLOR: always
+  COREPACK_ENABLE_DOWNLOAD_PROMPT: 0
+
+jobs:
+  # 应用代码还在搭建中：先探测哪些部分已经存在，没有的部分跳过而不是失败。
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.detect.outputs.rust }}
+      frontend: ${{ steps.detect.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: detect
+        run: |
+          if [ -f "$APP_DIR/Cargo.toml" ]; then
+            echo "rust=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "rust=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::未找到 $APP_DIR/Cargo.toml，跳过 Rust 检查"
+          fi
+          if [ -f "$APP_DIR/package.json" ]; then
+            echo "frontend=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "frontend=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::未找到 $APP_DIR/package.json，跳过前端检查"
+          fi
+
+  rust:
+    needs: detect
+    if: needs.detect.outputs.rust == 'true'
+    # 应用只面向 Windows（Job Object、凭据管理器），检查也跑在 Windows 上。
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ env.APP_DIR }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ env.APP_DIR }}
+      - name: rustfmt
+        run: cargo fmt --all -- --check
+      # tauri::generate_context! 要求 frontendDist 目录存在，CI 里不构建前端，放一个空目录。
+      - name: Placeholder frontend dist
+        run: mkdir -p dist
+      - name: clippy
+        run: |
+          locked=$([ -f Cargo.lock ] && echo --locked || true)
+          cargo clippy --workspace --all-targets $locked -- -D warnings
+      - name: test
+        run: |
+          locked=$([ -f Cargo.lock ] && echo --locked || true)
+          cargo test --workspace $locked
+
+  frontend:
+    needs: detect
+    if: needs.detect.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ env.APP_DIR }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: |
+          if [ -f pnpm-lock.yaml ]; then
+            corepack enable
+            echo "PM=pnpm" >> "$GITHUB_ENV"
+            pnpm install --frozen-lockfile
+          elif [ -f package-lock.json ]; then
+            echo "PM=npm" >> "$GITHUB_ENV"
+            npm ci
+          else
+            echo "::error::$APP_DIR 下缺少 pnpm-lock.yaml 或 package-lock.json"
+            exit 1
+          fi
+      # 约定的脚本名见仓库根目录 AGENTS.md；没定义的脚本会被跳过。
+      - name: lint
+        run: $PM run --if-present lint
+      - name: typecheck
+        run: $PM run --if-present typecheck
+      - name: test
+        run: $PM run --if-present test
+      - name: build
+        run: $PM run --if-present build
+
+  commits:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Commit messages
+        run: scripts/check-commit-msg.sh --range "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
+      # squash 合并时 PR 标题会成为最终提交标题，所以同样要符合规范。
+      - name: PR title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: scripts/check-commit-msg.sh --title "$TITLE"
