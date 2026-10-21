@@ -1,0 +1,93 @@
+/*
+ * MyDeployMate design tokens, extracted from the original prototype (demo/server_manager_demo.py).
+ * The Vue app imports this file once; components use only these variables, never raw values.
+ * Layout breakpoints (CSS custom properties cannot be used in media queries):
+ *   >= 1550px wide layout · <= 1100px compact sidebar · <= 800px single column
+ */
+:root {
+  /* Surfaces and text */
+  --color-bg: #f6f7f9;
+  --color-paper: #ffffff;
+  --color-ink: #24282f;
+  --color-ink-secondary: #464f59;
+  --color-muted: #77808b;
+  --color-muted-weak: #93a0a8;
+  --color-line: #e4e7eb;
+  --color-line-input: #dbe0e5;
+  --color-line-hover: #c6ced3;
+  --color-hover: #f0f3f4;
+  --color-subtle: #f7f8fa;
+
+  /* Brand / accent */
+  --color-accent: #087f73;
+  --color-accent-hover: #066c63;
+  --color-accent-soft: #e9f5f1;
+  --color-accent-text: #087d70;
+  --color-accent-line: #258f81;
+  --color-focus: #70b8af;
+  --color-brand-mark-bg: #1e3333;
+  --color-brand-mark-fg: #a0e2c5;
+
+  /* Status (always paired with text or an icon, never colour alone: NFR-02) */
+  --color-info: #3267b1;
+  --color-danger: #c34a53;
+  --color-warning: #a56d18;
+  --color-success: #2f855c;
+
+  /* Tag / badge palettes: background + foreground */
+  --tag-neutral-bg: #eef0f4;  --tag-neutral-fg: #647081;
+  --tag-success-bg: #e7f4ec;  --tag-success-fg: var(--color-success);
+  --tag-info-bg: #ebf1fc;     --tag-info-fg: var(--color-info);
+  --tag-warning-bg: #fcf2dc;  --tag-warning-fg: var(--color-warning);
+  --tag-danger-bg: #fcecee;   --tag-danger-fg: var(--color-danger);
+
+  /* Step type icon tile */
+  --step-icon-bg: #eef3fa;
+  --step-icon-fg: #46709c;
+  --step-rail: #dce4e3;
+
+  /* Typography */
+  --font-sans: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: Consolas, "Cascadia Code", monospace;
+  --font-size-base: 13px;
+  --font-size-sm: 12px;
+  --font-size-xs: 11px;
+  --font-size-h1: 23px;
+  --font-size-h2: 16px;
+  --line-height-base: 1.6;
+  --font-weight-medium: 550;
+  --font-weight-strong: 600;
+  --font-weight-heading: 650;
+
+  /* Shape */
+  --radius-sm: 4px;
+  --radius-md: 5px;
+  --radius-lg: 6px;
+  --radius-xl: 7px;
+  --focus-ring: 2px solid var(--color-focus);
+  --focus-offset: 2px;
+
+  /* Sizes */
+  --control-height: 34px;
+  --input-height: 36px;
+  --icon-button-size: 30px;
+  --icon-size: 17px;
+
+  /* Spacing scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 28px;
+
+  /* Layout (IXD-05) */
+  --sidebar-width: 218px;
+  --sidebar-width-compact: 180px;
+  --topbar-height: 59px;
+  --inspector-width: 330px;
+  --inspector-width-wide: 390px;
+  --inspector-width-compact: 290px;
+  --console-min-height: 180px;
+}
