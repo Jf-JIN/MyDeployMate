@@ -1,0 +1,2 @@
+# Generated bindings are compared byte for byte in CI (see .github/workflows/ci.yml).
+src/ipc/bindings/** text eol=lf

@@ -72,6 +72,16 @@ jobs:
         run: |
           locked=$([ -f Cargo.lock ] && echo --locked || true)
           cargo test --workspace $locked
+      # cargo test 会重新生成 ts-rs 类型绑定；提交的绑定必须与 Rust 类型一致。
+      - name: TypeScript bindings up to date
+        run: |
+          if [ -d src/ipc/bindings ]; then
+            git add -N src/ipc/bindings
+            git diff --exit-code -- src/ipc/bindings || {
+              echo "::error::src/ipc/bindings 与 Rust 类型不一致，请在本地运行 cargo test 后提交生成的文件"
+              exit 1
+            }
+          fi
 
   frontend:
     needs: detect
