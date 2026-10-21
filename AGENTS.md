@@ -19,3 +19,25 @@ MyDeployMate：个人服务器部署桌面工具，Tauri 2 + Rust + Vue 3 / Type
 - scope：`core` `store` `exec` `tauri` `ui` `design` `spike` `test-env` `demo` `deps` `repo`
 - 破坏性变更加 `!` 并写 `BREAKING CHANGE:`；关联需求写 `Refs: SRV-01`。
 - 提交前运行 `scripts/check-commit-msg.sh --range origin/main HEAD`，或先执行 `git config core.hooksPath .githooks` 启用钩子。
+
+## 提交前的本地检查
+
+CI（`.github/workflows/ci.yml`）会跑以下检查，提交前请在本地先跑通：
+
+```bash
+cd MyDeployMate-Tauri
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+```
+
+前端在 `MyDeployMate-Tauri/package.json` 里提供下列脚本，CI 会依次运行已定义的那些（未定义的跳过）：
+
+| 脚本 | 要求 |
+| --- | --- |
+| `lint` | ESLint（及 Prettier 检查），有问题时非零退出，不自动修复 |
+| `typecheck` | `vue-tsc --noEmit` |
+| `test` | 单次运行的单元测试（如 `vitest run`），不能是 watch 模式 |
+| `build` | 生产构建（`vite build`） |
+
+`spikes/` 是阶段 0 的一次性验证代码，不在 CI 检查范围内。
