@@ -11,30 +11,35 @@
   --surface-selected: #e7f2f3;
 
   /* Text */
-  --text-primary: #202428;   /* 15.62:1 on white */
+  --text-primary: #202428; /* 15.62:1 on white */
   --text-secondary: #59636e; /* 6.11:1 on white */
   --text-on-action: #ffffff;
 
   /* Borders */
-  --border-subtle: #d9dee3;  /* separators only, never the sole edge of an input */
+  --border-subtle: #d9dee3; /* separators only, never the sole edge of an input */
   --border-control: #8a949e; /* 3.08:1 on white; re-check on other surfaces */
 
   /* Actions and focus */
   --action-primary: #006d77; /* 6.08:1 on white */
   --action-hover: #005c64;
   --action-pressed: #004c53;
-  --focus-ring: #2563eb;     /* 5.17:1 on white */
+  --focus-ring: #2563eb; /* 5.17:1 on white */
 
   /* States (always paired with text or an icon, never colour alone: NFR-02) */
-  --state-success: #17663a;  --state-success-bg: #eaf6ee;
-  --state-failure: #b42318;  --state-failure-bg: #fff0ee;
-  --state-warning: #8a5100;  --state-warning-bg: #fff4d6;
-  --state-running: #175cd3;  --state-running-bg: #eff6ff;
-  --state-unknown: #6b3fa0;  --state-unknown-bg: #f4eefa;
+  --state-success: #17663a;
+  --state-success-bg: #eaf6ee;
+  --state-failure: #b42318;
+  --state-failure-bg: #fff0ee;
+  --state-warning: #8a5100;
+  --state-warning-bg: #fff4d6;
+  --state-running: #175cd3;
+  --state-running-bg: #eff6ff;
+  --state-unknown: #6b3fa0;
+  --state-unknown-bg: #f4eefa;
 
   /* Typography (UI spec §3) */
-  --font-sans: "Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif;
-  --font-mono: "Cascadia Mono", Consolas, monospace;
+  --font-sans: 'Microsoft YaHei UI', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Cascadia Mono', Consolas, monospace;
   --font-title: 600 20px/28px var(--font-sans);
   --font-section: 600 16px/24px var(--font-sans);
   --font-body: 400 14px/22px var(--font-sans);
