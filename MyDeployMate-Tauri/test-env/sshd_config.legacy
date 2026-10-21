@@ -1,0 +1,10 @@
+# Simulates an old server that only offers ssh-rsa (SHA-1) for host keys and user keys.
+Port 22
+HostKey /etc/ssh/ssh_host_rsa_key
+HostKeyAlgorithms ssh-rsa
+PubkeyAcceptedAlgorithms ssh-rsa
+PasswordAuthentication yes
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+UsePAM yes
+Subsystem sftp /usr/lib/openssh/sftp-server

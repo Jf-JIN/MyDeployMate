@@ -1,0 +1,13 @@
+services:
+  modern:
+    build: .
+    image: mdm-test-sshd
+    ports: ["127.0.0.1:2222:22"]
+    environment: { SSHD_PROFILE: modern }
+    volumes: ["./keys:/keys:ro"]
+  legacy:
+    build: .
+    image: mdm-test-sshd
+    ports: ["127.0.0.1:2223:22"]
+    environment: { SSHD_PROFILE: legacy }
+    volumes: ["./keys:/keys:ro"]
