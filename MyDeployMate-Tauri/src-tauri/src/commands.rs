@@ -1,7 +1,7 @@
 //! Tauri commands: app info, workspace load / validate / save (ARC-35), defaults for new
 //! objects, edits whose side effects the UI shows before saving (IXD-14, IXD-20), and local
 //! checks for the server form (IXD-17), project creation and copy, and effective variables
-//! (IXD-07, IXD-13).
+//! (IXD-07, IXD-13), and pipeline and step editing helpers (IXD-08–11).
 //! Drafts to validate or save arrive as raw JSON so type errors can be reported with their
 //! field path; the edit helpers take typed drafts the UI built from a loaded workspace.
 
@@ -11,10 +11,12 @@ use ts_rs::TS;
 
 use mdm_core::keyfile::KEY_HEAD_LEN;
 use mdm_core::resolve::{VariableView, variable_views as resolve_variable_views};
+use mdm_core::template::{BuiltinVariable, builtin_variables as template_builtins};
+use mdm_core::wsl::parse_wsl_list;
 use mdm_core::{
-    Environment, EnvironmentId, KeyFormat, Project, ProjectId, Reference, Server, ServerEdit,
-    ServerId, ValidationReport, Variable, Workspace, check_workspace_json, defaults,
-    detect_key_format, edit, parse_workspace, validate_workspace,
+    Environment, EnvironmentId, KeyFormat, Pipeline, Project, ProjectId, Reference, Server,
+    ServerEdit, ServerId, Step, StepKind, ValidationReport, Variable, Workspace,
+    check_workspace_json, defaults, detect_key_format, edit, parse_workspace, validate_workspace,
 };
 use mdm_store::LoadOutcome;
 
@@ -209,6 +211,53 @@ pub fn variable_views(
     environment_id: EnvironmentId,
 ) -> Vec<VariableView> {
     resolve_variable_views(&draft, project_id, environment_id, &ProcessValues)
+}
+
+/// An empty pipeline with RUN-03/RUN-04 defaults (IXD-08).
+#[tauri::command]
+pub fn new_pipeline(name: String) -> Pipeline {
+    defaults::new_pipeline(name)
+}
+
+/// A copy of a pipeline with new IDs for it and its steps (IXD-08).
+#[tauri::command]
+pub fn copy_pipeline(pipeline: Pipeline, name: String) -> Pipeline {
+    edit::copy_pipeline(&pipeline, name)
+}
+
+/// A step of `kind` with STEP-01 defaults and a name for its kind (IXD-10).
+#[tauri::command]
+pub fn new_step(kind: StepKind) -> Step {
+    defaults::new_step(kind, defaults::step_kind_label(kind))
+}
+
+/// A copy of a step with a new ID (IXD-09).
+#[tauri::command]
+pub fn copy_step(step: Step) -> Step {
+    edit::copy_step(&step)
+}
+
+/// Built-in expressions for the variable menu (IXD-11).
+#[tauri::command]
+pub fn builtin_variables() -> Vec<BuiltinVariable> {
+    template_builtins()
+}
+
+/// Installed WSL distributions; empty when WSL is missing or fails (STEP-02).
+#[tauri::command]
+pub fn wsl_distros() -> Vec<String> {
+    let mut command = std::process::Command::new("wsl.exe");
+    command.args(["--list", "--quiet"]);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    match command.output() {
+        Ok(out) if out.status.success() => parse_wsl_list(&out.stdout),
+        _ => Vec::new(),
+    }
 }
 
 impl AppState {

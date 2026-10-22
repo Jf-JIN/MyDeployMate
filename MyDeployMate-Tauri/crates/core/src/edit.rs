@@ -9,7 +9,7 @@ use serde::Serialize;
 use ts_rs::TS;
 
 use crate::ids::{EnvironmentId, PipelineId, ProjectId, ServerId, StepId, VariableId};
-use crate::model::{Pipeline, Project, Server, Workspace};
+use crate::model::{Pipeline, Project, Server, Step, Workspace};
 
 /// Something that refers to an environment or a server.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, TS)]
@@ -186,6 +186,14 @@ pub fn copy_pipeline(pipeline: &Pipeline, name: impl Into<String>) -> Pipeline {
     copy
 }
 
+/// A copy of a step with a new ID, inserted after the original by the caller (IXD-09).
+pub fn copy_step(step: &Step) -> Step {
+    let mut copy = step.clone();
+    copy.id = StepId::new();
+    copy.name = format!("{} 副本", step.name);
+    copy
+}
+
 /// Copy a project under a new name (IXD-07): pipelines and variables are copied with new IDs;
 /// target bindings are not, so the copy never points at production by accident. Saved
 /// credentials are keyed by variable ID, so sensitive values are not carried over either.
@@ -351,5 +359,15 @@ mod tests {
         let mut ws = demo.workspace.clone();
         ws.projects.push(copy);
         assert!(validate_workspace(&ws).is_ok());
+    }
+
+    #[test]
+    fn copied_step_gets_new_id_and_name() {
+        let demo = demo_workspace();
+        let step = &demo.workspace.projects[0].pipelines[0].steps[0];
+        let copy = copy_step(step);
+        assert_ne!(copy.id, step.id);
+        assert_eq!(copy.name, format!("{} 副本", step.name));
+        assert_eq!(copy.spec, step.spec);
     }
 }

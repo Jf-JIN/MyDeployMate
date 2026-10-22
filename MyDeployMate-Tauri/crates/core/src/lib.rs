@@ -17,6 +17,7 @@ pub mod resolve;
 pub mod run;
 pub mod template;
 pub mod validate;
+pub mod wsl;
 
 #[cfg(test)]
 mod machine_tests;
