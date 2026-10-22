@@ -108,7 +108,13 @@ export function useWorkspaceDraft(label: string, root: Ref<HTMLElement | null>) 
     attempted.value = false
   }
 
-  useDraftGuard({ label, isDirty: () => dirty.value, save, discard })
+  useDraftGuard({
+    label,
+    isDirty: () => dirty.value,
+    save,
+    discard,
+    snapshot: () => draft.value,
+  })
 
   return { draft, dirty, issues, at, under, error, save, discard }
 }
