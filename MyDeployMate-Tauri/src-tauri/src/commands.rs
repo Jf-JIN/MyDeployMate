@@ -8,9 +8,11 @@ use serde::Serialize;
 use tauri::State;
 use ts_rs::TS;
 
+use mdm_core::keyfile::KEY_HEAD_LEN;
 use mdm_core::{
-    Environment, EnvironmentId, Reference, Server, ServerEdit, ServerId, ValidationReport,
-    Variable, Workspace, check_workspace_json, defaults, edit, parse_workspace, validate_workspace,
+    Environment, EnvironmentId, KeyFormat, Reference, Server, ServerEdit, ServerId,
+    ValidationReport, Variable, Workspace, check_workspace_json, defaults, detect_key_format, edit,
+    parse_workspace, validate_workspace,
 };
 use mdm_store::LoadOutcome;
 
