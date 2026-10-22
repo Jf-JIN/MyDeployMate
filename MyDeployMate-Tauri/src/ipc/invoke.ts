@@ -4,8 +4,16 @@ import { invoke } from '@tauri-apps/api/core'
 
 import type { AppError } from './bindings/AppError'
 import type { AppInfo } from './bindings/AppInfo'
+import type { Environment } from './bindings/Environment'
+import type { EnvironmentId } from './bindings/EnvironmentId'
+import type { KeyFormat } from './bindings/KeyFormat'
 import type { LoadedWorkspace } from './bindings/LoadedWorkspace'
+import type { Reference } from './bindings/Reference'
+import type { Server } from './bindings/Server'
+import type { ServerEdit } from './bindings/ServerEdit'
+import type { ServerId } from './bindings/ServerId'
 import type { ValidationReport } from './bindings/ValidationReport'
+import type { Variable } from './bindings/Variable'
 import type { Workspace } from './bindings/Workspace'
 
 /** Command name → [arguments, result]. Keep in sync with `src-tauri/src/lib.rs`. */
@@ -14,6 +22,16 @@ export interface Commands {
   load_workspace: [Record<string, never>, LoadedWorkspace]
   validate_workspace_draft: [{ draft: Workspace }, ValidationReport]
   save_workspace: [{ draft: Workspace }, Workspace]
+  open_data_dir: [Record<string, never>, null]
+  new_server: [{ environmentId: EnvironmentId }, Server]
+  new_environment: [Record<string, never>, Environment]
+  new_variable: [Record<string, never>, Variable]
+  environment_references: [{ draft: Workspace; environmentId: EnvironmentId }, Reference[]]
+  server_references: [{ draft: Workspace; serverId: ServerId }, Reference[]]
+  put_server: [{ draft: Workspace; server: Server }, ServerEdit]
+  remove_server: [{ draft: Workspace; serverId: ServerId }, ServerEdit]
+  inspect_key_file: [{ path: string }, KeyFormat]
+  env_var_present: [{ name: string }, boolean]
 }
 
 export type CommandName = keyof Commands

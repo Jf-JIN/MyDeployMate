@@ -16,9 +16,17 @@ const props = withDefaults(
     mono?: boolean
     placeholder?: string
     describedBy?: string
+    /** Accessible name when no visible label points at the control (table cells). */
+    ariaLabel?: string
     autofocus?: boolean
   }>(),
-  { type: 'text', id: undefined, placeholder: undefined, describedBy: undefined },
+  {
+    type: 'text',
+    id: undefined,
+    placeholder: undefined,
+    describedBy: undefined,
+    ariaLabel: undefined,
+  },
 )
 
 const revealed = ref(false)
@@ -40,6 +48,7 @@ const inputType = computed(() =>
       :placeholder="placeholder"
       :aria-invalid="invalid || undefined"
       :aria-describedby="describedBy"
+      :aria-label="ariaLabel"
       :autofocus="autofocus"
       :autocomplete="type === 'password' ? 'off' : undefined"
       spellcheck="false"

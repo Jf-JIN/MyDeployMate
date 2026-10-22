@@ -16,12 +16,24 @@ pub fn run() {
                 let _ = window.set_focus();
             }
         }))
+        // Native file picker for key files and paths (UI-14).
+        .plugin(tauri_plugin_dialog::init())
         .manage(state::AppState::init())
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
             commands::load_workspace,
             commands::validate_workspace_draft,
             commands::save_workspace,
+            commands::open_data_dir,
+            commands::new_server,
+            commands::new_environment,
+            commands::new_variable,
+            commands::environment_references,
+            commands::server_references,
+            commands::put_server,
+            commands::remove_server,
+            commands::inspect_key_file,
+            commands::env_var_present,
         ])
         .run(tauri::generate_context!())
         .expect("error while running MyDeployMate");
