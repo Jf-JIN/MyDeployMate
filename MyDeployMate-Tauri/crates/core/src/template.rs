@@ -17,6 +17,36 @@ pub const PROJECT_KEYS: [&str; 2] = ["root", "name"];
 pub const SERVER_KEYS: [&str; 4] = ["host", "name", "port", "user"];
 pub const RUN_KEYS: [&str; 1] = ["env"];
 
+/// A built-in expression offered by the variable menu (IXD-11).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct BuiltinVariable {
+    /// As inserted, e.g. `${server.host}`.
+    pub expression: String,
+    pub label: String,
+    /// Only meaningful on a target server: not offered for local commands.
+    pub needs_server: bool,
+}
+
+/// Built-ins for the variable menu, in a stable order.
+pub fn builtin_variables() -> Vec<BuiltinVariable> {
+    let item = |ns: &str, key: &str, label: &str, needs_server| BuiltinVariable {
+        expression: format!("${{{ns}.{key}}}"),
+        label: label.to_owned(),
+        needs_server,
+    };
+    vec![
+        item(NS_PROJECT, "name", "项目名称", false),
+        item(NS_PROJECT, "root", "项目根目录", false),
+        item(NS_RUN, "env", "当前环境名", false),
+        item(NS_SERVER, "name", "服务器名称", true),
+        item(NS_SERVER, "host", "服务器地址", true),
+        item(NS_SERVER, "port", "SSH 端口", true),
+        item(NS_SERVER, "user", "登录用户", true),
+    ]
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Part<'a> {
     Text(&'a str),
@@ -197,5 +227,17 @@ mod tests {
     fn escape_is_not_an_expression() {
         assert!(!has_expressions("echo $${PATH}"));
         assert!(has_expressions("echo ${PATH}"));
+    }
+
+    #[test]
+    fn builtin_menu_items_parse() {
+        for item in builtin_variables() {
+            let parts = parse(&item.expression).unwrap();
+            assert!(matches!(
+                parts.as_slice(),
+                [Part::Expr(Expr::Builtin { .. })]
+            ));
+            assert_eq!(item.needs_server, item.expression.starts_with("${server."));
+        }
     }
 }

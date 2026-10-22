@@ -4,16 +4,20 @@ import { invoke } from '@tauri-apps/api/core'
 
 import type { AppError } from './bindings/AppError'
 import type { AppInfo } from './bindings/AppInfo'
+import type { BuiltinVariable } from './bindings/BuiltinVariable'
 import type { Environment } from './bindings/Environment'
 import type { EnvironmentId } from './bindings/EnvironmentId'
 import type { KeyFormat } from './bindings/KeyFormat'
 import type { LoadedWorkspace } from './bindings/LoadedWorkspace'
+import type { Pipeline } from './bindings/Pipeline'
 import type { Project } from './bindings/Project'
 import type { ProjectId } from './bindings/ProjectId'
 import type { Reference } from './bindings/Reference'
 import type { Server } from './bindings/Server'
 import type { ServerEdit } from './bindings/ServerEdit'
 import type { ServerId } from './bindings/ServerId'
+import type { Step } from './bindings/Step'
+import type { StepKind } from './bindings/StepKind'
 import type { ValidationReport } from './bindings/ValidationReport'
 import type { Variable } from './bindings/Variable'
 import type { VariableView } from './bindings/VariableView'
@@ -42,6 +46,12 @@ export interface Commands {
     VariableView[],
   ]
   local_dir_exists: [{ path: string }, boolean]
+  new_pipeline: [{ name: string }, Pipeline]
+  copy_pipeline: [{ pipeline: Pipeline; name: string }, Pipeline]
+  new_step: [{ kind: StepKind }, Step]
+  copy_step: [{ step: Step }, Step]
+  builtin_variables: [Record<string, never>, BuiltinVariable[]]
+  wsl_distros: [Record<string, never>, string[]]
 }
 
 export type CommandName = keyof Commands

@@ -74,6 +74,16 @@ pub fn new_server(environment_id: EnvironmentId) -> Server {
     }
 }
 
+/// The name a new step of `kind` starts with (IXD-10).
+pub fn step_kind_label(kind: StepKind) -> &'static str {
+    match kind {
+        StepKind::Local => "本地命令",
+        StepKind::Upload => "上传文件",
+        StepKind::Remote => "远程命令",
+        StepKind::Confirm => "人工确认",
+    }
+}
+
 /// A step of the given kind with STEP-01 defaults.
 pub fn new_step(kind: StepKind, name: impl Into<String>) -> Step {
     let spec = match kind {
