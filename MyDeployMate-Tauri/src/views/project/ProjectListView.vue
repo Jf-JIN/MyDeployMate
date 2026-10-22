@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import EmptyState from '@/components/EmptyState.vue'
+import PageLayout from '@/components/PageLayout.vue'
 import { useWorkspaceStore } from '@/stores/workspace'
 
+// P01 project list. Creating, copying and deleting projects arrive with task 3.4.
 const workspace = useWorkspaceStore()
 </script>
 
 <template>
-  <section>
-    <h1>项目与流程</h1>
+  <PageLayout title="项目">
     <table v-if="workspace.projects.length" class="table">
       <thead>
         <tr>
@@ -19,13 +20,17 @@ const workspace = useWorkspaceStore()
       </thead>
       <tbody>
         <tr v-for="project in workspace.projects" :key="project.id">
-          <td>{{ project.name }}</td>
+          <td>
+            <RouterLink :to="{ name: 'project', params: { projectId: project.id } }">
+              {{ project.name }}
+            </RouterLink>
+          </td>
           <td>{{ project.description }}</td>
           <td>{{ workspace.environmentName(project.defaultEnvironmentId) }}</td>
           <td class="num">{{ project.pipelines.length }}</td>
         </tr>
       </tbody>
     </table>
-    <EmptyState v-else title="尚无项目" detail="项目编辑将在后续版本提供。" />
-  </section>
+    <EmptyState v-else title="尚无项目" />
+  </PageLayout>
 </template>

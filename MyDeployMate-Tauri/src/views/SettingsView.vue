@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 
+import PageLayout from '@/components/PageLayout.vue'
 import { call, toAppError, type AppInfo } from '@/ipc'
 
 const info = ref<AppInfo | null>(null)
@@ -16,8 +17,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section>
-    <h1>配置中心</h1>
+  <PageLayout title="配置中心">
     <dl v-if="info" class="facts">
       <dt>版本</dt>
       <dd class="num">{{ info.version }}</dd>
@@ -27,7 +27,7 @@ onMounted(async () => {
       </dd>
     </dl>
     <p v-else-if="error" role="alert">{{ error }}</p>
-  </section>
+  </PageLayout>
 </template>
 
 <style scoped>
@@ -35,7 +35,6 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: max-content 1fr;
   gap: var(--space-2) var(--space-4);
-  margin-top: var(--space-4);
 }
 
 .facts dt {
