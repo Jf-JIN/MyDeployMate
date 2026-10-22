@@ -65,6 +65,7 @@ function onKeydown(event: KeyboardEvent, index: number) {
 .segmented {
   display: inline-flex;
   flex: none;
+  align-self: flex-start;
   overflow: hidden;
   border: 1px solid var(--border-control);
   border-radius: var(--radius-control);

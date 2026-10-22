@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import EmptyState from '@/components/EmptyState.vue'
+import PageLayout from '@/components/PageLayout.vue'
 import { useWorkspaceStore } from '@/stores/workspace'
 
 const workspace = useWorkspaceStore()
 </script>
 
 <template>
-  <section>
-    <h1>服务器</h1>
+  <PageLayout title="服务器">
     <table v-if="workspace.servers.length" class="table">
       <thead>
         <tr>
@@ -31,5 +31,5 @@ const workspace = useWorkspaceStore()
       </tbody>
     </table>
     <EmptyState v-else title="尚无服务器" detail="服务器管理将在后续版本提供。" />
-  </section>
+  </PageLayout>
 </template>

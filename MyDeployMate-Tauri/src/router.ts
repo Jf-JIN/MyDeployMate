@@ -1,9 +1,58 @@
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
 
-// First-level navigation (IXD-02). Pages fill in from phase 3.
+import { useDraftStore } from './stores/drafts'
+
+// First-level navigation (IXD-02) and the project's second-level tabs.
 export const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/projects' },
-  { path: '/projects', name: 'projects', component: () => import('./views/ProjectsView.vue') },
+  {
+    path: '/projects',
+    component: () => import('./views/project/ProjectsSection.vue'),
+    children: [
+      {
+        path: '',
+        name: 'projects',
+        component: () => import('./views/project/ProjectListView.vue'),
+      },
+      {
+        path: ':projectId',
+        component: () => import('./views/project/ProjectLayout.vue'),
+        children: [
+          // Redirects to the last opened pipeline once the workspace is loaded.
+          {
+            path: '',
+            name: 'project',
+            component: () => import('./views/project/NoPipelineView.vue'),
+          },
+          {
+            path: 'pipelines',
+            name: 'project-pipelines',
+            component: () => import('./views/project/NoPipelineView.vue'),
+          },
+          {
+            path: 'pipelines/:pipelineId',
+            name: 'pipeline',
+            component: () => import('./views/project/PipelineView.vue'),
+          },
+          {
+            path: 'targets',
+            name: 'project-targets',
+            component: () => import('./views/project/TargetsView.vue'),
+          },
+          {
+            path: 'variables',
+            name: 'project-variables',
+            component: () => import('./views/project/VariablesView.vue'),
+          },
+          {
+            path: 'settings',
+            name: 'project-settings',
+            component: () => import('./views/project/ProjectSettingsView.vue'),
+          },
+        ],
+      },
+    ],
+  },
   { path: '/servers', name: 'servers', component: () => import('./views/ServersView.vue') },
   { path: '/history', name: 'history', component: () => import('./views/HistoryView.vue') },
   { path: '/templates', name: 'templates', component: () => import('./views/TemplatesView.vue') },
@@ -21,3 +70,9 @@ export const routes: RouteRecordRaw[] = [
 ]
 
 export const router = createRouter({ history: createWebHashHistory(), routes })
+
+// IXD-03: leaving a page, project, pipeline or tab with unsaved changes asks first.
+router.beforeEach(async (to, from) => {
+  if (to.fullPath === from.fullPath) return true
+  return useDraftStore().confirmLeave()
+})
