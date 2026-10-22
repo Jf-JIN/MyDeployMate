@@ -127,8 +127,4 @@ jobs:
           fetch-depth: 0
       - name: Commit messages
         run: scripts/check-commit-msg.sh --range "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
-      # squash 合并时 PR 标题会成为最终提交标题，所以同样要符合规范。
-      - name: PR title
-        env:
-          TITLE: ${{ github.event.pull_request.title }}
-        run: scripts/check-commit-msg.sh --title "$TITLE"
+      # PR 标题检查在 pr-title.yml，改标题时只重跑它。

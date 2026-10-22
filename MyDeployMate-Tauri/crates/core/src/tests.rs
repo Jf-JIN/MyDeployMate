@@ -335,6 +335,14 @@ fn wsl_needs_distro_and_linux_cwd() {
         codes_at(&ws, "projects[0].pipelines[0].steps[0].spec.cwd"),
         [IssueCode::InvalidFormat]
     );
+    // The project root is a Windows path, so WSL needs its own directory even with a root.
+    if let StepSpec::Local(l) = &mut ws.projects[0].pipelines[0].steps[0].spec {
+        l.cwd = None;
+    }
+    assert_eq!(
+        codes_at(&ws, "projects[0].pipelines[0].steps[0].spec.cwd"),
+        [IssueCode::Required]
+    );
 }
 
 #[test]
