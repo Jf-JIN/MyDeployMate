@@ -10,9 +10,11 @@ import type { EnvironmentId } from './bindings/EnvironmentId'
 import type { KeyFormat } from './bindings/KeyFormat'
 import type { LoadedWorkspace } from './bindings/LoadedWorkspace'
 import type { Pipeline } from './bindings/Pipeline'
+import type { PlanRequest } from './bindings/PlanRequest'
 import type { Project } from './bindings/Project'
 import type { ProjectId } from './bindings/ProjectId'
 import type { Reference } from './bindings/Reference'
+import type { ResolvedPlan } from './bindings/ResolvedPlan'
 import type { Server } from './bindings/Server'
 import type { ServerEdit } from './bindings/ServerEdit'
 import type { ServerId } from './bindings/ServerId'
@@ -52,6 +54,7 @@ export interface Commands {
   copy_step: [{ step: Step }, Step]
   builtin_variables: [Record<string, never>, BuiltinVariable[]]
   wsl_distros: [Record<string, never>, string[]]
+  preview_run: [{ draft: Workspace; request: PlanRequest }, ResolvedPlan]
 }
 
 export type CommandName = keyof Commands

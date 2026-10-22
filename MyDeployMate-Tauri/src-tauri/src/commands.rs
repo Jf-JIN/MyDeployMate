@@ -1,7 +1,7 @@
 //! Tauri commands: app info, workspace load / validate / save (ARC-35), defaults for new
 //! objects, edits whose side effects the UI shows before saving (IXD-14, IXD-20), and local
 //! checks for the server form (IXD-17), project creation and copy, and effective variables
-//! (IXD-07, IXD-13), and pipeline and step editing helpers (IXD-08–11).
+//! (IXD-07, IXD-13), pipeline and step editing helpers (IXD-08–11), and the run preview (D03).
 //! Drafts to validate or save arrive as raw JSON so type errors can be reported with their
 //! field path; the edit helpers take typed drafts the UI built from a loaded workspace.
 
@@ -14,9 +14,10 @@ use mdm_core::resolve::{VariableView, variable_views as resolve_variable_views};
 use mdm_core::template::{BuiltinVariable, builtin_variables as template_builtins};
 use mdm_core::wsl::parse_wsl_list;
 use mdm_core::{
-    Environment, EnvironmentId, KeyFormat, Pipeline, Project, ProjectId, Reference, Server,
-    ServerEdit, ServerId, Step, StepKind, ValidationReport, Variable, Workspace,
-    check_workspace_json, defaults, detect_key_format, edit, parse_workspace, validate_workspace,
+    Environment, EnvironmentId, KeyFormat, Pipeline, PlanRequest, Project, ProjectId, Reference,
+    ResolvedPlan, Server, ServerEdit, ServerId, Step, StepKind, ValidationReport, Variable,
+    Workspace, build_plan, check_workspace_json, defaults, detect_key_format, edit,
+    parse_workspace, validate_workspace,
 };
 use mdm_store::LoadOutcome;
 
@@ -241,6 +242,14 @@ pub fn copy_step(step: Step) -> Step {
 #[tauri::command]
 pub fn builtin_variables() -> Vec<BuiltinVariable> {
     template_builtins()
+}
+
+/// Resolve a run plan without running anything (D03, RUN-01): no network, no password prompt.
+/// The UI passes the page draft so an unsaved preview shows what the editor holds (IXD-21).
+#[tauri::command]
+pub fn preview_run(draft: Workspace, request: PlanRequest) -> Result<ResolvedPlan, AppError> {
+    build_plan(&draft, &request, &ProcessValues)
+        .map_err(|e| AppError::new(AppErrorKind::Internal, e.to_string()))
 }
 
 /// Installed WSL distributions; empty when WSL is missing or fails (STEP-02).
