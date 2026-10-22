@@ -55,11 +55,14 @@ export function useWorkspaceDraft(label: string, root: Ref<HTMLElement | null>) 
       JSON.stringify(draft.value) !== JSON.stringify(store.workspace),
   )
 
-  // Pick up the first load and saves made elsewhere while this page has no changes.
+  // Pick up the first load and saves made elsewhere while this page has no changes. Compare
+  // with the previous workspace: against the new one an unchanged draft already looks dirty.
   watch(
     () => store.workspace,
-    (ws) => {
-      if (ws && !dirty.value) draft.value = cloneWorkspace(ws)
+    (ws, before) => {
+      const unchanged =
+        !draft.value || !before || JSON.stringify(draft.value) === JSON.stringify(before)
+      if (ws && unchanged) draft.value = cloneWorkspace(ws)
     },
   )
 
