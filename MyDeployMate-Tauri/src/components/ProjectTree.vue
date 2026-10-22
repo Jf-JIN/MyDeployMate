@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { ChevronDown, ChevronRight, PanelLeftClose, Search } from '@lucide/vue'
+import { ChevronDown, ChevronRight, PanelLeftClose, Plus, Search } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
+import PipelineDialog from '@/components/pipeline/PipelineDialog.vue'
 import UiIconButton from '@/components/ui/UiIconButton.vue'
 import type { Project } from '@/ipc'
+import { useDraftStore } from '@/stores/drafts'
 import { useSessionStore } from '@/stores/session'
 import { useWorkspaceStore } from '@/stores/workspace'
 
@@ -12,6 +14,8 @@ import { useWorkspaceStore } from '@/stores/workspace'
 const workspace = useWorkspaceStore()
 const session = useSessionStore()
 const route = useRoute()
+const router = useRouter()
+const drafts = useDraftStore()
 
 const query = ref('')
 const expanded = ref(new Set<string>())
@@ -52,6 +56,17 @@ function toggle(project: Project) {
   if (next.has(project.id)) next.delete(project.id)
   else next.add(project.id)
   expanded.value = next
+}
+
+// IXD-02: "新建流程" under an expanded project. It saves at once, so drafts are settled first.
+const creatingFor = ref<Project | null>(null)
+async function createPipeline(project: Project) {
+  if (await drafts.confirmLeave()) creatingFor.value = project
+}
+function onCreated(pipelineId: string) {
+  const projectId = creatingFor.value?.id
+  creatingFor.value = null
+  if (projectId) void router.push({ name: 'pipeline', params: { projectId, pipelineId } })
 }
 
 function environmentLabel(project: Project) {
@@ -132,6 +147,16 @@ function environmentLabel(project: Project) {
             </RouterLink>
           </li>
           <li v-if="pipelines.length === 0" class="tree-empty">尚无流程</li>
+          <li v-if="!query.trim()" role="none">
+            <button
+              type="button"
+              class="tree-row tree-pipeline tree-new"
+              @click="createPipeline(project)"
+            >
+              <Plus :size="14" :stroke-width="1.75" aria-hidden="true" />
+              <span class="tree-name">新建流程</span>
+            </button>
+          </li>
         </ul>
       </li>
     </ul>
@@ -141,6 +166,13 @@ function environmentLabel(project: Project) {
     </p>
     <p v-else class="tree-empty tree-empty--block">尚无项目</p>
     <div v-if="$slots.footer" class="tree-footer"><slot name="footer" /></div>
+    <PipelineDialog
+      v-if="creatingFor"
+      mode="create"
+      :project="creatingFor"
+      @cancel="creatingFor = null"
+      @saved="onCreated"
+    />
   </aside>
 </template>
 
@@ -280,6 +312,17 @@ function environmentLabel(project: Project) {
   padding: var(--space-1) var(--space-2) var(--space-1) 36px;
   color: var(--text-secondary);
   font: var(--font-caption);
+}
+
+.tree-new {
+  gap: var(--space-1);
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: var(--font-body);
+  text-align: left;
+  cursor: pointer;
 }
 
 .tree-empty--block {
