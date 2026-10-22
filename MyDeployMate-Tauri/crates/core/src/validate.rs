@@ -111,7 +111,7 @@ pub fn parse_workspace(value: serde_json::Value) -> Result<Workspace, Validation
         let field = last_segment(&path);
         ValidationReport {
             issues: vec![Issue {
-                message: format!("字段格式不正确：{}", err.inner()),
+                message: type_error_message(&err.inner().to_string()),
                 path,
                 object: None,
                 field,
@@ -126,6 +126,25 @@ pub fn check_workspace_json(value: serde_json::Value) -> Result<Workspace, Valid
     let ws = parse_workspace(value)?;
     let report = validate_workspace(&ws);
     if report.is_ok() { Ok(ws) } else { Err(report) }
+}
+
+/// A field that does not have the expected JSON type, in words the user can act on (AC-02).
+/// serde's own text is English and names Rust types, so only unrecognised cases keep it.
+fn type_error_message(serde: &str) -> String {
+    let expects_unsigned = serde.contains("expected u");
+    if expects_unsigned
+        && (serde.contains("floating point") || serde.contains("invalid value: integer"))
+    {
+        "必须是 0 或正整数".into()
+    } else if expects_unsigned {
+        "必须是数字".into()
+    } else if serde.contains("expected a string") {
+        "必须是文本".into()
+    } else if serde.contains("expected a boolean") {
+        "必须是开或关".into()
+    } else {
+        format!("字段格式不正确：{serde}")
+    }
 }
 
 fn last_segment(path: &str) -> String {

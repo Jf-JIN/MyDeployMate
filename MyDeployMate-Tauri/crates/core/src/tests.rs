@@ -88,6 +88,12 @@ fn ac02_non_integer_port_is_rejected_at_the_field() {
         assert_eq!(report.issues[0].path, "servers[2].port", "{bad}");
         assert_eq!(report.issues[0].field, "port");
         assert_eq!(report.issues[0].code, IssueCode::InvalidType);
+        let expected = if bad.is_string() {
+            "必须是数字"
+        } else {
+            "必须是 0 或正整数"
+        };
+        assert_eq!(report.issues[0].message, expected, "{bad}");
     }
 }
 
