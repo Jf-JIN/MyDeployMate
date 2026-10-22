@@ -104,7 +104,7 @@ fn decode_base64_prefix(text: &str) -> Vec<u8> {
         }
     }
     let mut out = Vec::new();
-    for quad in text.as_bytes().chunks_exact(4) {
+    for quad in text.as_bytes().as_chunks::<4>().0 {
         let Some(values) = quad.iter().map(|&c| value(c)).collect::<Option<Vec<_>>>() else {
             break;
         };
