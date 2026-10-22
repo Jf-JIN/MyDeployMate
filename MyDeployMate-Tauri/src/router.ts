@@ -8,6 +8,16 @@ export const routes: RouteRecordRaw[] = [
   { path: '/history', name: 'history', component: () => import('./views/HistoryView.vue') },
   { path: '/templates', name: 'templates', component: () => import('./views/TemplatesView.vue') },
   { path: '/settings', name: 'settings', component: () => import('./views/SettingsView.vue') },
+  // Component state page for visual checks (UI-32); not shipped in production builds.
+  ...(import.meta.env.DEV
+    ? [
+        {
+          path: '/dev/components',
+          name: 'dev-components',
+          component: () => import('./views/dev/ComponentStatesView.vue'),
+        },
+      ]
+    : []),
 ]
 
 export const router = createRouter({ history: createWebHashHistory(), routes })

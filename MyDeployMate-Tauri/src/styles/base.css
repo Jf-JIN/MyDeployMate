@@ -79,3 +79,75 @@ pre {
 .table .num {
   text-align: right;
 }
+
+/* Text-like controls shared by UiTextInput, UiNumberInput, UiSelect and UiTextarea (UI-16, UI-17). */
+.control {
+  width: 100%;
+  height: var(--input-height);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-control);
+  background: var(--surface-panel);
+  color: var(--text-primary);
+  font: var(--font-body);
+  transition: border-color var(--motion-fast);
+}
+
+.control--mono {
+  font: var(--font-code);
+}
+
+.control--multiline {
+  height: auto;
+  min-height: 144px;
+  padding: var(--space-2) var(--space-3);
+  resize: vertical;
+  white-space: pre;
+}
+
+.control::placeholder {
+  color: var(--text-secondary);
+}
+
+.control:hover:not(:disabled, [readonly]) {
+  border-color: var(--text-secondary);
+}
+
+.control[aria-invalid='true'] {
+  border-color: var(--state-failure);
+  box-shadow: inset 0 0 0 1px var(--state-failure);
+}
+
+.control:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* Read-only keeps body text colour and stays selectable (UI-06). */
+.control[readonly] {
+  background: var(--surface-canvas);
+  border-color: var(--border-subtle);
+}
+
+.control:disabled {
+  background: var(--surface-hover);
+  border-color: var(--border-subtle);
+  color: var(--text-secondary);
+  cursor: not-allowed;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}
