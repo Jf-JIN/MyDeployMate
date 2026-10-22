@@ -4,9 +4,11 @@
 //! Pure logic only: no file system, process, network or async runtime (architecture ARC-04).
 
 pub mod defaults;
+pub mod edit;
 #[cfg(any(test, feature = "fixtures"))]
 pub mod fixtures;
 pub mod ids;
+pub mod keyfile;
 pub mod machine;
 pub mod model;
 pub mod plan;
@@ -23,7 +25,9 @@ mod plan_tests;
 #[cfg(test)]
 mod tests;
 
+pub use edit::{Reference, ServerEdit};
 pub use ids::*;
+pub use keyfile::{KeyFormat, detect_key_format};
 pub use machine::{Next, RunEvent, RunMachine};
 pub use model::*;
 pub use plan::{PlanRequest, ResolvedPlan, RunScope, build_plan};

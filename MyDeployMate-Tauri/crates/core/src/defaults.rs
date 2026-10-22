@@ -33,6 +33,27 @@ pub fn new_workspace() -> Workspace {
     }
 }
 
+/// A new, unprotected environment (DATA-03).
+pub fn new_environment(name: impl Into<String>) -> Environment {
+    Environment {
+        id: EnvironmentId::new(),
+        name: name.into(),
+        protected: false,
+    }
+}
+
+/// A new non-sensitive variable with an empty literal value (VAR-01).
+pub fn new_variable() -> Variable {
+    Variable {
+        id: VariableId::new(),
+        name: String::new(),
+        value: VariableValue::Literal {
+            value: String::new(),
+        },
+        sensitive: false,
+    }
+}
+
 /// SRV-01 defaults: port 22, user `deploy`, key file auth, no elevation, legacy RSA off.
 pub fn new_server(environment_id: EnvironmentId) -> Server {
     Server {
