@@ -110,3 +110,32 @@ pub fn new_step(kind: StepKind, name: impl Into<String>) -> Step {
         spec,
     }
 }
+
+/// Name of the pipeline created with a new project (IXD-07).
+pub const FIRST_PIPELINE_NAME: &str = "部署";
+
+/// An empty pipeline with RUN-03/RUN-04 defaults: step first, stop on failure.
+pub fn new_pipeline(name: impl Into<String>) -> Pipeline {
+    Pipeline {
+        id: PipelineId::new(),
+        name: name.into(),
+        execution_order: ExecutionOrder::default(),
+        failure_policy: PipelineFailurePolicy::default(),
+        steps: Vec::new(),
+    }
+}
+
+/// A project with one empty pipeline and no targets (IXD-07, PRJ-01).
+pub fn new_project(default_environment_id: EnvironmentId) -> Project {
+    Project {
+        id: ProjectId::new(),
+        name: String::new(),
+        description: String::new(),
+        root: None,
+        default_environment_id,
+        targets: Vec::new(),
+        variables: Vec::new(),
+        overrides: Vec::new(),
+        pipelines: vec![new_pipeline(FIRST_PIPELINE_NAME)],
+    }
+}

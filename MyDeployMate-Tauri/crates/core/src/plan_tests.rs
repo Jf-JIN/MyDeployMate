@@ -710,3 +710,25 @@ fn unknown_ids_are_errors() {
         Err(plan::PlanError::PipelineNotFound)
     );
 }
+
+#[test]
+fn variable_views_show_overrides_and_messages() {
+    let demo = demo_workspace();
+    let project = demo.workspace.projects[0].id;
+    let views =
+        crate::resolve::variable_views(&demo.workspace, project, demo.production, &NoValues);
+    let port = views.iter().find(|v| v.name == "port").unwrap();
+    assert_eq!(port.display.as_deref(), Some("8081"));
+    assert_eq!(
+        port.origin,
+        crate::resolve::VariableOrigin::EnvironmentOverride
+    );
+    let staging = crate::resolve::variable_views(&demo.workspace, project, demo.staging, &NoValues);
+    let port = staging.iter().find(|v| v.name == "port").unwrap();
+    assert_eq!(port.display.as_deref(), Some("8080"));
+    assert_eq!(port.origin, crate::resolve::VariableOrigin::Project);
+    assert!(
+        crate::resolve::variable_views(&demo.workspace, ProjectId::new(), demo.staging, &NoValues)
+            .is_empty()
+    );
+}
