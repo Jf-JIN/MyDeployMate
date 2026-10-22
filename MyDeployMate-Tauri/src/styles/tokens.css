@@ -77,16 +77,14 @@
   --space-6: 32px;
 
   /* Layout (UI-10, UI-11, UI-13) */
-  --sidebar-width: 200px;
-  --sidebar-width-collapsed: 56px;
+  --rail-width: 56px; /* UI-10 v0.3: icon rail */
+  --rail-item-size: 40px;
+  --tree-width: 248px; /* project / pipeline tree */
   --context-bar-height: 56px;
   --project-tabs-height: 40px;
   --toolbar-height: 44px;
   --step-list-min-width: 320px;
   --params-min-width: 420px;
-  --log-panel-height: 240px;
-  --log-panel-min-height: 180px;
-  --log-panel-collapsed-height: 36px;
   --table-row-height: 40px;
   --table-row-height-compact: 36px;
   --table-header-height: 36px;
