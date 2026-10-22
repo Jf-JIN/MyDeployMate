@@ -13,8 +13,10 @@ withDefaults(
     disabled?: boolean
     compact?: boolean
     describedBy?: string
+    /** Accessible name when no visible label points at the control (table cells). */
+    ariaLabel?: string
   }>(),
-  { id: undefined, describedBy: undefined },
+  { id: undefined, describedBy: undefined, ariaLabel: undefined },
 )
 </script>
 
@@ -27,6 +29,7 @@ withDefaults(
       :disabled="disabled"
       :aria-invalid="invalid || undefined"
       :aria-describedby="describedBy"
+      :aria-label="ariaLabel"
     >
       <option
         v-for="option in options"

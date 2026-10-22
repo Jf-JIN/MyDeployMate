@@ -13,8 +13,17 @@ withDefaults(
     readonly?: boolean
     disabled?: boolean
     describedBy?: string
+    /** Accessible name when no visible label points at the control (table cells). */
+    ariaLabel?: string
   }>(),
-  { id: undefined, min: undefined, max: undefined, step: 1, describedBy: undefined },
+  {
+    id: undefined,
+    min: undefined,
+    max: undefined,
+    step: 1,
+    describedBy: undefined,
+    ariaLabel: undefined,
+  },
 )
 
 function onInput(event: Event) {
@@ -36,6 +45,7 @@ function onInput(event: Event) {
     :disabled="disabled"
     :aria-invalid="invalid || undefined"
     :aria-describedby="describedBy"
+    :aria-label="ariaLabel"
     @input="onInput"
   />
 </template>

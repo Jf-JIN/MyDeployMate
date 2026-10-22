@@ -13,8 +13,10 @@ withDefaults(
     disabled?: boolean
     placeholder?: string
     describedBy?: string
+    /** Accessible name when no visible label points at the control (table cells). */
+    ariaLabel?: string
   }>(),
-  { id: undefined, rows: 6, placeholder: undefined, describedBy: undefined },
+  { id: undefined, rows: 6, placeholder: undefined, describedBy: undefined, ariaLabel: undefined },
 )
 </script>
 
@@ -30,6 +32,7 @@ withDefaults(
     :placeholder="placeholder"
     :aria-invalid="invalid || undefined"
     :aria-describedby="describedBy"
+    :aria-label="ariaLabel"
     spellcheck="false"
     wrap="off"
   />
