@@ -12,7 +12,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::ids::{EnvironmentId, VariableId};
+use crate::ids::{EnvironmentId, ProjectId, VariableId};
 use crate::model::*;
 use crate::template::{self, Expr, Part, SyntaxError};
 
@@ -542,4 +542,44 @@ impl<'a> Resolver<'a> {
         stack.pop();
         result
     }
+}
+
+/// One row of the P04 effective-value column (IXD-13): the masked value or why it cannot be
+/// resolved, already worded for the user.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct VariableView {
+    pub name: String,
+    pub origin: VariableOrigin,
+    pub sensitive: bool,
+    pub display: Option<String>,
+    pub error: Option<String>,
+}
+
+/// Effective variables of a project in an environment, resolved in a local context. Empty
+/// when the project or environment is not in the workspace.
+pub fn variable_views(
+    workspace: &Workspace,
+    project: ProjectId,
+    environment: EnvironmentId,
+    source: &dyn ValueSource,
+) -> Vec<VariableView> {
+    let (Some(p), Some(env)) = (
+        workspace.projects.iter().find(|p| p.id == project),
+        workspace.environments.iter().find(|e| e.id == environment),
+    ) else {
+        return Vec::new();
+    };
+    Resolver::new(workspace, p, env, source)
+        .effective_variables()
+        .into_iter()
+        .map(|v| VariableView {
+            name: v.name,
+            origin: v.origin,
+            sensitive: v.sensitive,
+            display: v.value.map(|t| t.display),
+            error: v.error.map(|e| e.message()),
+        })
+        .collect()
 }

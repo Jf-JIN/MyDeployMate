@@ -1,11 +1,337 @@
 <script setup lang="ts">
-import EmptyState from '@/components/EmptyState.vue'
-import type { Pipeline, Project } from '@/ipc'
+import { ArrowDown, ArrowUp, Search, Shield } from '@lucide/vue'
+import { computed, ref } from 'vue'
 
-// P03 target binding; filled in by task 3.6.
-defineProps<{ project: Project; pipeline: Pipeline | null }>()
+import DraftNotices from '@/components/DraftNotices.vue'
+import EmptyState from '@/components/EmptyState.vue'
+import { moveTarget, setTargetIds, targetIds } from '@/components/projects/targets'
+import UiButton from '@/components/ui/UiButton.vue'
+import UiCheckbox from '@/components/ui/UiCheckbox.vue'
+import UiIconButton from '@/components/ui/UiIconButton.vue'
+import UiSwitch from '@/components/ui/UiSwitch.vue'
+import UiTag from '@/components/ui/UiTag.vue'
+import UiTextInput from '@/components/ui/UiTextInput.vue'
+import { useProjectDraft } from '@/composables/projectDraft'
+import type { Pipeline, Project, Server } from '@/ipc'
+import { useSessionStore } from '@/stores/session'
+import { useWorkspaceStore } from '@/stores/workspace'
+
+// P03 target binding (IXD-12): servers of the current environment, checked ones in execution
+// order. Checking is a draft until saved; switching environment goes through the leave guard.
+const props = defineProps<{ project: Project; pipeline: Pipeline | null }>()
+
+const store = useWorkspaceStore()
+const session = useSessionStore()
+const page = ref<HTMLElement | null>(null)
+const { project, fieldError, outside, error } = useProjectDraft(
+  '目标服务器',
+  page,
+  () => props.project.id,
+)
+const elsewhere = outside(['targets'])
+
+const environmentId = computed(
+  () => session.environment[props.project.id] ?? props.project.defaultEnvironmentId,
+)
+const environment = computed(() => store.environments.find((e) => e.id === environmentId.value))
+
+const selectedIds = computed(() =>
+  project.value ? targetIds(project.value, environmentId.value) : [],
+)
+const selected = computed(() => new Set(selectedIds.value))
+
+function setSelected(ids: string[]) {
+  if (project.value) setTargetIds(project.value, environmentId.value, ids)
+}
+
+const query = ref('')
+const onlySelected = ref(false)
+
+function clearFilters() {
+  query.value = ''
+  onlySelected.value = false
+}
+
+/** Checked servers first in execution order, then the rest by name. */
+const rows = computed(() => {
+  const inEnv = store.servers.filter((s) => s.environmentId === environmentId.value)
+  const byId = new Map(inEnv.map((s) => [s.id, s]))
+  const chosen = selectedIds.value.map((id) => byId.get(id)).filter((s): s is Server => !!s)
+  const rest = inEnv
+    .filter((s) => !selected.value.has(s.id))
+    .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN', { numeric: true }))
+  return [...chosen, ...rest]
+})
+
+const serverCount = computed(() => rows.value.length)
+
+const visible = computed(() => {
+  const q = query.value.trim().toLowerCase()
+  return rows.value.filter((s) => {
+    if (onlySelected.value && !selected.value.has(s.id)) return false
+    if (!q) return true
+    return [s.name, s.host, s.user, ...s.tags].some((t) => t.toLowerCase().includes(q))
+  })
+})
+
+function toggle(id: string, on: boolean) {
+  const ids = selectedIds.value.filter((x) => x !== id)
+  setSelected(on ? [...ids, id] : ids)
+}
+
+// IXD-12: the header checkbox affects only what the filter shows.
+const visibleSelected = computed(() => visible.value.filter((s) => selected.value.has(s.id)))
+const allVisibleSelected = computed(
+  () => visible.value.length > 0 && visibleSelected.value.length === visible.value.length,
+)
+function toggleVisible(on: boolean) {
+  const shown = new Set(visible.value.map((s) => s.id))
+  if (on) {
+    const added = visible.value.filter((s) => !selected.value.has(s.id)).map((s) => s.id)
+    setSelected([...selectedIds.value, ...added])
+  } else {
+    setSelected(selectedIds.value.filter((id) => !shown.has(id)))
+  }
+}
+
+function order(id: string) {
+  return selectedIds.value.indexOf(id) + 1
+}
+
+function move(id: string, delta: -1 | 1) {
+  setSelected(moveTarget(selectedIds.value, id, delta))
+}
+
+// Bindings that point at a server no longer in this environment (validation reports these).
+const bindingErrors = computed(() =>
+  selectedIds.value
+    .map((_, i) => fieldError(`targets[${targetIndex.value}].serverIds[${i}]`))
+    .filter((m): m is string => !!m),
+)
+const targetIndex = computed(
+  () => project.value?.targets.findIndex((t) => t.environmentId === environmentId.value) ?? -1,
+)
 </script>
 
 <template>
-  <EmptyState title="目标绑定将在阶段 3.6 提供" />
+  <div v-if="project" ref="page" class="targets">
+    <DraftNotices :error="error" :issues="elsewhere" />
+
+    <header class="summary">
+      <span class="env">
+        当前环境 <strong>{{ environment?.name }}</strong>
+        <UiTag v-if="environment?.protected" tone="warning" :icon="Shield">保护环境</UiTag>
+      </span>
+      <span class="count">
+        已选择 <strong class="num">{{ selectedIds.length }}</strong> 台
+      </span>
+      <p class="hint">列表顺序即执行顺序。新增的服务器不会自动勾选。</p>
+    </header>
+
+    <ul v-if="bindingErrors.length" class="binding-errors">
+      <li v-for="m in bindingErrors" :key="m">{{ m }}</li>
+    </ul>
+
+    <template v-if="serverCount">
+      <div class="filters" role="search">
+        <div class="search">
+          <Search class="search-icon" :size="16" :stroke-width="1.75" aria-hidden="true" />
+          <UiTextInput
+            v-model="query"
+            placeholder="搜索名称、地址、账号或标签"
+            aria-label="搜索服务器"
+          />
+        </div>
+        <span class="only-selected">
+          <UiSwitch id="only-selected" v-model="onlySelected" />
+          <label for="only-selected">仅已选</label>
+        </span>
+      </div>
+
+      <div class="table-wrap">
+        <table v-if="visible.length" class="table">
+          <thead>
+            <tr>
+              <th scope="col" class="col-check">
+                <UiCheckbox
+                  :model-value="allVisibleSelected"
+                  :indeterminate="!allVisibleSelected && visibleSelected.length > 0"
+                  label="选择当前列出的全部服务器"
+                  hide-label
+                  @update:model-value="toggleVisible"
+                />
+              </th>
+              <th scope="col" class="col-order num">顺序</th>
+              <th scope="col" class="col-name">名称</th>
+              <th scope="col">地址</th>
+              <th scope="col">账号</th>
+              <th scope="col">标签</th>
+              <th scope="col">最近测试</th>
+              <th scope="col" class="col-move"><span class="sr-only">调整顺序</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="server in visible" :key="server.id" :data-server-id="server.id">
+              <td class="col-check">
+                <UiCheckbox
+                  :model-value="selected.has(server.id)"
+                  :label="`选择 ${server.name}`"
+                  hide-label
+                  @update:model-value="toggle(server.id, $event)"
+                />
+              </td>
+              <td class="col-order num">{{ selected.has(server.id) ? order(server.id) : '' }}</td>
+              <td class="col-name">{{ server.name }}</td>
+              <td>
+                <code>{{ server.host }}:{{ server.port }}</code>
+              </td>
+              <td>{{ server.user }}</td>
+              <td>
+                <span class="tags">
+                  <UiTag v-for="tag in server.tags" :key="tag">{{ tag }}</UiTag>
+                </span>
+              </td>
+              <td><UiTag>未测试</UiTag></td>
+              <td class="col-move">
+                <span v-if="selected.has(server.id)" class="move">
+                  <UiIconButton
+                    :icon="ArrowUp"
+                    :label="`${server.name} 提前执行`"
+                    :disabled-reason="order(server.id) === 1 ? '已经是第一台' : null"
+                    @click="move(server.id, -1)"
+                  />
+                  <UiIconButton
+                    :icon="ArrowDown"
+                    :label="`${server.name} 推后执行`"
+                    :disabled-reason="
+                      order(server.id) === selectedIds.length ? '已经是最后一台' : null
+                    "
+                    @click="move(server.id, 1)"
+                  />
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <EmptyState v-else title="没有符合条件的服务器">
+          <UiButton compact class="empty-action" @click="clearFilters"> 清除筛选 </UiButton>
+        </EmptyState>
+      </div>
+    </template>
+
+    <EmptyState v-else title="当前环境没有服务器。">
+      <RouterLink :to="{ name: 'servers' }" class="empty-action">前往服务器管理</RouterLink>
+    </EmptyState>
+  </div>
 </template>
+
+<style scoped>
+.targets {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-5);
+}
+
+.env {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.hint {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--text-secondary);
+  font: var(--font-caption);
+}
+
+.binding-errors {
+  margin: 0;
+  padding-left: var(--space-5);
+  color: var(--state-failure);
+}
+
+.filters {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.search {
+  position: relative;
+  flex: 1;
+  max-width: 360px;
+}
+
+.search :deep(.control) {
+  padding-left: 34px;
+}
+
+.search-icon {
+  position: absolute;
+  top: 50%;
+  left: 12px;
+  z-index: 1;
+  color: var(--text-secondary);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.only-selected {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.table {
+  min-width: 820px;
+}
+
+.col-check {
+  width: 40px;
+}
+
+.col-check :deep(.checkbox) {
+  display: flex;
+}
+
+.col-order {
+  width: 56px;
+}
+
+.col-name {
+  min-width: 140px;
+  font-weight: 600;
+}
+
+.col-move {
+  width: 100px;
+}
+
+.tags,
+.move {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.move {
+  flex-wrap: nowrap;
+}
+
+.empty-action {
+  display: inline-block;
+  margin-top: var(--space-3);
+}
+</style>

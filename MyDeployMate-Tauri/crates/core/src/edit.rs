@@ -1,5 +1,6 @@
 //! Edits whose side effects the user must see before confirming: what refers to an environment
-//! or server, and which target bindings a server change removes (IXD-14, IXD-20, SRV-05).
+//! or server, which target bindings a server change removes (IXD-14, IXD-20, SRV-05), and
+//! copies that must not carry over bindings or saved credentials (IXD-07).
 //!
 //! The functions work on a draft; the caller saves the result through the normal save path,
 //! so validation still applies.
@@ -7,8 +8,8 @@
 use serde::Serialize;
 use ts_rs::TS;
 
-use crate::ids::{EnvironmentId, ProjectId, ServerId};
-use crate::model::{Server, Workspace};
+use crate::ids::{EnvironmentId, PipelineId, ProjectId, ServerId, StepId, VariableId};
+use crate::model::{Pipeline, Project, Server, Workspace};
 
 /// Something that refers to an environment or a server.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, TS)]
@@ -174,6 +175,46 @@ pub fn remove_server(mut ws: Workspace, id: ServerId) -> ServerEdit {
     }
 }
 
+/// A copy of a pipeline with new IDs for it and its steps.
+pub fn copy_pipeline(pipeline: &Pipeline, name: impl Into<String>) -> Pipeline {
+    let mut copy = pipeline.clone();
+    copy.id = PipelineId::new();
+    copy.name = name.into();
+    for step in &mut copy.steps {
+        step.id = StepId::new();
+    }
+    copy
+}
+
+/// Copy a project under a new name (IXD-07): pipelines and variables are copied with new IDs;
+/// target bindings are not, so the copy never points at production by accident. Saved
+/// credentials are keyed by variable ID, so sensitive values are not carried over either.
+pub fn copy_project(project: &Project, name: impl Into<String>) -> Project {
+    Project {
+        id: ProjectId::new(),
+        name: name.into(),
+        description: project.description.clone(),
+        root: project.root.clone(),
+        default_environment_id: project.default_environment_id,
+        targets: Vec::new(),
+        variables: project
+            .variables
+            .iter()
+            .map(|v| {
+                let mut v = v.clone();
+                v.id = VariableId::new();
+                v
+            })
+            .collect(),
+        overrides: project.overrides.clone(),
+        pipelines: project
+            .pipelines
+            .iter()
+            .map(|p| copy_pipeline(p, p.name.clone()))
+            .collect(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use pretty_assertions::assert_eq;
@@ -279,5 +320,36 @@ mod tests {
         assert_eq!(edit.removed_bindings, refs);
         assert!(edit.workspace.servers.iter().all(|s| s.id != id));
         assert!(validate_workspace(&edit.workspace).is_ok());
+    }
+
+    #[test]
+    fn copied_project_has_new_ids_and_no_targets() {
+        let demo = demo_workspace();
+        let source = &demo.workspace.projects[0];
+        let copy = copy_project(source, "account-api-copy");
+        assert_ne!(copy.id, source.id);
+        assert_eq!(copy.name, "account-api-copy");
+        assert!(copy.targets.is_empty());
+        assert_eq!(copy.pipelines.len(), source.pipelines.len());
+        for (a, b) in copy.pipelines.iter().zip(&source.pipelines) {
+            assert_ne!(a.id, b.id);
+            assert_eq!(a.name, b.name);
+            assert!(
+                a.steps
+                    .iter()
+                    .zip(&b.steps)
+                    .all(|(x, y)| x.id != y.id && x.spec == y.spec)
+            );
+        }
+        assert!(
+            copy.variables
+                .iter()
+                .zip(&source.variables)
+                .all(|(a, b)| a.id != b.id && a.name == b.name)
+        );
+        assert_eq!(copy.overrides, source.overrides);
+        let mut ws = demo.workspace.clone();
+        ws.projects.push(copy);
+        assert!(validate_workspace(&ws).is_ok());
     }
 }

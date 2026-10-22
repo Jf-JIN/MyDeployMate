@@ -8,12 +8,15 @@ import type { Environment } from './bindings/Environment'
 import type { EnvironmentId } from './bindings/EnvironmentId'
 import type { KeyFormat } from './bindings/KeyFormat'
 import type { LoadedWorkspace } from './bindings/LoadedWorkspace'
+import type { Project } from './bindings/Project'
+import type { ProjectId } from './bindings/ProjectId'
 import type { Reference } from './bindings/Reference'
 import type { Server } from './bindings/Server'
 import type { ServerEdit } from './bindings/ServerEdit'
 import type { ServerId } from './bindings/ServerId'
 import type { ValidationReport } from './bindings/ValidationReport'
 import type { Variable } from './bindings/Variable'
+import type { VariableView } from './bindings/VariableView'
 import type { Workspace } from './bindings/Workspace'
 
 /** Command name → [arguments, result]. Keep in sync with `src-tauri/src/lib.rs`. */
@@ -32,6 +35,13 @@ export interface Commands {
   remove_server: [{ draft: Workspace; serverId: ServerId }, ServerEdit]
   inspect_key_file: [{ path: string }, KeyFormat]
   env_var_present: [{ name: string }, boolean]
+  new_project: [{ defaultEnvironmentId: EnvironmentId }, Project]
+  copy_project: [{ draft: Workspace; projectId: ProjectId; name: string }, Project]
+  variable_views: [
+    { draft: Workspace; projectId: ProjectId; environmentId: EnvironmentId },
+    VariableView[],
+  ]
+  local_dir_exists: [{ path: string }, boolean]
 }
 
 export type CommandName = keyof Commands

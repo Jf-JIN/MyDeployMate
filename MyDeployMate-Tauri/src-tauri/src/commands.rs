@@ -1,6 +1,7 @@
 //! Tauri commands: app info, workspace load / validate / save (ARC-35), defaults for new
 //! objects, edits whose side effects the UI shows before saving (IXD-14, IXD-20), and local
-//! checks for the server form (IXD-17).
+//! checks for the server form (IXD-17), project creation and copy, and effective variables
+//! (IXD-07, IXD-13).
 //! Drafts to validate or save arrive as raw JSON so type errors can be reported with their
 //! field path; the edit helpers take typed drafts the UI built from a loaded workspace.
 
@@ -9,15 +10,17 @@ use tauri::State;
 use ts_rs::TS;
 
 use mdm_core::keyfile::KEY_HEAD_LEN;
+use mdm_core::resolve::{VariableView, variable_views as resolve_variable_views};
 use mdm_core::{
-    Environment, EnvironmentId, KeyFormat, Reference, Server, ServerEdit, ServerId,
-    ValidationReport, Variable, Workspace, check_workspace_json, defaults, detect_key_format, edit,
-    parse_workspace, validate_workspace,
+    Environment, EnvironmentId, KeyFormat, Project, ProjectId, Reference, Server, ServerEdit,
+    ServerId, ValidationReport, Variable, Workspace, check_workspace_json, defaults,
+    detect_key_format, edit, parse_workspace, validate_workspace,
 };
 use mdm_store::LoadOutcome;
 
 use crate::error::{AppError, AppErrorKind};
 use crate::state::AppState;
+use crate::values::ProcessValues;
 
 #[derive(Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -169,6 +172,43 @@ pub fn env_var_present(name: String) -> bool {
         return false;
     }
     std::env::var_os(name).is_some_and(|v| !v.is_empty())
+}
+
+/// A project with one empty pipeline in the given default environment (IXD-07).
+#[tauri::command]
+pub fn new_project(default_environment_id: EnvironmentId) -> Project {
+    defaults::new_project(default_environment_id)
+}
+
+/// Copy a project of the draft without its target bindings or credentials (IXD-07).
+#[tauri::command]
+pub fn copy_project(
+    draft: Workspace,
+    project_id: ProjectId,
+    name: String,
+) -> Result<Project, AppError> {
+    draft
+        .projects
+        .iter()
+        .find(|p| p.id == project_id)
+        .map(|p| edit::copy_project(p, name))
+        .ok_or_else(|| AppError::new(AppErrorKind::Internal, "要复制的项目不存在"))
+}
+
+/// Whether a local directory exists, to warn about a project root that is missing (IXD-07).
+#[tauri::command]
+pub fn local_dir_exists(path: String) -> bool {
+    std::path::Path::new(&path).is_dir()
+}
+
+/// Effective variable values of a project in an environment, for P04 (IXD-13).
+#[tauri::command]
+pub fn variable_views(
+    draft: Workspace,
+    project_id: ProjectId,
+    environment_id: EnvironmentId,
+) -> Vec<VariableView> {
+    resolve_variable_views(&draft, project_id, environment_id, &ProcessValues)
 }
 
 impl AppState {

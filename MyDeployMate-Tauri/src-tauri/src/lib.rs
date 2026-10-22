@@ -3,6 +3,7 @@
 mod commands;
 mod error;
 mod state;
+mod values;
 
 use tauri::Manager;
 
@@ -34,6 +35,10 @@ pub fn run() {
             commands::remove_server,
             commands::inspect_key_file,
             commands::env_var_present,
+            commands::new_project,
+            commands::copy_project,
+            commands::variable_views,
+            commands::local_dir_exists,
         ])
         .run(tauri::generate_context!())
         .expect("error while running MyDeployMate");
