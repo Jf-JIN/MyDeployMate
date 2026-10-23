@@ -32,7 +32,7 @@ impl RunObserver for Collect {
     fn output(&self, _seq: u32, chunk: OutputChunk) {
         self.0.lock().unwrap().push_str(&chunk.text);
     }
-    fn note(&self, _seq: u32, _text: &str) {}
+    fn note(&self, _seq: u32, _message: Message) {}
     fn requested(&self, _request: &OperatorRequest) {}
     fn storage_failed(&self, _error: &StorageError) {}
 }
@@ -94,5 +94,5 @@ async fn failing_command_fails_the_run() {
     assert_eq!(status, RunStatus::Failed);
     assert_eq!(tasks[0].status, TaskStatus::Failed);
     assert_eq!(tasks[0].exit_code, Some(7));
-    assert_eq!(tasks[0].reason.as_deref(), Some("退出码 7"));
+    assert_eq!(tasks[0].reason, Some(Message::ExitCode { code: 7 }));
 }

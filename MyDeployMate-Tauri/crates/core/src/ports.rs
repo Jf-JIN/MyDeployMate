@@ -5,12 +5,21 @@ use thiserror::Error;
 
 use crate::log::LogEntry;
 use crate::machine::RunMachine;
+use crate::message::Message;
 use crate::plan::ResolvedPlan;
 
 /// Run history could not be written. The coordinator dispatches nothing more (ARC-33).
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
-#[error("运行记录无法保存：{0}")]
-pub struct StorageError(pub String);
+#[error("run history could not be saved: {0:?}")]
+pub struct StorageError(pub Message);
+
+impl StorageError {
+    pub fn message(&self) -> Message {
+        Message::RunStorageFailed {
+            reason: Box::new(self.0.clone()),
+        }
+    }
+}
 
 /// Durable run and task records (RUN-07, ARC-32). Every call is one transaction.
 pub trait RunStore: Send {

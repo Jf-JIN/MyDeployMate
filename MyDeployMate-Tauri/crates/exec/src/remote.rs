@@ -19,8 +19,8 @@
 
 use std::time::Duration;
 
-use mdm_core::OutputEncoding;
 use mdm_core::plan::ResolvedCommand;
+use mdm_core::{Message, OutputEncoding};
 use russh::ChannelMsg;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
@@ -85,7 +85,7 @@ pub enum RemoteEnd {
 pub enum Stop {
     Confirmed,
     /// Why it could not be confirmed.
-    Unconfirmed(String),
+    Unconfirmed(Message),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -172,10 +172,10 @@ async fn sleep_until(deadline: Option<Instant>) {
 /// TERM the group, wait, KILL what is left, and report whether the group is gone.
 async fn stop_group(session: &SshSession, pgid: Option<u32>) -> Stop {
     let Some(pgid) = pgid else {
-        return Stop::Unconfirmed("没有取得远端进程组 ID".into());
+        return Stop::Unconfirmed(Message::NoProcessGroupId);
     };
     if session.is_closed() {
-        return Stop::Unconfirmed("与服务器的连接已断开".into());
+        return Stop::Unconfirmed(Message::ConnectionLost);
     }
     let script = format!(
         "kill -TERM -- -{pgid} 2>/dev/null; i=0; \
@@ -184,16 +184,16 @@ async fn stop_group(session: &SshSession, pgid: Option<u32>) -> Stop {
          if kill -0 -- -{pgid} 2>/dev/null; then echo __MDM_ALIVE__; else echo __MDM_GONE__; fi"
     );
     match tokio::time::timeout(STOP_TIMEOUT, session.exec_collect(&script, 4096)).await {
-        Err(_) => Stop::Unconfirmed("检查远端进程超时".into()),
-        Ok(Err(_)) => Stop::Unconfirmed("与服务器的连接已断开".into()),
+        Err(_) => Stop::Unconfirmed(Message::CheckTimeout),
+        Ok(Err(_)) => Stop::Unconfirmed(Message::ConnectionLost),
         Ok(Ok(out)) => {
             let stdout = String::from_utf8_lossy(&out.stdout);
             if stdout.contains("__MDM_GONE__") {
                 Stop::Confirmed
             } else if stdout.contains("__MDM_ALIVE__") {
-                Stop::Unconfirmed("强制终止后进程组仍在运行".into())
+                Stop::Unconfirmed(Message::StillRunning)
             } else {
-                Stop::Unconfirmed("无法检查远端进程状态".into())
+                Stop::Unconfirmed(Message::CheckFailed)
             }
         }
     }

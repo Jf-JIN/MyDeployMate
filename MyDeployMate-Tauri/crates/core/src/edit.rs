@@ -211,10 +211,10 @@ pub fn copy_pipeline(pipeline: &Pipeline, name: impl Into<String>) -> Pipeline {
 }
 
 /// A copy of a step with a new ID, inserted after the original by the caller (IXD-09).
-pub fn copy_step(step: &Step) -> Step {
+pub fn copy_step(step: &Step, name: impl Into<String>) -> Step {
     let mut copy = step.clone();
     copy.id = StepId::new();
-    copy.name = format!("{} 副本", step.name);
+    copy.name = name.into();
     copy
 }
 
@@ -331,7 +331,7 @@ mod tests {
         server["port"] = serde_json::json!(22.5);
         let report = put_server_json(demo.workspace.clone(), server).unwrap_err();
         assert_eq!(report.issues[0].path, "servers[1].port");
-        assert_eq!(report.issues[0].message, "必须是 0 或正整数");
+        assert_eq!(report.issues[0].message, crate::Message::MustBeUnsigned);
 
         let fresh = crate::defaults::new_server(demo.staging);
         let mut server = serde_json::to_value(&fresh).unwrap();
@@ -410,9 +410,9 @@ mod tests {
     fn copied_step_gets_new_id_and_name() {
         let demo = demo_workspace();
         let step = &demo.workspace.projects[0].pipelines[0].steps[0];
-        let copy = copy_step(step);
+        let copy = copy_step(step, "copy");
         assert_ne!(copy.id, step.id);
-        assert_eq!(copy.name, format!("{} 副本", step.name));
+        assert_eq!(copy.name, "copy");
         assert_eq!(copy.spec, step.spec);
     }
 }

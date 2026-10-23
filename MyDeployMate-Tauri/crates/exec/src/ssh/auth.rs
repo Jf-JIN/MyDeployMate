@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use mdm_core::{
-    AgentKind, ConnectError, ConnectErrorKind, ConnectStage, CredentialPurpose, KeyFormat,
+    AgentKind, ConnectError, ConnectErrorKind, ConnectStage, CredentialPurpose, KeyFormat, Message,
     PasswordSource, detect_key_format,
 };
 use russh::client::{AuthResult, Handle, Handler};
@@ -143,7 +143,7 @@ async fn connect_agent(kind: AgentKind) -> Result<BoxedAgent, String> {
             .await
             .map(AgentClient::dynamic)
             .map_err(|e| e.to_string()),
-        AgentKind::Pageant => Err("Pageant 仅在 Windows 上可用".into()),
+        AgentKind::Pageant => Err("Pageant is only available on Windows".into()),
     }
 }
 
@@ -274,7 +274,7 @@ pub(crate) async fn authenticate<H: Handler<Error = russh::Error>>(
                     return Ok(());
                 }
             }
-            Err(failed().with_detail("Agent 中的密钥均未被服务器接受"))
+            Err(failed().with_note(Message::AgentKeysRejected))
         }
     }
 }

@@ -3,7 +3,7 @@
 
 use std::io;
 
-use mdm_core::{ConnectError, ConnectErrorKind, ConnectStage};
+use mdm_core::{ConnectError, ConnectErrorKind, ConnectStage, Message};
 
 pub(crate) fn tcp_error(e: &io::Error) -> ConnectError {
     let kind = match e.kind() {
@@ -27,11 +27,11 @@ pub(crate) fn ssh_error(stage: ConnectStage, e: &russh::Error) -> ConnectError {
                 ConnectStage::Handshake,
                 ConnectErrorKind::AlgorithmNegotiation { legacy_rsa_only },
             )
-            .with_detail(format!(
-                "{kind:?}：本机 {}；服务器 {}",
-                ours.join(", "),
-                theirs.join(", ")
-            ))
+            .with_note(Message::Algorithms {
+                kind: format!("{kind:?}"),
+                local: ours.join(", "),
+                server: theirs.join(", "),
+            })
         }
         E::Disconnect | E::HUP | E::SendError | E::RecvError => {
             ConnectError::at(stage, ConnectErrorKind::Disconnected)
@@ -64,8 +64,14 @@ mod tests {
                 legacy_rsa_only: true
             }
         );
-        assert!(err.message.contains("允许旧算法"), "{}", err.message);
-        assert!(err.message.contains("ssh-rsa"), "{}", err.message);
+        assert_eq!(
+            err.message,
+            Message::LegacyRsaOnly.with_note(Message::Algorithms {
+                kind: "Key".into(),
+                local: "ssh-ed25519, rsa-sha2-512".into(),
+                server: "ssh-rsa".into(),
+            })
+        );
     }
 
     #[test]

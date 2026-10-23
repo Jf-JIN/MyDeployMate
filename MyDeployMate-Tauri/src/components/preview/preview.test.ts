@@ -37,7 +37,13 @@ function task(seq: number, step: number, server: string | null): PlannedTask {
 }
 
 function issue(path: string, object: Issue['object'] = null): Issue {
-  return { path, object, field: '', code: 'required', message: '' }
+  return {
+    path,
+    object,
+    field: '',
+    code: 'required',
+    message: { code: 'text', params: { text: '' } },
+  }
 }
 
 describe('preview', () => {

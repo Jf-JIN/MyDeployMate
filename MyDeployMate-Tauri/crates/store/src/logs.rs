@@ -7,7 +7,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::PathBuf;
 
-use mdm_core::{LogEntry, LogSink, RunId, StorageError};
+use mdm_core::{LogEntry, LogSink, Message, RunId, StorageError};
 
 use crate::error::{StoreError, io};
 use crate::paths::DataDir;
@@ -37,7 +37,12 @@ impl RunLogFile {
 
 impl LogSink for RunLogFile {
     fn append(&mut self, entries: &[LogEntry]) -> Result<(), StorageError> {
-        let fail = |e: std::io::Error| StorageError(format!("{}: {e}", self.path.display()));
+        let fail = |e: std::io::Error| {
+            StorageError(Message::Io {
+                path: self.path.display().to_string(),
+                detail: e.to_string(),
+            })
+        };
         for e in entries {
             serde_json::to_writer(&mut self.out, e).map_err(|e| fail(e.into()))?;
             self.out.write_all(b"\n").map_err(fail)?;
@@ -89,6 +94,7 @@ mod tests {
             task: 0,
             source: LogSource::Stdout,
             text: text.into(),
+            message: None,
             at_ms: 1,
             truncated: false,
             live: false,

@@ -19,9 +19,9 @@ import UiSwitch from '@/components/ui/UiSwitch.vue'
 import UiTag from '@/components/ui/UiTag.vue'
 import UiTextInput from '@/components/ui/UiTextInput.vue'
 import { useWorkspaceDraft } from '@/composables/workspaceDraft'
+import { errorText, messageText } from '@/i18n/message'
 import {
   call,
-  toAppError,
   type AppInfo,
   type Environment,
   type Reference,
@@ -48,7 +48,7 @@ onMounted(async () => {
   try {
     info.value = await call('app_info')
   } catch (e) {
-    infoError.value = toAppError(e).message
+    infoError.value = errorText(e)
   }
 })
 
@@ -173,7 +173,7 @@ async function openDataDir() {
   try {
     await call('open_data_dir')
   } catch (e) {
-    infoError.value = toAppError(e).message
+    infoError.value = errorText(e)
   }
 }
 </script>
@@ -196,11 +196,11 @@ async function openDataDir() {
     </template>
 
     <div v-if="draft" ref="page" class="settings">
-      <UiNotice v-if="error" tone="failure">{{ error.message }}</UiNotice>
+      <UiNotice v-if="error" tone="failure">{{ messageText(error.message) }}</UiNotice>
       <UiNotice v-if="elsewhere.length" tone="warning">
         {{ t('drafts.issuesElsewhere', { n: elsewhere.length }) }}
         <ul class="elsewhere">
-          <li v-for="issue in elsewhere" :key="issue.path">{{ issue.message }}</li>
+          <li v-for="issue in elsewhere" :key="issue.path">{{ messageText(issue.message) }}</li>
         </ul>
       </UiNotice>
 

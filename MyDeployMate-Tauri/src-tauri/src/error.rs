@@ -3,7 +3,7 @@
 use serde::Serialize;
 use ts_rs::TS;
 
-use mdm_core::ValidationReport;
+use mdm_core::{Message, ValidationReport};
 use mdm_store::StoreError;
 
 #[derive(Debug, Serialize, TS)]
@@ -11,8 +11,8 @@ use mdm_store::StoreError;
 #[ts(export)]
 pub struct AppError {
     pub kind: AppErrorKind,
-    /// User-facing message in Chinese, free of secrets.
-    pub message: String,
+    /// What went wrong, as a code the UI renders (ARC-38); free of secrets.
+    pub message: Message,
     /// Field-level problems when `kind` is `validation`.
     pub validation: Option<ValidationReport>,
 }
@@ -41,10 +41,10 @@ pub enum AppErrorKind {
 }
 
 impl AppError {
-    pub fn new(kind: AppErrorKind, message: impl Into<String>) -> Self {
+    pub fn new(kind: AppErrorKind, message: Message) -> Self {
         Self {
             kind,
-            message: message.into(),
+            message,
             validation: None,
         }
     }
@@ -52,7 +52,9 @@ impl AppError {
     pub fn validation(report: ValidationReport) -> Self {
         Self {
             kind: AppErrorKind::Validation,
-            message: format!("配置校验未通过（{} 个问题）", report.issues.len()),
+            message: Message::Invalid {
+                n: report.issues.len() as u32,
+            },
             validation: Some(report),
         }
     }
@@ -60,7 +62,7 @@ impl AppError {
 
 impl From<StoreError> for AppError {
     fn from(err: StoreError) -> Self {
-        let message = err.to_string();
+        let message = err.message();
         let kind = match err {
             StoreError::Invalid(report) => return Self::validation(report),
             StoreError::RevisionConflict { .. } => AppErrorKind::RevisionConflict,

@@ -1,39 +1,88 @@
 use std::path::PathBuf;
 
-use mdm_core::ValidationReport;
+use mdm_core::{Message, ValidationReport};
 
+/// Display is for logs; the operator sees [`StoreError::message`] (ARC-38).
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
-    #[error("无法访问 {path}: {source}")]
+    #[error("cannot access {path}: {source}")]
     Io {
         path: PathBuf,
         #[source]
         source: std::io::Error,
     },
-    #[error("数据目录 {0} 已被另一个 MyDeployMate 进程占用")]
+    #[error("data directory {0} is used by another MyDeployMate process")]
     Locked(PathBuf),
-    #[error("配置已被保存为修订 {found}，当前草稿基于修订 {expected}，请重新加载")]
+    #[error("configuration was saved as revision {found}, the draft is based on {expected}")]
     RevisionConflict { expected: u64, found: u64 },
-    #[error("workspace.json 在本程序之外被修改过，请重新加载后再保存")]
+    #[error("workspace.json was changed outside the app")]
     ExternalChange,
-    #[error("{path} 不是有效的配置文件: {message}")]
-    Corrupt { path: PathBuf, message: String },
-    #[error("配置版本 {found} 高于本程序支持的版本 {supported}，请升级 MyDeployMate")]
+    #[error("{path} is not a valid configuration file: {reason:?}")]
+    Corrupt { path: PathBuf, reason: Message },
+    #[error("configuration version {found} is newer than supported version {supported}")]
     UnsupportedVersion { found: u32, supported: u32 },
-    #[error("配置从版本 {from} 迁移失败: {message}")]
-    Migration { from: u32, message: String },
-    #[error("运行记录数据库出错：{0}")]
+    #[error("configuration migration from version {from} failed: {reason:?}")]
+    Migration { from: u32, reason: Message },
+    #[error("run history database error: {0}")]
     Database(String),
-    #[error("运行记录数据库版本 {found} 高于本程序支持的版本 {supported}，请升级 MyDeployMate")]
+    #[error("run history version {found} is newer than supported version {supported}")]
     HistoryVersion { found: u32, supported: u32 },
-    #[error("另一个运行尚未结束，同一时间只能有一个运行")]
+    #[error("another run has not finished")]
     RunActive,
-    #[error("{0} 的服务器身份已有记录，只能通过信任管理显式更新")]
+    #[error("a server key is already recorded for {0}")]
     TrustConflict(String),
-    #[error("Windows 凭据管理器出错：{0}")]
+    #[error("Windows Credential Manager error: {0}")]
     Vault(String),
-    #[error("配置校验未通过（{} 个问题）", .0.issues.len())]
+    #[error("configuration has {} validation issues", .0.issues.len())]
     Invalid(ValidationReport),
+}
+
+impl StoreError {
+    pub fn message(&self) -> Message {
+        match self {
+            StoreError::Io { path, source } => Message::Io {
+                path: path.display().to_string(),
+                detail: source.to_string(),
+            },
+            StoreError::Locked(path) => Message::Locked {
+                path: path.display().to_string(),
+            },
+            StoreError::RevisionConflict { expected, found } => Message::RevisionConflict {
+                found: *found as i64,
+                expected: *expected as i64,
+            },
+            StoreError::ExternalChange => Message::ExternalChange,
+            StoreError::Corrupt { path, reason } => Message::Corrupt {
+                path: path.display().to_string(),
+                reason: Box::new(reason.clone()),
+            },
+            StoreError::UnsupportedVersion { found, supported } => Message::UnsupportedVersion {
+                found: *found,
+                supported: *supported,
+            },
+            StoreError::Migration { from, reason } => Message::Migration {
+                from: *from,
+                reason: Box::new(reason.clone()),
+            },
+            StoreError::Database(detail) => Message::Database {
+                detail: detail.clone(),
+            },
+            StoreError::HistoryVersion { found, supported } => Message::HistoryVersion {
+                found: *found,
+                supported: *supported,
+            },
+            StoreError::RunActive => Message::RunActive,
+            StoreError::TrustConflict(endpoint) => Message::TrustConflict {
+                endpoint: endpoint.clone(),
+            },
+            StoreError::Vault(detail) => Message::Vault {
+                detail: detail.clone(),
+            },
+            StoreError::Invalid(report) => Message::Invalid {
+                n: report.issues.len() as u32,
+            },
+        }
+    }
 }
 
 pub(crate) fn io(path: impl Into<PathBuf>) -> impl FnOnce(std::io::Error) -> StoreError {

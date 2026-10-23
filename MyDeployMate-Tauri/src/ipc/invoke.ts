@@ -54,7 +54,7 @@ export interface Commands {
   remove_server: [{ draft: Workspace; serverId: ServerId }, ServerEdit]
   inspect_key_file: [{ path: string }, KeyFormat]
   env_var_present: [{ name: string }, boolean]
-  new_project: [{ defaultEnvironmentId: EnvironmentId }, Project]
+  new_project: [{ defaultEnvironmentId: EnvironmentId; pipelineName: string }, Project]
   copy_project: [{ draft: Workspace; projectId: ProjectId; name: string }, Project]
   variable_views: [
     { draft: Workspace; projectId: ProjectId; environmentId: EnvironmentId },
@@ -63,8 +63,8 @@ export interface Commands {
   local_dir_exists: [{ path: string }, boolean]
   new_pipeline: [{ name: string }, Pipeline]
   copy_pipeline: [{ pipeline: Pipeline; name: string }, Pipeline]
-  new_step: [{ kind: StepKind }, Step]
-  copy_step: [{ step: Step }, Step]
+  new_step: [{ kind: StepKind; name: string }, Step]
+  copy_step: [{ step: Step; name: string }, Step]
   builtin_variables: [Record<string, never>, BuiltinVariable[]]
   wsl_distros: [Record<string, never>, string[]]
   shell_programs: [Record<string, never>, ShellProgram[]]
@@ -113,15 +113,15 @@ export function isAppError(value: unknown): value is AppError {
     value !== null &&
     'kind' in value &&
     'message' in value &&
-    typeof (value as { message: unknown }).message === 'string'
+    typeof (value as { message: unknown }).message === 'object'
   )
 }
 
-/** Turn anything thrown by `invoke` into an `AppError`. */
+/** Turn anything thrown by `invoke` into an `AppError`; other errors keep their own text. */
 export function toAppError(error: unknown): AppError {
   if (isAppError(error)) return error
-  const message = error instanceof Error ? error.message : String(error)
-  return { kind: 'internal', message, validation: null }
+  const text = error instanceof Error ? error.message : String(error)
+  return { kind: 'internal', message: { code: 'text', params: { text } }, validation: null }
 }
 
 export async function call<K extends CommandName>(

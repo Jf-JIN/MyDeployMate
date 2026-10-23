@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import type { ConnectError, ConnectionTest } from '@/ipc'
+import type { ConnectError, ConnectionTest, Message } from '@/ipc'
 
 import { fixAction, testStatus } from './testStatus'
+
+const none: Message = { code: 'text', params: { text: '' } }
 
 function failed(error: ConnectError): ConnectionTest {
   return { serverId: 's', startedAtMs: 0, durationMs: 10, outcome: { status: 'failed', error } }
@@ -12,7 +14,7 @@ const legacy: ConnectError = {
   stage: 'handshake',
   kind: 'algorithmNegotiation',
   legacyRsaOnly: true,
-  message: '该服务器只支持 ssh-rsa，可在服务器设置中开启“允许旧算法”',
+  message: { code: 'connect.legacyRsaOnly' },
 }
 
 describe('testStatus', () => {
@@ -33,21 +35,21 @@ describe('testStatus', () => {
     expect(testStatus(failed(legacy), false).label).toBe('算法不兼容')
     expect(
       testStatus(
-        failed({ stage: 'authenticate', kind: 'authenticationFailed', message: '' }),
+        failed({ stage: 'authenticate', kind: 'authenticationFailed', message: none }),
         false,
       ).label,
     ).toBe('认证失败')
     expect(
-      testStatus(failed({ stage: 'authenticate', kind: 'agentNoIdentities', message: '' }), false)
+      testStatus(failed({ stage: 'authenticate', kind: 'agentNoIdentities', message: none }), false)
         .label,
     ).toBe('Agent 无密钥')
   })
 
   it('never calls a failure "offline"', () => {
     const kinds: ConnectError[] = [
-      { stage: 'resolve', kind: 'resolveFailed', message: '' },
-      { stage: 'connect', kind: 'connectionRefused', message: '' },
-      { stage: 'connect', kind: 'timeout', message: '' },
+      { stage: 'resolve', kind: 'resolveFailed', message: none },
+      { stage: 'connect', kind: 'connectionRefused', message: none },
+      { stage: 'connect', kind: 'timeout', message: none },
     ]
     for (const k of kinds) expect(testStatus(failed(k), false).label).not.toContain('离线')
   })
@@ -63,9 +65,9 @@ describe('fixAction', () => {
         endpoint: { host: 'h', port: 22 },
         known: [],
         presented: { algorithm: 'ssh-ed25519', fingerprint: 'SHA256:x' },
-        message: '',
+        message: none,
       }),
     ).toBe('trustManagement')
-    expect(fixAction({ stage: 'handshake', kind: 'disconnected', message: '' })).toBeNull()
+    expect(fixAction({ stage: 'handshake', kind: 'disconnected', message: none })).toBeNull()
   })
 })

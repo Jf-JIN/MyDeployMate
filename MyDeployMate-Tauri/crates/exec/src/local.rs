@@ -11,7 +11,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use mdm_core::{OutputEncoding, Shell};
+use mdm_core::{Message, OutputEncoding, Shell};
 use process_wrap::tokio::{ChildWrapper, CommandWrap, KillOnDrop};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::time::{Instant, sleep_until};
@@ -76,15 +76,30 @@ pub struct LocalOutcome {
 
 #[derive(Debug, thiserror::Error)]
 pub enum LocalError {
-    #[error("工作目录不存在：{0}")]
+    #[error("working directory does not exist: {0}")]
     MissingCwd(String),
-    #[error("无法启动 {program}：{source}")]
+    #[error("cannot start {program}: {source}")]
     Spawn {
         program: String,
         source: std::io::Error,
     },
-    #[error("等待进程结束失败：{0}")]
+    #[error("waiting for the process failed: {0}")]
     Wait(std::io::Error),
+}
+
+impl LocalError {
+    pub fn message(&self) -> Message {
+        match self {
+            LocalError::MissingCwd(path) => Message::CwdMissing { path: path.clone() },
+            LocalError::Spawn { program, source } => Message::SpawnFailed {
+                program: program.clone(),
+                detail: source.to_string(),
+            },
+            LocalError::Wait(e) => Message::WaitFailed {
+                detail: e.to_string(),
+            },
+        }
+    }
 }
 
 /// Run `cmd` to the end, passing output to `on_output`. A cancel or timeout terminates the

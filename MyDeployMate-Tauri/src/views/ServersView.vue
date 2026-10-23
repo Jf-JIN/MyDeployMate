@@ -39,14 +39,8 @@ import UiTextInput from '@/components/ui/UiTextInput.vue'
 import { cloneWorkspace } from '@/composables/workspaceDraft'
 import { purposeLabel } from '@/components/credentials/credentialLabels'
 import { useT } from '@/i18n'
-import {
-  call,
-  toAppError,
-  type ConnectionTest,
-  type Reference,
-  type SavedCredential,
-  type Server,
-} from '@/ipc'
+import { errorText, messageText } from '@/i18n/message'
+import { call, type ConnectionTest, type Reference, type SavedCredential, type Server } from '@/ipc'
 import { useConnectionTestStore } from '@/stores/connectionTests'
 import { useRunStore } from '@/stores/run'
 import { useToastStore } from '@/stores/toast'
@@ -291,7 +285,7 @@ async function applyDelete() {
     toggle(server.id, false)
     toast.show(t('servers.deleted', { name: server.name }))
   } catch (e) {
-    listError.value = toAppError(e).message
+    listError.value = errorText(e)
   } finally {
     deleteBusy.value = false
     deleting.value = null
@@ -568,7 +562,7 @@ async function applyDelete() {
           <dt>{{ t('servers.detail.stage') }}</dt>
           <dd>{{ stageLabel(detailError.stage) }}</dd>
           <dt>{{ t('common.reason') }}</dt>
-          <dd class="detail-message">{{ detailError.message }}</dd>
+          <dd class="detail-message">{{ messageText(detailError.message) }}</dd>
         </template>
       </dl>
       <template #footer>

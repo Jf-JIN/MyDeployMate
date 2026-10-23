@@ -17,7 +17,7 @@ use std::time::Duration;
 
 use mdm_core::log::{Admit, LOG_BODY_LIMIT, LOG_TAIL_LIMIT, LogBudget, LogTail, size_text};
 use mdm_core::redact::{Redactor, StreamRedactor};
-use mdm_core::{Clock, LogEntry, LogSink, LogSource, RunMachine, StorageError};
+use mdm_core::{Clock, LogEntry, LogSink, LogSource, Message, RunMachine, StorageError};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -135,14 +135,17 @@ impl LogPipeline {
                     n,
                     task,
                     source: LogSource::System,
-                    text: format!("{e}；之后的输出不再保存，运行已停止\n"),
+                    text: "\n".into(),
+                    message: Some(Message::LogStorageFailed {
+                        reason: Box::new(e.message()),
+                    }),
                     at_ms,
                     truncated: false,
                     live: false,
                 });
                 self.view.storage_failed(&e);
                 let _ = self.control.send(Control::Cancel {
-                    reason: "日志无法写入磁盘".into(),
+                    reason: Message::LogStorage,
                 });
                 self.view.logs(batch);
                 return;
@@ -158,7 +161,14 @@ impl LogPipeline {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    fn push(&self, inner: &mut Inner, task: u32, source: LogSource, text: String) {
+    fn push(
+        &self,
+        inner: &mut Inner,
+        task: u32,
+        source: LogSource,
+        text: String,
+        message: Option<Message>,
+    ) {
         if text.is_empty() {
             return;
         }
@@ -172,7 +182,7 @@ impl LogPipeline {
                 .push(source, &text);
         }
         let at_ms = self.clock.now_ms();
-        let mut add = |text: String, source, truncated, dest| {
+        let mut add = |text: String, message, source, truncated, dest| {
             let n = inner.next;
             inner.next += 1;
             inner.pending.push((
@@ -181,6 +191,7 @@ impl LogPipeline {
                     task,
                     source,
                     text,
+                    message,
                     at_ms,
                     truncated,
                     live: dest == Dest::Ui,
@@ -189,22 +200,22 @@ impl LogPipeline {
             ));
         };
         match admit {
-            Admit::Keep => add(text, source, false, Dest::Both),
+            Admit::Keep => add(text, message, source, false, Dest::Both),
             Admit::KeepAndMark => {
-                add(text, source, false, Dest::Both);
+                add(text, message, source, false, Dest::Both);
+                let limit = Message::LimitReached {
+                    limit: size_text(LOG_BODY_LIMIT),
+                    tail: size_text(tail_limit as u64),
+                };
                 add(
-                    format!(
-                        "日志已达到 {} 上限：之后的输出继续显示，但不再完整保存；\
-                         每个任务结束时另存其最后 {}\n",
-                        size_text(LOG_BODY_LIMIT),
-                        size_text(tail_limit as u64),
-                    ),
+                    "\n".into(),
+                    Some(limit),
                     LogSource::System,
                     true,
                     Dest::Both,
                 );
             }
-            Admit::Drop => add(text, source, false, Dest::Ui),
+            Admit::Drop => add(text, message, source, false, Dest::Ui),
         }
     }
 
@@ -224,6 +235,7 @@ impl LogPipeline {
                     task,
                     source,
                     text,
+                    message: None,
                     at_ms,
                     truncated: false,
                     live: false,
@@ -231,17 +243,15 @@ impl LogPipeline {
                 Dest::Disk,
             ));
         }
-        let text = if saved.kept == saved.total {
-            format!(
-                "本任务超出日志上限后的 {} 输出已全部另存\n",
-                size_text(saved.total)
-            )
+        let message = if saved.kept == saved.total {
+            Message::TailSaved {
+                size: size_text(saved.total),
+            }
         } else {
-            format!(
-                "本任务超出日志上限后输出了 {}，只另存了最后 {}，中间部分未保存\n",
-                size_text(saved.total),
-                size_text(saved.kept)
-            )
+            Message::TailPartial {
+                total: size_text(saved.total),
+                kept: size_text(saved.kept),
+            }
         };
         let n = inner.next;
         inner.next += 1;
@@ -250,7 +260,8 @@ impl LogPipeline {
                 n,
                 task,
                 source: LogSource::System,
-                text,
+                text: "\n".into(),
+                message: Some(message),
                 at_ms,
                 truncated: false,
                 live: false,
@@ -282,7 +293,7 @@ impl RunObserver for LogPipeline {
         for key in ended {
             let mut stream = inner.streams.remove(&key).expect("listed");
             let rest = stream.finish();
-            self.push(&mut inner, key.0, key.1, rest);
+            self.push(&mut inner, key.0, key.1, rest, None);
         }
         let mut ended: Vec<u32> = inner
             .tails
@@ -311,13 +322,19 @@ impl RunObserver for LogPipeline {
             .entry((seq, source))
             .or_insert_with(|| StreamRedactor::new(redactor))
             .push(&chunk.text);
-        self.push(&mut inner, seq, source, text);
+        self.push(&mut inner, seq, source, text, None);
     }
 
-    fn note(&self, seq: u32, text: &str) {
+    /// Notes are written by the app and never contain variable values, so they skip redaction.
+    fn note(&self, seq: u32, message: Message) {
         let mut inner = self.lock();
-        let text = inner.redactor.redact(text);
-        self.push(&mut inner, seq, LogSource::System, format!("{text}\n"));
+        self.push(
+            &mut inner,
+            seq,
+            LogSource::System,
+            "\n".into(),
+            Some(message),
+        );
     }
 
     fn requested(&self, request: &OperatorRequest) {
@@ -369,7 +386,7 @@ mod tests {
         fn append(&mut self, entries: &[LogEntry]) -> Result<(), StorageError> {
             let mut d = self.0.lock().unwrap();
             if d.1 {
-                return Err(StorageError("磁盘已满".into()));
+                return Err(StorageError(Message::text("disk full")));
             }
             d.0.extend_from_slice(entries);
             Ok(())
@@ -482,13 +499,13 @@ mod tests {
         s.pipeline.output(0, chunk(Stream::Stdout, "12345\n"));
         s.pipeline.output(0, chunk(Stream::Stdout, "67890\n"));
         s.pipeline.output(0, chunk(Stream::Stdout, "live\n"));
-        s.pipeline.note(0, "命令结束时仍有进程在运行");
+        s.pipeline.note(0, Message::Leftovers);
         s.pipeline.flush();
         let ui = s.view.logs.lock().unwrap().clone();
         assert_eq!(ui.len(), 5);
         assert!(ui[2].truncated && ui[2].source == LogSource::System);
         assert!(ui[3].live && ui[3].text == "live\n");
-        assert_eq!(ui[4].text, "命令结束时仍有进程在运行\n");
+        assert_eq!(ui[4].message, Some(Message::Leftovers));
         let disk = s.disk.0.lock().unwrap().0.clone();
         assert_eq!(disk.iter().map(|e| e.n).collect::<Vec<_>>(), [0, 1, 2, 4]);
     }
@@ -505,20 +522,19 @@ mod tests {
         // x2's line lost its start, so the tail begins at x3.
         assert_eq!(
             disk.iter().map(|e| e.text.as_str()).collect::<Vec<_>>()[3..],
-            [
-                "x3\n",
-                "x4\n",
-                "本任务超出日志上限后输出了 12 B，只另存了最后 6 B，中间部分未保存\n"
-            ]
+            ["x3\n", "x4\n", "\n"]
         );
+        let partial = Message::TailPartial {
+            total: "12 B".into(),
+            kept: "6 B".into(),
+        };
+        assert_eq!(disk[5].message.as_ref(), Some(&partial));
         assert!(disk.windows(2).all(|w| w[0].n < w[1].n));
         assert!(disk.iter().all(|e| !e.live));
         // The UI showed all of it live and gets only the note again, not the saved copy.
         let ui = s.view.logs.lock().unwrap().clone();
-        assert_eq!(
-            text_of(&ui[3..]),
-            "x1\nx2\nx3\nx4\n本任务超出日志上限后输出了 12 B，只另存了最后 6 B，中间部分未保存\n"
-        );
+        assert_eq!(text_of(&ui[3..]), "x1\nx2\nx3\nx4\n\n");
+        assert_eq!(ui[7].message.as_ref(), Some(&partial));
         assert_eq!(ui[3..7].iter().filter(|e| e.live).count(), 4);
     }
 
@@ -531,7 +547,10 @@ mod tests {
         assert!(*s.view.failed.lock().unwrap());
         let ui = s.view.logs.lock().unwrap().clone();
         assert_eq!(ui[0].text, "line\n");
-        assert!(ui[1].text.contains("磁盘已满"));
+        let Some(Message::LogStorageFailed { reason }) = &ui[1].message else {
+            panic!("{:?}", ui[1]);
+        };
+        assert_eq!(**reason, StorageError(Message::text("disk full")).message());
         assert!(matches!(s.control.try_recv(), Ok(Control::Cancel { .. })));
         // Later output still reaches the UI, without retrying the disk.
         s.pipeline.output(0, chunk(Stream::Stdout, "more\n"));

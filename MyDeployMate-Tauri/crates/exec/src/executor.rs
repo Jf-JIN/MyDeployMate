@@ -7,7 +7,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
-use mdm_core::{PlannedTask, PrivilegePolicy, ServerId, Shell, TaskAction};
+use mdm_core::{Message, PlannedTask, PrivilegePolicy, ServerId, Shell, TaskAction};
 use tokio::sync::Mutex;
 
 use crate::coordinator::{TaskContext, TaskExecutor, TaskFuture, TaskOutcome};
@@ -57,7 +57,7 @@ impl AppExecutor {
         ctx: &TaskContext,
     ) -> Result<Arc<SshSession>, TaskOutcome> {
         let Some(remote) = &self.remote else {
-            return Err(failed("没有可用的远程连接".into()));
+            return Err(failed(Message::NoConnection));
         };
         let mut sessions = self.sessions.lock().await;
         if let Some(s) = sessions.get(&server)
@@ -82,10 +82,10 @@ impl AppExecutor {
             unreachable!("only remote tasks")
         };
         if *privilege != PrivilegePolicy::None {
-            return failed("当前版本尚不支持 sudo 提权，请把该步骤的提权方式改为“不提权”".into());
+            return failed(Message::SudoUnsupported);
         }
         let Some(server) = &task.server else {
-            return failed("远程任务缺少目标服务器".into());
+            return failed(Message::NoServer);
         };
         let session = match self.session(server.id, ctx).await {
             Ok(s) => s,
@@ -103,10 +103,14 @@ impl AppExecutor {
         {
             Ok(o) => o,
             // The channel could not be opened, so nothing was started.
-            Err(e) => return failed(format!("无法在服务器上开始命令：{e}")),
+            Err(e) => {
+                return failed(Message::StartFailed {
+                    detail: e.to_string(),
+                });
+            }
         };
         if outcome.pgid.is_none() && matches!(outcome.end, RemoteEnd::Exited(_)) {
-            ctx.note("没有收到远端进程组 ID：服务器可能缺少 setsid（util-linux），取消时将无法确认远端进程已停止");
+            ctx.note(Message::NoProcessGroup);
         }
         remote_outcome(task, outcome.end)
     }
@@ -124,7 +128,9 @@ impl TaskExecutor for AppExecutor {
                     output_encoding,
                 } => {
                     let Some(program) = resolve_shell(*shell) else {
-                        return failed(format!("本机未找到 {}", program_name(*shell)));
+                        return failed(Message::ShellMissing {
+                            program: program_name(*shell).into(),
+                        });
                     };
                     let cmd = LocalCommand {
                         shell: *shell,
@@ -140,28 +146,24 @@ impl TaskExecutor for AppExecutor {
                     };
                     match run_local(&cmd, &ctx.cancel, |chunk| ctx.output(chunk)).await {
                         Ok(outcome) => local_outcome(&ctx, *shell, task, outcome),
-                        Err(e) => failed(e.to_string()),
+                        Err(e) => failed(e.message()),
                     }
                 }
                 TaskAction::Remote { .. } => self.remote(task, &ctx).await,
-                TaskAction::Upload { .. } => {
-                    failed("当前版本尚不支持上传，请选择“仅本地命令”运行或去掉上传步骤".into())
-                }
+                TaskAction::Upload { .. } => failed(Message::UploadUnsupported),
                 TaskAction::Confirm { .. } => unreachable!("confirm tasks are never dispatched"),
             }
         })
     }
 }
 
-fn failed(reason: String) -> TaskOutcome {
+fn failed(reason: Message) -> TaskOutcome {
     TaskOutcome::Failed {
         exit_code: None,
         exit_signal: None,
         reason,
     }
 }
-
-const VERIFY_HINT: &str = "请登录服务器核验该命令是否仍在运行或已经生效";
 
 fn remote_outcome(task: &PlannedTask, end: RemoteEnd) -> TaskOutcome {
     match end {
@@ -171,30 +173,33 @@ fn remote_outcome(task: &PlannedTask, end: RemoteEnd) -> TaskOutcome {
             TaskOutcome::Failed {
                 exit_code: Some(code),
                 exit_signal: None,
-                reason: format!("退出码 {code}"),
+                reason: Message::ExitCode { code: code.into() },
             }
         }
         RemoteEnd::Signalled(sig) => TaskOutcome::Failed {
             exit_code: None,
-            reason: format!("远端进程被信号 {sig} 终止"),
+            reason: Message::Signal {
+                signal: sig.clone(),
+            },
             exit_signal: Some(sig),
         },
-        RemoteEnd::Refused => failed("服务器拒绝执行命令".into()),
+        RemoteEnd::Refused => failed(Message::Refused),
         RemoteEnd::Lost => TaskOutcome::Unknown {
-            reason: format!("连接在命令结束前断开，没有收到退出状态。{VERIFY_HINT}"),
+            reason: Message::CommandDisconnected,
         },
         RemoteEnd::Cancelled(Stop::Confirmed) => TaskOutcome::Cancelled,
         RemoteEnd::Cancelled(Stop::Unconfirmed(why)) => TaskOutcome::Unknown {
-            reason: format!("已取消，但无法确认远端进程已停止（{why}）。{VERIFY_HINT}"),
+            reason: Message::CancelUnconfirmed { why: Box::new(why) },
         },
         RemoteEnd::TimedOut(stop) => {
             let limit = task.timeout_sec.unwrap_or_default();
             match stop {
-                Stop::Confirmed => failed(format!("超过 {limit} 秒超时，远端进程已终止")),
+                Stop::Confirmed => failed(Message::RemoteTimeout { limit }),
                 Stop::Unconfirmed(why) => TaskOutcome::Unknown {
-                    reason: format!(
-                        "超过 {limit} 秒超时，无法确认远端进程已停止（{why}）。{VERIFY_HINT}"
-                    ),
+                    reason: Message::RemoteTimeoutUnconfirmed {
+                        limit,
+                        why: Box::new(why),
+                    },
                 },
             }
         }
@@ -208,9 +213,8 @@ fn local_outcome(
     outcome: LocalOutcome,
 ) -> TaskOutcome {
     if outcome.leftovers_terminated {
-        ctx.note("命令结束时仍有它启动的进程在运行，这些进程已被终止");
+        ctx.note(Message::Leftovers);
     }
-    let wsl_unknown = "已终止 wsl.exe，但无法确认 WSL 内的进程已停止，请手动检查";
     match outcome.end {
         LocalEnd::Exited => match outcome.exit_code {
             Some(0) => TaskOutcome::Succeeded { exit_code: Some(0) },
@@ -218,25 +222,25 @@ fn local_outcome(
                 exit_code: code,
                 exit_signal: None,
                 reason: match code {
-                    Some(c) => format!("退出码 {c}"),
-                    None => "进程异常结束，没有退出码".into(),
+                    Some(c) => Message::ExitCode { code: c.into() },
+                    None => Message::NoExitCode,
                 },
             },
         },
         LocalEnd::TimedOut => {
             let limit = task.timeout_sec.unwrap_or_default();
             if outcome.tree_stopped {
-                failed(format!("超过 {limit} 秒超时，进程已终止"))
+                failed(Message::LocalTimeout { limit })
             } else {
                 debug_assert_eq!(shell, Shell::Wsl);
                 TaskOutcome::Unknown {
-                    reason: format!("超过 {limit} 秒超时。{wsl_unknown}"),
+                    reason: Message::WslTimeout { limit },
                 }
             }
         }
         LocalEnd::Cancelled if outcome.tree_stopped => TaskOutcome::Cancelled,
         LocalEnd::Cancelled => TaskOutcome::Unknown {
-            reason: format!("已取消。{wsl_unknown}"),
+            reason: Message::WslCancelled,
         },
     }
 }

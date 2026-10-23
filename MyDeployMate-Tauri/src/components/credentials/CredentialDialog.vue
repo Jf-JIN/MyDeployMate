@@ -7,6 +7,7 @@ import UiDialog from '@/components/ui/UiDialog.vue'
 import UiNotice from '@/components/ui/UiNotice.vue'
 import UiTextInput from '@/components/ui/UiTextInput.vue'
 import { useT } from '@/i18n'
+import { messageText } from '@/i18n/message'
 import type { CredentialPrompt } from '@/ipc'
 
 import { credentialTitle } from './credentialLabels'
@@ -93,7 +94,7 @@ function submit() {
           </dd>
         </template>
         <dt>{{ t('credential.usedFor') }}</dt>
-        <dd>{{ prompt.context }}</dd>
+        <dd>{{ messageText(prompt.context) }}</dd>
       </dl>
 
       <div class="field">

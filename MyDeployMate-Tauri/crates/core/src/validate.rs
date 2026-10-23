@@ -9,6 +9,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::message::{Label, Message};
 use crate::model::*;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -35,8 +36,7 @@ pub struct Issue {
     /// Field name in camelCase, e.g. `port`.
     pub field: String,
     pub code: IssueCode,
-    /// User-facing message in Chinese.
-    pub message: String,
+    pub message: Message,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -130,20 +130,22 @@ pub fn check_workspace_json(value: serde_json::Value) -> Result<Workspace, Valid
 
 /// A field that does not have the expected JSON type, in words the user can act on (AC-02).
 /// serde's own text is English and names Rust types, so only unrecognised cases keep it.
-fn type_error_message(serde: &str) -> String {
+fn type_error_message(serde: &str) -> Message {
     let expects_unsigned = serde.contains("expected u");
     if expects_unsigned
         && (serde.contains("floating point") || serde.contains("invalid value: integer"))
     {
-        "必须是 0 或正整数".into()
+        Message::MustBeUnsigned
     } else if expects_unsigned {
-        "必须是数字".into()
+        Message::MustBeNumber
     } else if serde.contains("expected a string") {
-        "必须是文本".into()
+        Message::MustBeText
     } else if serde.contains("expected a boolean") {
-        "必须是开或关".into()
+        Message::MustBeSwitch
     } else {
-        format!("字段格式不正确：{serde}")
+        Message::BadFormat {
+            detail: serde.to_owned(),
+        }
     }
 }
 
@@ -160,10 +162,10 @@ pub fn validate_workspace(ws: &Workspace) -> ValidationReport {
             None,
             "schemaVersion",
             IssueCode::UnsupportedVersion,
-            format!(
-                "配置版本 {} 与程序支持的版本 {} 不一致",
-                ws.schema_version, SCHEMA_VERSION
-            ),
+            Message::SchemaVersion {
+                found: ws.schema_version,
+                supported: SCHEMA_VERSION,
+            },
         );
     }
     v.check_ids(ws);
@@ -210,7 +212,7 @@ impl Validator {
         object: Option<ObjectRef>,
         field: &str,
         code: IssueCode,
-        message: String,
+        message: Message,
     ) {
         self.issues.push(Issue {
             path,
@@ -221,45 +223,49 @@ impl Validator {
         });
     }
 
-    fn at(&mut self, at: &At, field: &str, code: IssueCode, message: impl Into<String>) {
+    fn at(&mut self, at: &At, field: &str, code: IssueCode, message: Message) {
         let path = format!("{}.{}", at.path, field);
-        self.push(path, at.object.clone(), field, code, message.into());
+        self.push(path, at.object.clone(), field, code, message);
     }
 
     /// Required name: trimmed length 1..=max.
-    fn name(&mut self, at: &At, field: &str, label: &str, value: &str, max: usize) {
+    fn name(&mut self, at: &At, field: &str, label: Label, value: &str, max: usize) {
         let len = value.trim().chars().count();
         if len == 0 {
-            self.at(at, field, IssueCode::Required, format!("{label}不能为空"));
+            self.at(at, field, IssueCode::Required, Message::Required { label });
         } else if len > max {
-            self.at(
-                at,
-                field,
-                IssueCode::TooLong,
-                format!("{label}最多 {max} 个字符，当前 {len} 个"),
-            );
+            self.too_long(at, field, label, len, max);
         }
     }
 
-    fn max_len(&mut self, at: &At, field: &str, label: &str, value: &str, max: usize) {
+    fn max_len(&mut self, at: &At, field: &str, label: Label, value: &str, max: usize) {
         let len = value.chars().count();
         if len > max {
-            self.at(
-                at,
-                field,
-                IssueCode::TooLong,
-                format!("{label}最多 {max} 个字符，当前 {len} 个"),
-            );
+            self.too_long(at, field, label, len, max);
         }
     }
 
-    fn range(&mut self, at: &At, field: &str, label: &str, value: u32, min: u32, max: u32) {
+    fn too_long(&mut self, at: &At, field: &str, label: Label, len: usize, max: usize) {
+        let message = Message::TooLongNow {
+            label,
+            max: max as u32,
+            len: len as u32,
+        };
+        self.at(at, field, IssueCode::TooLong, message);
+    }
+
+    fn range(&mut self, at: &At, field: &str, label: Label, value: u32, min: u32, max: u32) {
         if !(min..=max).contains(&value) {
             self.at(
                 at,
                 field,
                 IssueCode::OutOfRange,
-                format!("{label}必须在 {min}–{max} 之间，当前为 {value}"),
+                Message::OutOfRange {
+                    label,
+                    min,
+                    max,
+                    value,
+                },
             );
         }
     }
@@ -270,7 +276,12 @@ impl Validator {
         let mut check = |v: &mut Self, at: At| {
             let id = at.object.as_ref().map(|o| o.id.clone()).unwrap_or_default();
             if !seen.insert(id.clone()) {
-                v.at(&at, "id", IssueCode::DuplicateId, format!("ID {id} 重复"));
+                v.at(
+                    &at,
+                    "id",
+                    IssueCode::DuplicateId,
+                    Message::DuplicateId { id },
+                );
             }
         };
         for (i, e) in ws.environments.iter().enumerate() {
@@ -338,8 +349,15 @@ impl Validator {
         let mut names: HashSet<String> = HashSet::new();
         for (i, e) in ws.environments.iter().enumerate() {
             let at = At::new(format!("environments[{i}]"), ObjectKind::Environment, e.id);
-            self.name(&at, "name", "环境名称", &e.name, ENV_NAME_MAX);
-            unique(self, &mut names, &at, "name", "环境名称", e.name.trim());
+            self.name(&at, "name", Label::EnvironmentName, &e.name, ENV_NAME_MAX);
+            unique(
+                self,
+                &mut names,
+                &at,
+                "name",
+                Label::EnvironmentName,
+                e.name.trim(),
+            );
         }
     }
 
@@ -349,8 +367,15 @@ impl Validator {
         let mut names: HashSet<String> = HashSet::new();
         for (i, s) in ws.servers.iter().enumerate() {
             let at = At::new(format!("servers[{i}]"), ObjectKind::Server, s.id);
-            self.name(&at, "name", "服务器名称", &s.name, NAME_MAX);
-            unique(self, &mut names, &at, "name", "服务器名称", s.name.trim());
+            self.name(&at, "name", Label::ServerName, &s.name, NAME_MAX);
+            unique(
+                self,
+                &mut names,
+                &at,
+                "name",
+                Label::ServerName,
+                s.name.trim(),
+            );
             if let Err(msg) = check_host(&s.host) {
                 let code = if s.host.trim().is_empty() {
                     IssueCode::Required
@@ -359,36 +384,38 @@ impl Validator {
                 };
                 self.at(&at, "host", code, msg);
             }
-            self.range(&at, "port", "端口", s.port, 1, 65_535);
-            self.login_name(&at, "user", "登录用户", &s.user);
+            self.range(&at, "port", Label::Port, s.port, 1, 65_535);
+            self.login_name(&at, "user", Label::User, &s.user);
             if !envs.contains(&s.environment_id) {
                 self.at(
                     &at,
                     "environmentId",
                     IssueCode::UnknownReference,
-                    "所属环境不存在",
+                    Message::UnknownEnvironment,
                 );
             }
             self.range(
                 &at,
                 "connectTimeoutSec",
-                "连接超时（秒）",
+                Label::ConnectTimeout,
                 s.connect_timeout_sec,
                 1,
                 CONNECT_TIMEOUT_MAX_SEC,
             );
             for (t, tag) in s.tags.iter().enumerate() {
                 let field = format!("tags[{t}]");
-                self.name(&at, &field, "标签", tag, TAG_MAX);
+                self.name(&at, &field, Label::Tag, tag, TAG_MAX);
             }
-            self.max_len(&at, "notes", "备注", &s.notes, NOTES_MAX);
+            self.max_len(&at, "notes", Label::Notes, &s.notes, NOTES_MAX);
             match &s.auth {
                 AuthMethod::KeyFile { path } if path.trim().is_empty() => {
                     self.at(
                         &at,
                         "auth.path",
                         IssueCode::Required,
-                        "私钥文件路径不能为空",
+                        Message::Required {
+                            label: Label::KeyPath,
+                        },
                     );
                 }
                 AuthMethod::Password {
@@ -401,44 +428,43 @@ impl Validator {
             match &s.privilege {
                 PrivilegePolicy::SudoNonInteractive { run_as }
                 | PrivilegePolicy::SudoPassword { run_as } => {
-                    self.login_name(&at, "privilege.runAs", "提权目标用户", run_as);
+                    self.login_name(&at, "privilege.runAs", Label::RunAs, run_as);
                 }
                 PrivilegePolicy::None => {}
             }
         }
     }
 
-    fn login_name(&mut self, at: &At, field: &str, label: &str, value: &str) {
+    fn login_name(&mut self, at: &At, field: &str, label: Label, value: &str) {
         if value.is_empty() {
-            self.at(at, field, IssueCode::Required, format!("{label}不能为空"));
+            self.at(at, field, IssueCode::Required, Message::Required { label });
         } else if value.chars().any(char::is_whitespace) {
             self.at(
                 at,
                 field,
                 IssueCode::InvalidFormat,
-                format!("{label}不能包含空白字符"),
+                Message::NoWhitespace { label },
             );
         } else if value.chars().count() > NAME_MAX {
             self.at(
                 at,
                 field,
                 IssueCode::TooLong,
-                format!("{label}最多 {NAME_MAX} 个字符"),
+                Message::TooLong {
+                    label,
+                    max: NAME_MAX as u32,
+                },
             );
         }
     }
 
     fn env_var_name(&mut self, at: &At, field: &str, name: &str) {
         if name.trim().is_empty() {
-            self.at(at, field, IssueCode::Required, "环境变量名不能为空");
+            let label = Label::EnvVarName;
+            self.at(at, field, IssueCode::Required, Message::Required { label });
         } else if name.contains('=') || name.contains('\0') || name.chars().any(char::is_whitespace)
         {
-            self.at(
-                at,
-                field,
-                IssueCode::InvalidFormat,
-                "环境变量名不能包含 =、空白或 NUL 字符",
-            );
+            self.at(at, field, IssueCode::InvalidFormat, Message::EnvVarChars);
         }
     }
 
@@ -453,21 +479,25 @@ impl Validator {
                 } else {
                     IssueCode::InvalidFormat
                 };
-                self.at(
-                    &at,
-                    "name",
-                    code,
-                    "变量名须以字母或下划线开头，只含字母、数字和下划线",
-                );
+                self.at(&at, "name", code, Message::Identifier);
             } else if RESERVED_VARIABLE_NAMES.contains(&var.name.as_str()) {
                 self.at(
                     &at,
                     "name",
                     IssueCode::Reserved,
-                    format!("{} 是内建命名空间，不能用作变量名", var.name),
+                    Message::ReservedName {
+                        name: var.name.clone(),
+                    },
                 );
             }
-            unique(self, &mut names, &at, "name", "变量名", &var.name);
+            unique(
+                self,
+                &mut names,
+                &at,
+                "name",
+                Label::VariableName,
+                &var.name,
+            );
             self.variable_value(&at, "value", &var.value, var.sensitive);
         }
     }
@@ -475,12 +505,7 @@ impl Validator {
     fn variable_value(&mut self, at: &At, field: &str, value: &VariableValue, sensitive: bool) {
         match value {
             VariableValue::Literal { .. } if sensitive => {
-                self.at(
-                    at,
-                    field,
-                    IssueCode::NotAllowed,
-                    "敏感变量不能以明文保存，请使用凭据管理器或环境变量",
-                );
+                self.at(at, field, IssueCode::NotAllowed, Message::SensitiveLiteral);
             }
             VariableValue::EnvRef { name } => self.env_var_name(at, &format!("{field}.name"), name),
             _ => {}
@@ -498,37 +523,40 @@ impl Validator {
         let mut names: HashSet<String> = HashSet::new();
         for (i, p) in ws.projects.iter().enumerate() {
             let at = At::new(format!("projects[{i}]"), ObjectKind::Project, p.id);
-            self.name(&at, "name", "项目名称", &p.name, NAME_MAX);
-            unique(self, &mut names, &at, "name", "项目名称", p.name.trim());
-            self.max_len(&at, "description", "说明", &p.description, NOTES_MAX);
+            self.name(&at, "name", Label::ProjectName, &p.name, NAME_MAX);
+            unique(
+                self,
+                &mut names,
+                &at,
+                "name",
+                Label::ProjectName,
+                p.name.trim(),
+            );
+            self.max_len(
+                &at,
+                "description",
+                Label::Description,
+                &p.description,
+                NOTES_MAX,
+            );
             if let Some(root) = p.root.as_deref().filter(|r| !r.trim().is_empty())
                 && !is_windows_absolute(root)
             {
-                self.at(
-                    &at,
-                    "root",
-                    IssueCode::InvalidFormat,
-                    "根目录必须是本地绝对路径，例如 D:\\workspace\\app",
-                );
+                self.at(&at, "root", IssueCode::InvalidFormat, Message::RootAbsolute);
             }
             if !envs.contains(&p.default_environment_id) {
                 self.at(
                     &at,
                     "defaultEnvironmentId",
                     IssueCode::UnknownReference,
-                    "默认环境不存在",
+                    Message::UnknownDefaultEnvironment,
                 );
             }
             self.check_targets(&at, p, &envs, &server_env);
             self.check_variables(&format!("{}.variables", at.path), &p.variables);
             self.check_overrides(&at, p, &ws.global_variables, &envs);
             if p.pipelines.is_empty() {
-                self.at(
-                    &at,
-                    "pipelines",
-                    IssueCode::Required,
-                    "项目至少需要一个流程",
-                );
+                self.at(&at, "pipelines", IssueCode::Required, Message::NoPipelines);
             }
             let mut pipeline_names: HashSet<String> = HashSet::new();
             let has_root = p.root.as_deref().is_some_and(|r| !r.trim().is_empty());
@@ -538,13 +566,13 @@ impl Validator {
                     ObjectKind::Pipeline,
                     pl.id,
                 );
-                self.name(&pat, "name", "流程名称", &pl.name, NAME_MAX);
+                self.name(&pat, "name", Label::PipelineName, &pl.name, NAME_MAX);
                 unique(
                     self,
                     &mut pipeline_names,
                     &pat,
                     "name",
-                    "流程名称",
+                    Label::PipelineName,
                     pl.name.trim(),
                 );
                 if pl.failure_policy == PipelineFailurePolicy::SkipServer
@@ -554,7 +582,7 @@ impl Validator {
                         &pat,
                         "failurePolicy",
                         IssueCode::NotAllowed,
-                        "“跳过该服务器”只能用于服务器优先的流程",
+                        Message::SkipServerOrder,
                     );
                 }
                 for (k, step) in pl.steps.iter().enumerate() {
@@ -584,7 +612,7 @@ impl Validator {
                     at,
                     &format!("{base}.environmentId"),
                     IssueCode::UnknownReference,
-                    "目标绑定的环境不存在",
+                    Message::UnknownTargetEnvironment,
                 );
             }
             if !seen_envs.insert(targets.environment_id) {
@@ -592,7 +620,7 @@ impl Validator {
                     at,
                     &format!("{base}.environmentId"),
                     IssueCode::Duplicate,
-                    "同一环境的目标绑定重复",
+                    Message::DuplicateTargetEnvironment,
                 );
             }
             let mut seen = HashSet::new();
@@ -603,18 +631,18 @@ impl Validator {
                         at,
                         &field,
                         IssueCode::UnknownReference,
-                        "绑定的服务器不存在",
+                        Message::UnknownServer,
                     ),
                     Some(env) if *env != targets.environment_id => self.at(
                         at,
                         &field,
                         IssueCode::WrongEnvironment,
-                        "只能绑定该环境下的服务器",
+                        Message::WrongEnvironment,
                     ),
                     Some(_) => {}
                 }
                 if !seen.insert(*id) {
-                    self.at(at, &field, IssueCode::Duplicate, "同一服务器重复绑定");
+                    self.at(at, &field, IssueCode::Duplicate, Message::DuplicateServer);
                 }
             }
         }
@@ -635,7 +663,7 @@ impl Validator {
                     at,
                     &format!("{base}.environmentId"),
                     IssueCode::UnknownReference,
-                    "覆盖值所属环境不存在",
+                    Message::UnknownOverrideEnvironment,
                 );
             }
             let target = p
@@ -648,7 +676,9 @@ impl Validator {
                     at,
                     &format!("{base}.name"),
                     IssueCode::UnknownReference,
-                    format!("变量 {} 不存在", ov.name),
+                    Message::UnknownVariable {
+                        name: ov.name.clone(),
+                    },
                 ),
                 Some(var) => {
                     self.variable_value(at, &format!("{base}.value"), &ov.value, var.sensitive)
@@ -659,7 +689,7 @@ impl Validator {
                     at,
                     &format!("{base}.name"),
                     IssueCode::Duplicate,
-                    "同一环境对同一变量的覆盖重复",
+                    Message::DuplicateOverride,
                 );
             }
         }
@@ -667,7 +697,7 @@ impl Validator {
 
     /// STEP-01–06. Disabled steps keep only their common fields checked (PRJ-02).
     fn check_step(&mut self, at: &At, step: &Step, pl: &Pipeline, has_root: bool) {
-        self.name(at, "name", "步骤名称", &step.name, NAME_MAX);
+        self.name(at, "name", Label::StepName, &step.name, NAME_MAX);
         let kind = step.spec.kind();
         if step.failure_policy == StepFailurePolicy::SkipServer {
             if matches!(kind, StepKind::Local | StepKind::Confirm) {
@@ -675,14 +705,14 @@ impl Validator {
                     at,
                     "failurePolicy",
                     IssueCode::NotAllowed,
-                    "本地命令和人工确认不能选择“跳过该服务器”",
+                    Message::SkipServerKind,
                 );
             } else if pl.execution_order != ExecutionOrder::ServerFirst {
                 self.at(
                     at,
                     "failurePolicy",
                     IssueCode::NotAllowed,
-                    "“跳过该服务器”只能用于服务器优先的流程",
+                    Message::SkipServerOrder,
                 );
             }
         }
@@ -693,7 +723,7 @@ impl Validator {
             self.range(
                 at,
                 "timeoutSec",
-                "超时（秒）",
+                Label::Timeout,
                 step.timeout_sec,
                 1,
                 TIMEOUT_MAX_SEC,
@@ -702,7 +732,13 @@ impl Validator {
         match &step.spec {
             StepSpec::Local(l) => {
                 if l.command.trim().is_empty() {
-                    self.at(at, "spec.command", IssueCode::Required, "命令不能为空");
+                    let label = Label::Command;
+                    self.at(
+                        at,
+                        "spec.command",
+                        IssueCode::Required,
+                        Message::Required { label },
+                    );
                 }
                 let cwd = l.cwd.as_deref().filter(|c| !c.trim().is_empty());
                 if l.shell == Shell::Wsl {
@@ -711,7 +747,7 @@ impl Validator {
                             at,
                             "spec.wslDistro",
                             IssueCode::Required,
-                            "WSL 步骤必须选择发行版",
+                            Message::WslDistro,
                         );
                     }
                     // The project root is a Windows path; WSL never guesses a mapping (STEP-02).
@@ -720,14 +756,11 @@ impl Validator {
                             at,
                             "spec.cwd",
                             IssueCode::InvalidFormat,
-                            "WSL 工作目录必须是 Linux 绝对路径，例如 /home/user/app",
+                            Message::WslCwdAbsolute,
                         ),
-                        None => self.at(
-                            at,
-                            "spec.cwd",
-                            IssueCode::Required,
-                            "WSL 步骤必须填写 Linux 工作目录",
-                        ),
+                        None => {
+                            self.at(at, "spec.cwd", IssueCode::Required, Message::WslCwdRequired)
+                        }
                         _ => {}
                     }
                 } else {
@@ -737,30 +770,33 @@ impl Validator {
                                 at,
                                 "spec.cwd",
                                 IssueCode::InvalidFormat,
-                                "相对工作目录需要项目根目录，请填写绝对路径或设置项目根目录",
+                                Message::RelativeCwd,
                             ),
-                        None if !has_root => self.at(
-                            at,
-                            "spec.cwd",
-                            IssueCode::Required,
-                            "未设置项目根目录时必须填写工作目录",
-                        ),
+                        None if !has_root => {
+                            self.at(at, "spec.cwd", IssueCode::Required, Message::CwdRequired)
+                        }
                         _ => {}
                     }
                 }
             }
             StepSpec::Upload(u) => {
                 if u.source.trim().is_empty() {
-                    self.at(at, "spec.source", IssueCode::Required, "本地源路径不能为空");
+                    let label = Label::Source;
+                    self.at(
+                        at,
+                        "spec.source",
+                        IssueCode::Required,
+                        Message::Required { label },
+                    );
                 } else if !has_template(&u.source) && !is_windows_absolute(&u.source) && !has_root {
                     self.at(
                         at,
                         "spec.source",
                         IssueCode::InvalidFormat,
-                        "相对源路径需要项目根目录",
+                        Message::RelativeSource,
                     );
                 }
-                self.remote_absolute(at, "spec.target", "远端目标", &u.target, true);
+                self.remote_absolute(at, "spec.target", Label::Target, &u.target, true);
             }
             StepSpec::Remote(r) => {
                 match &r.command {
@@ -770,7 +806,9 @@ impl Validator {
                                 at,
                                 "spec.command.script",
                                 IssueCode::Required,
-                                "命令不能为空",
+                                Message::Required {
+                                    label: Label::Command,
+                                },
                             );
                         }
                     }
@@ -778,7 +816,7 @@ impl Validator {
                         self.remote_absolute(
                             at,
                             "spec.command.executable",
-                            "可执行文件",
+                            Label::Executable,
                             executable,
                             true,
                         );
@@ -788,40 +826,46 @@ impl Validator {
                                     at,
                                     &format!("spec.command.args[{a}]"),
                                     IssueCode::InvalidFormat,
-                                    "参数不能包含 NUL 字符",
+                                    Message::ArgNul,
                                 );
                             }
                         }
                     }
                 }
                 if let Some(cwd) = r.cwd.as_deref().filter(|c| !c.trim().is_empty()) {
-                    self.remote_absolute(at, "spec.cwd", "远端目录", cwd, false);
+                    self.remote_absolute(at, "spec.cwd", Label::RemoteCwd, cwd, false);
                 }
                 match &r.privilege {
                     StepPrivilege::SudoNonInteractive { run_as }
                     | StepPrivilege::SudoPassword { run_as } => {
-                        self.login_name(at, "spec.privilege.runAs", "提权目标用户", run_as);
+                        self.login_name(at, "spec.privilege.runAs", Label::RunAs, run_as);
                     }
                     StepPrivilege::Inherit | StepPrivilege::None => {}
                 }
             }
             StepSpec::Confirm(c) => {
-                self.name(at, "spec.prompt", "确认提示", &c.prompt, CONFIRM_PROMPT_MAX);
+                self.name(
+                    at,
+                    "spec.prompt",
+                    Label::Prompt,
+                    &c.prompt,
+                    CONFIRM_PROMPT_MAX,
+                );
             }
         }
     }
 
-    fn remote_absolute(&mut self, at: &At, field: &str, label: &str, value: &str, required: bool) {
+    fn remote_absolute(&mut self, at: &At, field: &str, label: Label, value: &str, required: bool) {
         if value.trim().is_empty() {
             if required {
-                self.at(at, field, IssueCode::Required, format!("{label}不能为空"));
+                self.at(at, field, IssueCode::Required, Message::Required { label });
             }
         } else if !has_template(value) && !value.starts_with('/') {
             self.at(
                 at,
                 field,
                 IssueCode::InvalidFormat,
-                format!("{label}必须是远端绝对路径（以 / 开头）"),
+                Message::RemoteAbsolute { label },
             );
         }
     }
@@ -832,7 +876,7 @@ fn unique(
     seen: &mut HashSet<String>,
     at: &At,
     field: &str,
-    label: &str,
+    label: Label,
     value: &str,
 ) {
     if value.is_empty() {
@@ -843,7 +887,10 @@ fn unique(
             at,
             field,
             IssueCode::Duplicate,
-            format!("{label}“{value}”已存在"),
+            Message::DuplicateName {
+                label,
+                value: value.to_owned(),
+            },
         );
     }
 }
@@ -867,39 +914,41 @@ pub fn is_windows_absolute(p: &str) -> bool {
 }
 
 /// SRV-01: DNS name, IPv4 or IPv6, without scheme, path, user or port.
-pub fn check_host(host: &str) -> Result<(), String> {
+pub fn check_host(host: &str) -> Result<(), Message> {
     let h = host.trim();
     if h.is_empty() {
-        return Err("地址不能为空".into());
+        return Err(Message::Required {
+            label: Label::Address,
+        });
     }
     if h != host {
-        return Err("地址前后不能有空白".into());
+        return Err(Message::HostWhitespace);
     }
     if h.contains("://") {
-        return Err("地址不能包含协议（如 ssh://），请只填写主机名或 IP".into());
+        return Err(Message::HostScheme);
     }
     if h.contains('/') || h.contains('\\') {
-        return Err("地址不能包含路径".into());
+        return Err(Message::HostPath);
     }
     if h.contains('@') {
-        return Err("地址不能包含用户名，登录用户请单独填写".into());
+        return Err(Message::HostUser);
     }
     if h.starts_with('[') || h.ends_with(']') {
-        return Err("IPv6 地址不需要方括号，端口请单独填写".into());
+        return Err(Message::HostBrackets);
     }
     if h.parse::<Ipv6Addr>().is_ok() || h.parse::<Ipv4Addr>().is_ok() {
         return Ok(());
     }
     if h.contains(':') {
-        return Err("地址不能包含端口，端口请单独填写".into());
+        return Err(Message::HostPort);
     }
     if h.split('.')
         .all(|label| label.chars().all(|c| c.is_ascii_digit()))
     {
-        return Err("IPv4 地址格式不正确".into());
+        return Err(Message::HostIpv4);
     }
     if h.len() > 253 {
-        return Err("主机名最长 253 个字符".into());
+        return Err(Message::HostTooLong);
     }
     let label_ok = |l: &str| {
         !l.is_empty()
@@ -911,6 +960,6 @@ pub fn check_host(host: &str) -> Result<(), String> {
     if h.split('.').all(label_ok) {
         Ok(())
     } else {
-        Err("主机名只能包含字母、数字、连字符和点".into())
+        Err(Message::HostChars)
     }
 }

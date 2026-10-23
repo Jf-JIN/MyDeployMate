@@ -14,7 +14,8 @@ import UiNotice from '@/components/ui/UiNotice.vue'
 import UiTextInput from '@/components/ui/UiTextInput.vue'
 import { cloneWorkspace } from '@/composables/workspaceDraft'
 import { useT } from '@/i18n'
-import { toAppError, type Project } from '@/ipc'
+import { errorText } from '@/i18n/message'
+import type { Project } from '@/ipc'
 import { useRunStore } from '@/stores/run'
 import { useSessionStore } from '@/stores/session'
 import { useToastStore } from '@/stores/toast'
@@ -118,7 +119,7 @@ async function applyDelete() {
     await store.save(draft)
     toast.show(t('projects.deleted', { name: project.name }))
   } catch (e) {
-    listError.value = toAppError(e).message
+    listError.value = errorText(e)
   } finally {
     deleteBusy.value = false
     deleting.value = null

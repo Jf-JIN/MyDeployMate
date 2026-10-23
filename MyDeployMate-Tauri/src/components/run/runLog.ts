@@ -1,3 +1,4 @@
+import { messageText } from '@/i18n/message'
 import type { LogEntry, LogSource } from '@/ipc'
 
 /** Lines of output past the 50 MiB limit kept on screen; older ones are dropped (NFR-02). */
@@ -50,7 +51,9 @@ export class RunLogLines {
     // Output after the marker is either live or a saved tail: neither continues an earlier line.
     if (entry.truncated) this.open.clear()
     const key = `${entry.task}:${entry.source}`
-    const parts = entry.text.split('\n')
+    // An app note is rendered once, in the language current when it arrives.
+    const text = entry.message ? messageText(entry.message) + entry.text : entry.text
+    const parts = text.split('\n')
     // The text after the last newline stays open; an empty one means the entry ended a line.
     const rest = parts.pop() ?? ''
     parts.forEach((part, i) => {

@@ -12,7 +12,8 @@ import UiDialog from '@/components/ui/UiDialog.vue'
 import UiIconButton from '@/components/ui/UiIconButton.vue'
 import UiNotice from '@/components/ui/UiNotice.vue'
 import { useT } from '@/i18n'
-import { call, toAppError, type HostEndpoint, type HostKey, type TrustedHost } from '@/ipc'
+import { errorText } from '@/i18n/message'
+import { call, type HostEndpoint, type HostKey, type TrustedHost } from '@/ipc'
 import { useToastStore } from '@/stores/toast'
 import { useWorkspaceStore } from '@/stores/workspace'
 
@@ -33,7 +34,7 @@ async function load() {
   try {
     hosts.value = await call('trusted_hosts')
   } catch (e) {
-    error.value = toAppError(e).message
+    error.value = errorText(e)
   }
 }
 
@@ -92,7 +93,7 @@ async function startUpdate(endpoint: HostEndpoint) {
   try {
     fetched.value = await call('fetch_host_key', { endpoint, timeoutSec })
   } catch (e) {
-    fetchError.value = toAppError(e).message
+    fetchError.value = errorText(e)
   } finally {
     fetching.value = false
   }
@@ -111,7 +112,7 @@ async function applyUpdate() {
     updating.value = null
     await load()
   } catch (e) {
-    fetchError.value = toAppError(e).message
+    fetchError.value = errorText(e)
   } finally {
     saving.value = false
   }
@@ -133,7 +134,7 @@ async function applyRemove() {
     )
     await load()
   } catch (e) {
-    error.value = toAppError(e).message
+    error.value = errorText(e)
   } finally {
     removeBusy.value = false
     removing.value = null

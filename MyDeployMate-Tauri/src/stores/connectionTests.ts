@@ -2,9 +2,9 @@ import { Channel } from '@tauri-apps/api/core'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
+import { errorText } from '@/i18n/message'
 import {
   call,
-  toAppError,
   type ConnectionTest,
   type CredentialPrompt,
   type HostEndpoint,
@@ -65,7 +65,7 @@ export const useConnectionTestStore = defineStore('connectionTests', () => {
       const list = await call('connection_tests')
       results.value = Object.fromEntries(list.map((t) => [t.serverId, t]))
     } catch (e) {
-      error.value = toAppError(e).message
+      error.value = errorText(e)
     }
   }
 
@@ -97,7 +97,7 @@ export const useConnectionTestStore = defineStore('connectionTests', () => {
       }
       return result
     } catch (e) {
-      error.value = toAppError(e).message
+      error.value = errorText(e)
       return null
     } finally {
       const rest = { ...running.value }
@@ -142,7 +142,7 @@ export const useConnectionTestStore = defineStore('connectionTests', () => {
     try {
       await call('answer_host_trust', { requestId: request.requestId, trust })
     } catch (e) {
-      error.value = toAppError(e).message
+      error.value = errorText(e)
     }
   }
 
@@ -157,7 +157,7 @@ export const useConnectionTestStore = defineStore('connectionTests', () => {
     try {
       await call('submit_secret', { requestId: request.requestId, secret, remember })
     } catch (e) {
-      error.value = toAppError(e).message
+      error.value = errorText(e)
     }
   }
 

@@ -7,6 +7,7 @@
 use serde::Serialize;
 use ts_rs::TS;
 
+use crate::message::Message;
 use crate::trust::{HostEndpoint, HostKey};
 
 /// The step a connection had reached when it failed.
@@ -104,37 +105,33 @@ impl ConnectErrorKind {
     }
 
     /// A short, safe explanation with a suggestion where one helps.
-    pub fn describe(&self) -> String {
+    pub fn describe(&self) -> Message {
         use ConnectErrorKind::*;
         match self {
-            KeyFileUnreadable { path } => format!("无法读取私钥文件 {path}"),
-            KeyFormatUnsupported { path } => {
-                format!("不支持的私钥格式：{path}。支持 OpenSSH 格式与 PuTTY .ppk v2/v3")
-            }
-            PasswordEnvMissing { name } => format!(
-                "本机环境变量 {name} 未设置或为空。环境变量在应用启动时读取，修改后需重启应用"
-            ),
-            AgentUnavailable => "SSH Agent 不可用，请确认 Agent 服务或 Pageant 已启动".into(),
-            AgentNoIdentities => "SSH Agent 中没有可用的密钥".into(),
-            ResolveFailed => "无法解析服务器地址，请检查地址拼写和 DNS".into(),
-            ConnectionRefused => "连接被拒绝，请检查端口和服务器上的 SSH 服务".into(),
-            Unreachable => "网络不可达，请检查网络连接和防火墙".into(),
-            Timeout => "连接超时".into(),
+            KeyFileUnreadable { path } => Message::KeyFileUnreadable { path: path.clone() },
+            KeyFormatUnsupported { path } => Message::KeyFormatUnsupported { path: path.clone() },
+            PasswordEnvMissing { name } => Message::PasswordEnvMissing { name: name.clone() },
+            AgentUnavailable => Message::AgentUnavailable,
+            AgentNoIdentities => Message::AgentNoIdentities,
+            ResolveFailed => Message::ResolveFailed,
+            ConnectionRefused => Message::ConnectionRefused,
+            Unreachable => Message::Unreachable,
+            Timeout => Message::ConnectTimeout,
             AlgorithmNegotiation {
                 legacy_rsa_only: true,
-            } => "该服务器只支持 ssh-rsa，可在服务器设置中开启“允许旧算法”".into(),
-            AlgorithmNegotiation { .. } => "与服务器没有共同支持的加密算法".into(),
-            HostKeyUnknown { .. } => "首次连接该服务器，需要核对并信任服务器身份".into(),
-            HostKeyChanged { .. } => "服务器身份与已记录的不一致，连接已停止".into(),
-            KeyPassphraseWrong => "私钥口令不正确".into(),
-            AuthenticationFailed => "认证失败，服务器未接受该账号的凭据".into(),
+            } => Message::LegacyRsaOnly,
+            AlgorithmNegotiation { .. } => Message::AlgorithmNegotiation,
+            HostKeyUnknown { .. } => Message::HostKeyUnknown,
+            HostKeyChanged { .. } => Message::HostKeyChanged,
+            KeyPassphraseWrong => Message::KeyPassphraseWrong,
+            AuthenticationFailed => Message::AuthenticationFailed,
             CommandFailed {
                 exit_status: Some(code),
-            } => format!("已登录，但探测命令失败（退出码 {code}）"),
-            CommandFailed { .. } => "已登录，但探测命令没有正常结束".into(),
-            Cancelled => "已取消".into(),
-            Disconnected => "服务器断开了连接".into(),
-            Protocol => "SSH 协议错误".into(),
+            } => Message::ProbeFailed { code: *code },
+            CommandFailed { .. } => Message::ProbeAborted,
+            Cancelled => Message::Cancelled,
+            Disconnected => Message::Disconnected,
+            Protocol => Message::Protocol,
         }
     }
 }
@@ -148,7 +145,7 @@ pub struct ConnectError {
     #[serde(flatten)]
     pub kind: ConnectErrorKind,
     /// Safe text for the operator: [`ConnectErrorKind::describe`] plus any technical detail.
-    pub message: String,
+    pub message: Message,
 }
 
 impl ConnectError {
@@ -165,19 +162,22 @@ impl ConnectError {
         }
     }
 
-    /// Append technical detail, e.g. the algorithm lists or an IO error.
+    /// Append technical detail, e.g. an IO error; it is shown untranslated.
     pub fn with_detail(mut self, detail: impl AsRef<str>) -> Self {
-        let detail = detail.as_ref().trim();
-        if !detail.is_empty() {
-            self.message = format!("{}（{detail}）", self.message);
-        }
+        self.message = self.message.with_detail(detail);
+        self
+    }
+
+    /// Append an explanation of our own, e.g. the algorithm lists.
+    pub fn with_note(mut self, note: Message) -> Self {
+        self.message = self.message.with_note(note);
         self
     }
 }
 
 impl std::fmt::Display for ConnectError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.message)
+        write!(f, "{:?} failed: {:?}", self.stage, self.message)
     }
 }
 

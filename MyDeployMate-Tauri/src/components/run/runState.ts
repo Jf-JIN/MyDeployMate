@@ -1,5 +1,6 @@
 import { translate, type MessageKey } from '@/i18n'
-import type { PlannedTask, ResolvedPlan, RunStatus, Task, TaskStatus } from '@/ipc'
+import { messageText } from '@/i18n/message'
+import type { Message, PlannedTask, ResolvedPlan, RunStatus, Task, TaskStatus } from '@/ipc'
 import type { Tone } from '@/components/ui/types'
 
 import { groupTasks } from '@/components/preview/preview'
@@ -66,8 +67,10 @@ export interface RunTaskGroup {
   tasks: RunTask[]
 }
 
-// Matches the backend's Chinese reason until it becomes a message code (5b.3).
-const SKIPPED_SERVER = /^服务器 .+ 已跳过（(任务 \d+ 失败)）$/
+/** The task number whose failure made the skip-server policy stop this task's server. */
+function skippedAfter(task: Task): number | null {
+  return task.reason?.code === 'run.serverSkipped' ? task.reason.params.n : null
+}
 
 /** The task list grouped as in the preview (IXD-23, IXD-26). */
 export function groupRunTasks(plan: ResolvedPlan, tasks: Task[]): RunTaskGroup[] {
@@ -77,12 +80,10 @@ export function groupRunTasks(plan: ResolvedPlan, tasks: Task[]): RunTaskGroup[]
       const task = bySeq.get(p.seq)
       return task ? [{ plan: p, task }] : []
     })
-    const hit = g.server
-      ? items.map((t) => SKIPPED_SERVER.exec(t.task.reason ?? '')).find((m) => m)
-      : undefined
+    const n = g.server ? items.map((t) => skippedAfter(t.task)).find((x) => x !== null) : undefined
     return {
       ...g,
-      skipped: hit ? translate('run.skippedGroup', { reason: hit[1] ?? '' }) : null,
+      skipped: n == null ? null : translate('run.skippedGroup', { n }),
       tasks: items,
     }
   })
@@ -90,9 +91,7 @@ export function groupRunTasks(plan: ResolvedPlan, tasks: Task[]): RunTaskGroup[]
 
 /** How many servers the skip-server policy stopped (IXD-30). */
 export function skippedServerCount(tasks: Task[]): number {
-  const servers = new Set(
-    tasks.filter((t) => SKIPPED_SERVER.test(t.reason ?? '')).map((t) => t.serverId),
-  )
+  const servers = new Set(tasks.filter((t) => skippedAfter(t) !== null).map((t) => t.serverId))
   return servers.size
 }
 
@@ -103,11 +102,8 @@ export function taskLabel(task: Task): string {
     : translate('run.taskLabel', { n, name: task.stepName })
 }
 
-// The backend's Chinese reason, until it becomes a message code (5b.3).
-const APP_EXITED_REASON = '应用在运行过程中退出，运行未自动继续'
-
 /** The line under the summary once the run has ended (IXD-26). */
-export function outcomeText(status: RunStatus, tasks: Task[], cancelReason: string | null) {
+export function outcomeText(status: RunStatus, tasks: Task[], cancelReason: Message | null) {
   const count = (s: TaskStatus) => tasks.filter((t) => t.status === s).length
   switch (status) {
     case 'succeeded':
@@ -119,21 +115,23 @@ export function outcomeText(status: RunStatus, tasks: Task[], cancelReason: stri
         skipped: count('skipped'),
       })
       if (!first) return counts
-      const why = first.reason ? translate('run.outcome.why', { reason: first.reason }) : ''
+      const why = first.reason
+        ? translate('run.outcome.why', { reason: messageText(first.reason) })
+        : ''
       const key = first.status === 'unknown' ? 'run.outcome.unknown' : 'run.outcome.failed'
       return translate(key, { task: taskLabel(first), why, counts })
     }
     case 'cancelled': {
       const ran = tasks.filter((t) => t.startedAtMs !== null).length
       return translate('run.outcome.cancelled', {
-        reason: cancelReason ?? translate('run.status.cancelled'),
+        reason: cancelReason ? messageText(cancelReason) : translate('run.status.cancelled'),
         ran,
         rest: tasks.length - ran,
       })
     }
     case 'interrupted': {
-      // Set by history recovery (mdm-store INTERRUPTED_REASON) when the app quit mid-run.
-      const appExited = tasks.some((t) => t.reason === APP_EXITED_REASON)
+      // Set by history recovery when the app quit mid-run.
+      const appExited = tasks.some((t) => t.reason?.code === 'run.appExited')
       return translate(appExited ? 'run.outcome.appExited' : 'run.outcome.interrupted')
     }
     default:

@@ -10,6 +10,7 @@ import UiTextarea from '@/components/ui/UiTextarea.vue'
 import UiTextInput from '@/components/ui/UiTextInput.vue'
 import { cloneWorkspace, focusFirstInvalid, useIssues } from '@/composables/workspaceDraft'
 import { useT } from '@/i18n'
+import { messageText } from '@/i18n/message'
 import { call, toAppError, type Project } from '@/ipc'
 import { useWorkspaceStore } from '@/stores/workspace'
 
@@ -80,7 +81,10 @@ async function build(): Promise<Project | null> {
     })
     return { ...copy, description: description.value, root: root.value.trim() || null }
   }
-  const project = await call('new_project', { defaultEnvironmentId: environmentId.value })
+  const project = await call('new_project', {
+    defaultEnvironmentId: environmentId.value,
+    pipelineName: t('projects.dialog.firstPipeline'),
+  })
   return {
     ...project,
     name: name.value,
@@ -121,7 +125,7 @@ async function onSave() {
       issues.value = err.validation.issues
       await focusFirstInvalid(body.value)
     } else {
-      error.value = err.message
+      error.value = messageText(err.message)
     }
   } finally {
     saving.value = false
@@ -136,7 +140,7 @@ async function onSave() {
       <UiNotice v-if="otherIssues.length" tone="warning">
         {{ t('common.issuesElsewhereShort') }}
         <ul class="issues">
-          <li v-for="issue in otherIssues" :key="issue.path">{{ issue.message }}</li>
+          <li v-for="issue in otherIssues" :key="issue.path">{{ messageText(issue.message) }}</li>
         </ul>
       </UiNotice>
       <p v-if="mode === 'copy'" class="note">

@@ -8,7 +8,8 @@ import UiNotice from '@/components/ui/UiNotice.vue'
 import UiTag from '@/components/ui/UiTag.vue'
 import UiTextInput from '@/components/ui/UiTextInput.vue'
 import { useT } from '@/i18n'
-import { call, toAppError } from '@/ipc'
+import { errorText } from '@/i18n/message'
+import { call } from '@/ipc'
 
 const t = useT()
 
@@ -34,7 +35,7 @@ async function check() {
     })
   } catch (e) {
     present.value = null
-    error.value = toAppError(e).message
+    error.value = errorText(e)
   }
 }
 watch(() => [props.variableId, props.environmentId], check, { immediate: true })
@@ -65,7 +66,7 @@ async function save() {
     present.value = true
     emit('saved')
   } catch (e) {
-    saveError.value = toAppError(e).message
+    saveError.value = errorText(e)
   } finally {
     busy.value = false
   }

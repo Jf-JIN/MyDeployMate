@@ -1,7 +1,7 @@
 use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
 
-use mdm_core::Clock;
+use mdm_core::{Clock, Message};
 use mdm_exec::SystemClock;
 use mdm_store::{
     DataDir, HistoryStore, InstanceLock, SecretStore, SharedHistory, StoreError, TrustStore,
@@ -20,13 +20,13 @@ pub struct AppState {
     pub store: Mutex<WorkspaceStore>,
     /// Run records; `None` when the database could not be opened (`history_error` says why).
     pub history: Option<SharedHistory>,
-    pub history_error: Option<String>,
+    pub history_error: Option<Message>,
     /// The single run in progress (ARC-08).
     pub active: Mutex<Option<ActiveRun>>,
-    /// Host trust store; the error text when it could not be opened (ARC-20).
-    pub trust: Mutex<Result<TrustStore, String>>,
+    /// Host trust store; why it could not be opened (ARC-20).
+    pub trust: Mutex<Result<TrustStore, Message>>,
     /// Remembered credentials and sensitive variable values (SEC-03, ARC-10, ARC-26).
-    pub secrets: Mutex<Result<SecretStore, String>>,
+    pub secrets: Mutex<Result<SecretStore, Message>>,
     /// Open D02 and D04 prompts of connection tests.
     pub broker: PromptBroker,
     /// Connection test results and running tests (IXD-18).
@@ -36,7 +36,7 @@ pub struct AppState {
     /// Held for the life of the process (ARC-08).
     _lock: Option<InstanceLock>,
     /// When the data directory could not be prepared, every workspace command reports this.
-    pub startup_error: Option<String>,
+    pub startup_error: Option<Message>,
     pub startup_error_kind: AppErrorKind,
 }
 
@@ -48,7 +48,7 @@ impl AppState {
             .and_then(|()| InstanceLock::acquire(&data_dir));
         let (lock, startup_error, kind) = match lock {
             Ok(lock) => (Some(lock), None, AppErrorKind::Internal),
-            Err(err @ StoreError::Locked(_)) => (None, Some(err.to_string()), AppErrorKind::Locked),
+            Err(err @ StoreError::Locked(_)) => (None, Some(err.message()), AppErrorKind::Locked),
             Err(err) => {
                 let kind = AppError::from(err);
                 (None, Some(kind.message), kind.kind)
@@ -57,17 +57,21 @@ impl AppState {
         let (history, history_error) = match &lock {
             Some(_) => match open_history(&data_dir) {
                 Ok(h) => (Some(SharedHistory::new(h)), None),
-                Err(e) => (None, Some(e.to_string())),
+                Err(e) => (None, Some(e.message())),
             },
             None => (None, startup_error.clone()),
         };
         let trust = match &lock {
-            Some(_) => TrustStore::open(&data_dir).map_err(|e| e.to_string()),
-            None => Err(startup_error.clone().unwrap_or_default()),
+            Some(_) => TrustStore::open(&data_dir).map_err(|e| e.message()),
+            None => Err(startup_error
+                .clone()
+                .unwrap_or(Message::WorkspaceStateBroken)),
         };
         let secrets = match &lock {
-            Some(_) => SecretStore::open(&data_dir, platform_vault()).map_err(|e| e.to_string()),
-            None => Err(startup_error.clone().unwrap_or_default()),
+            Some(_) => SecretStore::open(&data_dir, platform_vault()).map_err(|e| e.message()),
+            None => Err(startup_error
+                .clone()
+                .unwrap_or(Message::WorkspaceStateBroken)),
         };
         Self {
             trust: Mutex::new(trust),

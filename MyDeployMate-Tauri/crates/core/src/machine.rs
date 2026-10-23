@@ -16,6 +16,7 @@
 use thiserror::Error;
 
 use crate::ids::{RunId, ServerId, TaskId};
+use crate::message::Message;
 use crate::model::{PipelineFailurePolicy, StepKind};
 use crate::plan::{ResolvedPlan, RunScope};
 use crate::run::{Run, RunStatus, Task, TaskStatus};
@@ -46,12 +47,12 @@ pub enum RunEvent {
         seq: u32,
         exit_code: Option<i32>,
         exit_signal: Option<String>,
-        reason: String,
+        reason: Message,
     },
     /// The remote result cannot be confirmed (lost channel, cancel not verified).
     TaskOutcomeUnknown {
         seq: u32,
-        reason: String,
+        reason: Message,
     },
     /// The running task stopped after a cancel request.
     TaskCancelled {
@@ -63,11 +64,11 @@ pub enum RunEvent {
     },
     /// Operator cancel, including cancelling a credential prompt (SEC-02).
     CancelRequested {
-        reason: String,
+        reason: Message,
     },
     /// Found unfinished at startup, or the coordinator lost track (RUN-07).
     Interrupted {
-        reason: String,
+        reason: Message,
     },
 }
 
@@ -91,19 +92,19 @@ pub enum Next {
 
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
 pub enum TransitionError {
-    #[error("运行已结束")]
+    #[error("the run has finished")]
     RunFinished,
-    #[error("运行尚未开始")]
+    #[error("the run has not started")]
     NotStarted,
-    #[error("运行已开始")]
+    #[error("the run has already started")]
     AlreadyStarted,
-    #[error("任务 {0} 不存在")]
+    #[error("task {0} does not exist")]
     UnknownTask(u32),
-    #[error("任务 {seq} 当前状态为 {status:?}，不能执行该操作")]
+    #[error("task {seq} is {status:?} and cannot take this event")]
     WrongTaskState { seq: u32, status: TaskStatus },
-    #[error("任务 {seq} 不是下一个待执行任务")]
+    #[error("task {seq} is not the next queued task")]
     OutOfOrder { seq: u32 },
-    #[error("运行正在取消，不能开始新任务")]
+    #[error("the run is being cancelled and cannot start new tasks")]
     Cancelling,
 }
 
@@ -118,7 +119,7 @@ pub struct RunMachine {
     run: Run,
     tasks: Vec<Task>,
     meta: Vec<TaskMeta>,
-    cancel_reason: Option<String>,
+    cancel_reason: Option<Message>,
     skipped_servers: Vec<ServerId>,
 }
 
@@ -195,8 +196,8 @@ impl RunMachine {
         &self.meta
     }
 
-    pub fn cancel_reason(&self) -> Option<&str> {
-        self.cancel_reason.as_deref()
+    pub fn cancel_reason(&self) -> Option<&Message> {
+        self.cancel_reason.as_ref()
     }
 
     /// Servers skipped by the "skip this server" policy, in the order they were skipped.
@@ -240,7 +241,7 @@ impl RunMachine {
                         t.finished_at_ms = Some(at_ms);
                     }
                 }
-                self.skip_queued(|_| true, &reason, at_ms);
+                self.skip_queued(|_| true, reason, at_ms);
                 self.finish(RunStatus::Interrupted, at_ms);
                 return Ok(());
             }
@@ -309,15 +310,15 @@ impl RunMachine {
                 t.status = TaskStatus::Unknown;
                 t.reason = Some(reason);
                 t.finished_at_ms = Some(at_ms);
-                let why = format!("任务 {} 结果未知，运行已停止", seq + 1);
-                self.skip_queued(|_| true, &why, at_ms);
+                let why = Message::OutcomeUnknown { n: seq + 1 };
+                self.skip_queued(|_| true, why, at_ms);
             }
             RunEvent::TaskCancelled { seq } => {
                 let t = self.expect(seq, &[TaskStatus::Running, TaskStatus::WaitingCredential])?;
                 t.status = TaskStatus::Cancelled;
                 t.finished_at_ms = Some(at_ms);
                 // Stopping a task always stops the run (STEP-01).
-                self.cancel("用户取消".into(), at_ms);
+                self.cancel(Message::UserCancelled, at_ms);
             }
             RunEvent::ConfirmationAnswered { seq, proceed } => {
                 let t = self.expect(seq, &[TaskStatus::WaitingConfirmation])?;
@@ -326,8 +327,8 @@ impl RunMachine {
                     t.status = TaskStatus::Succeeded;
                 } else {
                     t.status = TaskStatus::Cancelled;
-                    t.reason = Some("人工确认时选择取消".into());
-                    self.cancel("人工确认时选择取消".into(), at_ms);
+                    t.reason = Some(Message::ConfirmDeclined);
+                    self.cancel(Message::ConfirmDeclined, at_ms);
                 }
             }
             RunEvent::Start | RunEvent::CancelRequested { .. } | RunEvent::Interrupted { .. } => {
@@ -337,9 +338,9 @@ impl RunMachine {
         Ok(())
     }
 
-    fn cancel(&mut self, reason: String, at_ms: i64) {
+    fn cancel(&mut self, reason: Message, at_ms: i64) {
         self.cancel_reason.get_or_insert(reason);
-        self.skip_queued(|_| true, "运行已取消，任务未开始", at_ms);
+        self.skip_queued(|_| true, Message::NotStarted, at_ms);
         // Nothing executes while waiting for the operator, so those tasks stop right away.
         for t in &mut self.tasks {
             if matches!(
@@ -355,18 +356,24 @@ impl RunMachine {
     fn apply_policy(&mut self, seq: u32, at_ms: i64) {
         let i = seq as usize;
         let failed = &self.tasks[i];
-        let label = match &failed.server_name {
-            Some(server) => format!("任务 {}（{} · {}）", seq + 1, failed.step_name, server),
-            None => format!("任务 {}（{}）", seq + 1, failed.step_name),
+        let n = seq + 1;
+        let step = failed.step_name.clone();
+        let after = match &failed.server_name {
+            Some(server) => Message::AfterServerFailure {
+                n,
+                step,
+                server: server.clone(),
+            },
+            None => Message::AfterFailure { n, step },
         };
         match self.meta[i].policy {
             PipelineFailurePolicy::Continue => {}
             PipelineFailurePolicy::Stop => {
-                self.skip_queued(|_| true, &format!("{label}失败，后续任务已跳过"), at_ms);
+                self.skip_queued(|_| true, after, at_ms);
             }
             PipelineFailurePolicy::SkipServer => {
                 let Some(server) = failed.server_id else {
-                    self.skip_queued(|_| true, &format!("{label}失败，后续任务已跳过"), at_ms);
+                    self.skip_queued(|_| true, after, at_ms);
                     return;
                 };
                 let name = failed.server_name.clone().unwrap_or_default();
@@ -375,7 +382,7 @@ impl RunMachine {
                 }
                 self.skip_queued(
                     |t| t.server_id == Some(server),
-                    &format!("服务器 {name} 已跳过（任务 {} 失败）", seq + 1),
+                    Message::ServerSkipped { server: name, n },
                     at_ms,
                 );
                 let all_skipped = self
@@ -384,17 +391,17 @@ impl RunMachine {
                     .filter_map(|t| t.server_id)
                     .all(|s| self.skipped_servers.contains(&s));
                 if all_skipped {
-                    self.skip_queued(|_| true, "所有服务器均已跳过", at_ms);
+                    self.skip_queued(|_| true, Message::AllServersSkipped, at_ms);
                 }
             }
         }
     }
 
-    fn skip_queued(&mut self, which: impl Fn(&Task) -> bool, reason: &str, at_ms: i64) {
+    fn skip_queued(&mut self, which: impl Fn(&Task) -> bool, reason: Message, at_ms: i64) {
         for t in &mut self.tasks {
             if t.status == TaskStatus::Queued && which(t) {
                 t.status = TaskStatus::Skipped;
-                t.reason = Some(reason.to_owned());
+                t.reason = Some(reason.clone());
                 t.finished_at_ms = Some(at_ms);
             }
         }

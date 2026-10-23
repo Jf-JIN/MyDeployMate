@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use sha2::{Digest, Sha256};
 
-use mdm_core::{Workspace, defaults, parse_workspace, validate_workspace};
+use mdm_core::{Message, Workspace, defaults, parse_workspace, validate_workspace};
 
 use crate::error::{StoreError, io};
 use crate::migrate;
@@ -56,8 +56,8 @@ impl WorkspaceStore {
             }
             Err(e) => return Err(StoreError::Io { path, source: e }),
         };
-        let doc: serde_json::Value =
-            serde_json::from_slice(&bytes).map_err(|e| corrupt(&path, e.to_string()))?;
+        let doc: serde_json::Value = serde_json::from_slice(&bytes)
+            .map_err(|e| corrupt(&path, Message::text(e.to_string())))?;
         let (doc, from) = migrate::migrate(doc)?;
         let ws = parse_workspace(doc).map_err(StoreError::Invalid)?;
         let report = validate_workspace(&ws);
@@ -95,7 +95,10 @@ impl WorkspaceStore {
                 let found = serde_json::from_slice::<serde_json::Value>(&bytes)
                     .ok()
                     .and_then(|d| d.get("revision")?.as_u64())
-                    .ok_or_else(|| corrupt(&path, "缺少 revision 字段".into()))?;
+                    .ok_or_else(|| {
+                        let name = "revision".into();
+                        corrupt(&path, Message::MissingField { name })
+                    })?;
                 if found != draft.revision {
                     return Err(StoreError::RevisionConflict {
                         expected: draft.revision,
@@ -160,10 +163,10 @@ fn sha256(bytes: &[u8]) -> [u8; 32] {
     Sha256::digest(bytes).into()
 }
 
-fn corrupt(path: &Path, message: String) -> StoreError {
+fn corrupt(path: &Path, reason: Message) -> StoreError {
     StoreError::Corrupt {
         path: path.to_path_buf(),
-        message,
+        reason,
     }
 }
 

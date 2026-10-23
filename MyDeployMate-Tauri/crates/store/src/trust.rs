@@ -7,7 +7,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use mdm_core::{HostEndpoint, HostKey, TrustCheck, TrustedHost, check_host_key};
+use mdm_core::{HostEndpoint, HostKey, Message, TrustCheck, TrustedHost, check_host_key};
 use serde::{Deserialize, Serialize};
 
 use crate::atomic::write_json;
@@ -37,7 +37,7 @@ impl TrustStore {
                 let file: TrustFile =
                     serde_json::from_slice(&bytes).map_err(|e| StoreError::Corrupt {
                         path: path.clone(),
-                        message: e.to_string(),
+                        reason: Message::text(e.to_string()),
                     })?;
                 if file.version > FORMAT_VERSION {
                     return Err(StoreError::UnsupportedVersion {

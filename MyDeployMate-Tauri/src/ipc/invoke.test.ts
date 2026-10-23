@@ -30,7 +30,11 @@ describe('call', () => {
   })
 
   it('rethrows backend errors unchanged', async () => {
-    const appError = { kind: 'revisionConflict', message: '请重新加载', validation: null }
+    const appError = {
+      kind: 'revisionConflict',
+      message: { code: 'store.externalChange' },
+      validation: null,
+    }
     invoke.mockRejectedValue(appError)
     expect(await rejection(call('load_workspace'))).toEqual(appError)
   })
@@ -39,7 +43,7 @@ describe('call', () => {
     invoke.mockRejectedValue('command not found')
     expect(await rejection(call('load_workspace'))).toEqual({
       kind: 'internal',
-      message: 'command not found',
+      message: { code: 'text', params: { text: 'command not found' } },
       validation: null,
     })
   })
@@ -47,6 +51,9 @@ describe('call', () => {
 
 describe('toAppError', () => {
   it('keeps the message of an Error', () => {
-    expect(toAppError(new Error('boom')).message).toBe('boom')
+    expect(toAppError(new Error('boom')).message).toEqual({
+      code: 'text',
+      params: { text: 'boom' },
+    })
   })
 })

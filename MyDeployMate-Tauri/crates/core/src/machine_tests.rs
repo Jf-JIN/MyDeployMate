@@ -56,7 +56,7 @@ fn drive(m: &mut RunMachine, fail: &[u32]) {
                         seq,
                         exit_code: Some(1),
                         exit_signal: None,
-                        reason: "退出码 1".into(),
+                        reason: Message::ExitCode { code: 1 },
                     }
                 } else {
                     RunEvent::TaskSucceeded {
@@ -119,10 +119,17 @@ fn ac15_stop_skips_the_remaining_four() {
     );
     assert_eq!(m.run().status, RunStatus::Failed);
     assert_eq!(
-        m.tasks()[3].reason.as_deref(),
-        Some("任务 3（上传发布文件 · staging-api-02）失败，后续任务已跳过")
+        m.tasks()[3].reason.as_ref(),
+        Some(&Message::AfterServerFailure {
+            n: 3,
+            step: "上传发布文件".into(),
+            server: "staging-api-02".into(),
+        })
     );
-    assert_eq!(m.tasks()[2].reason.as_deref(), Some("退出码 1"));
+    assert_eq!(
+        m.tasks()[2].reason.as_ref(),
+        Some(&Message::ExitCode { code: 1 })
+    );
     // Restart A never started.
     assert_eq!(m.tasks()[3].started_at_ms, None);
 }
@@ -163,8 +170,11 @@ fn ac27_skip_server_skips_only_the_failed_server() {
         ]
     );
     assert_eq!(
-        m.tasks()[2].reason.as_deref(),
-        Some("服务器 staging-api-01 已跳过（任务 2 失败）")
+        m.tasks()[2].reason.as_ref(),
+        Some(&Message::ServerSkipped {
+            server: "staging-api-01".into(),
+            n: 2,
+        })
     );
     assert_eq!(m.skipped_servers().len(), 1);
     assert_eq!(m.run().status, RunStatus::Failed);
@@ -183,7 +193,10 @@ fn skip_server_with_every_server_skipped_skips_local_and_confirm() {
         statuses(&m),
         [Succeeded, Failed, Failed, Skipped, Skipped, Skipped]
     );
-    assert_eq!(m.tasks()[3].reason.as_deref(), Some("所有服务器均已跳过"));
+    assert_eq!(
+        m.tasks()[3].reason.as_ref(),
+        Some(&Message::AllServersSkipped)
+    );
     assert_eq!(m.skipped_servers().len(), 2);
     assert_eq!(m.run().status, RunStatus::Failed);
 }
@@ -275,7 +288,7 @@ fn ac22_unknown_outcome_stops_and_interrupts_even_with_continue() {
     m.apply(RunEvent::TaskStarted { seq: 3 }, 3).unwrap();
     m.apply(
         RunEvent::CancelRequested {
-            reason: "用户取消".into(),
+            reason: Message::UserCancelled,
         },
         4,
     )
@@ -287,14 +300,14 @@ fn ac22_unknown_outcome_stops_and_interrupts_even_with_continue() {
     m.apply(
         RunEvent::TaskOutcomeUnknown {
             seq: 3,
-            reason: "无法确认远程命令是否结束".into(),
+            reason: Message::text("无法确认远程命令是否结束"),
         },
         5,
     )
     .unwrap();
     assert_eq!(m.tasks()[3].status, Unknown);
     assert_eq!(m.run().status, RunStatus::Interrupted);
-    assert_eq!(m.cancel_reason(), Some("用户取消"));
+    assert_eq!(m.cancel_reason(), Some(&Message::UserCancelled));
 }
 
 #[test]
@@ -318,7 +331,7 @@ fn unknown_outcome_without_cancel_skips_the_rest() {
     m.apply(
         RunEvent::TaskOutcomeUnknown {
             seq: 1,
-            reason: "超时后无法确认结果".into(),
+            reason: Message::text("超时后无法确认结果"),
         },
         4,
     )
@@ -330,8 +343,8 @@ fn unknown_outcome_without_cancel_skips_the_rest() {
         ]
     );
     assert_eq!(
-        m.tasks()[6].reason.as_deref(),
-        Some("任务 2 结果未知，运行已停止")
+        m.tasks()[6].reason.as_ref(),
+        Some(&Message::OutcomeUnknown { n: 2 })
     );
     assert_eq!(m.run().status, RunStatus::Interrupted);
 }
@@ -347,7 +360,7 @@ fn cancel_while_running_then_task_stops() {
     m.apply(RunEvent::TaskStarted { seq: 0 }, 1).unwrap();
     m.apply(
         RunEvent::CancelRequested {
-            reason: "用户取消".into(),
+            reason: Message::UserCancelled,
         },
         2,
     )
@@ -375,7 +388,7 @@ fn cancel_after_an_earlier_failure_ends_failed() {
             seq: 0,
             exit_code: Some(2),
             exit_signal: None,
-            reason: "退出码 2".into(),
+            reason: Message::ExitCode { code: 2 },
         },
         2,
     )
@@ -383,7 +396,7 @@ fn cancel_after_an_earlier_failure_ends_failed() {
     m.apply(RunEvent::TaskStarted { seq: 1 }, 3).unwrap();
     m.apply(
         RunEvent::CancelRequested {
-            reason: "用户取消".into(),
+            reason: Message::UserCancelled,
         },
         4,
     )
@@ -398,7 +411,7 @@ fn cancel_after_an_earlier_failure_ends_failed() {
     )
     .unwrap();
     assert_eq!(m.run().status, RunStatus::Failed);
-    assert_eq!(m.cancel_reason(), Some("用户取消"));
+    assert_eq!(m.cancel_reason(), Some(&Message::UserCancelled));
 }
 
 #[test]
@@ -429,7 +442,7 @@ fn credential_wait_and_cancelled_prompt() {
     // Cancelling the prompt cancels the whole run (SEC-02).
     m.apply(
         RunEvent::CancelRequested {
-            reason: "取消输入凭据".into(),
+            reason: Message::SecretDeclined,
         },
         7,
     )
@@ -447,7 +460,7 @@ fn cancel_before_start_and_crash_recovery() {
     );
     m.apply(
         RunEvent::CancelRequested {
-            reason: "用户取消".into(),
+            reason: Message::UserCancelled,
         },
         1,
     )
@@ -468,7 +481,7 @@ fn cancel_before_start_and_crash_recovery() {
     m.apply(RunEvent::TaskStarted { seq: 0 }, 1).unwrap();
     m.apply(
         RunEvent::Interrupted {
-            reason: "应用异常退出，无法确认任务结果".into(),
+            reason: Message::text("应用异常退出，无法确认任务结果"),
         },
         9,
     )

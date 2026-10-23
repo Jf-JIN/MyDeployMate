@@ -53,7 +53,7 @@ impl RunStore for MemStore {
         let mut s = self.0.lock().unwrap();
         s.saves += 1;
         if s.fail_from.is_some_and(|n| s.saves >= n) {
-            return Err(StorageError("磁盘已满".into()));
+            return Err(StorageError(Message::text("disk full")));
         }
         s.saved = Some((m.run().clone(), m.tasks().to_vec()));
         Ok(())
@@ -89,7 +89,7 @@ impl TaskExecutor for FakeExecutor {
                 Script::Fail => TaskOutcome::Failed {
                     exit_code: Some(1),
                     exit_signal: None,
-                    reason: "退出码 1".into(),
+                    reason: Message::ExitCode { code: 1 },
                 },
                 Script::UntilCancelled(outcome) => {
                     ctx.cancel.cancelled().await;
@@ -125,7 +125,10 @@ fn password_prompt() -> CredentialPrompt {
         address: "192.0.2.21:22".into(),
         user: "deploy".into(),
         key_path: None,
-        context: "任务 2".into(),
+        context: Message::TaskContext {
+            n: 2,
+            step: "deploy".into(),
+        },
         attempt: 1,
         max_attempts: 3,
         rejected: false,
@@ -138,7 +141,7 @@ fn password_prompt() -> CredentialPrompt {
 enum Seen {
     Changed(RunStatus),
     Output(u32),
-    Credential(OperatorRequest),
+    Credential(Box<OperatorRequest>),
     StorageFailed,
 }
 
@@ -151,9 +154,9 @@ impl RunObserver for Observer {
     fn output(&self, seq: u32, _chunk: OutputChunk) {
         let _ = self.0.send(Seen::Output(seq));
     }
-    fn note(&self, _seq: u32, _text: &str) {}
+    fn note(&self, _seq: u32, _message: Message) {}
     fn requested(&self, request: &OperatorRequest) {
-        let _ = self.0.send(Seen::Credential(request.clone()));
+        let _ = self.0.send(Seen::Credential(Box::new(request.clone())));
     }
     fn storage_failed(&self, _error: &StorageError) {
         let _ = self.0.send(Seen::StorageFailed);
@@ -408,7 +411,7 @@ async fn cancel_stops_the_running_task_and_skips_the_rest() {
     h.until(|s| matches!(s, Seen::Output(1))).await;
     h.control
         .send(Control::Cancel {
-            reason: "用户取消".into(),
+            reason: Message::UserCancelled,
         })
         .unwrap();
     h.until(|s| matches!(s, Seen::Changed(RunStatus::Cancelling)))
@@ -431,7 +434,7 @@ async fn unconfirmed_cancel_interrupts_the_run() {
         &[(
             0,
             Script::UntilCancelled(TaskOutcome::Unknown {
-                reason: "无法确认进程已停止".into(),
+                reason: Message::ConnectionLost,
             }),
         )],
         None,
@@ -439,7 +442,7 @@ async fn unconfirmed_cancel_interrupts_the_run() {
     h.until(|s| matches!(s, Seen::Output(0))).await;
     h.control
         .send(Control::Cancel {
-            reason: "用户取消".into(),
+            reason: Message::UserCancelled,
         })
         .unwrap();
     let (status, tasks, _) = h.finish().await;

@@ -6,7 +6,7 @@
 
 use std::time::Duration;
 
-use mdm_core::{Clock, HostEndpoint, HostKey, TrustedHost};
+use mdm_core::{Clock, HostEndpoint, HostKey, Message, TrustedHost};
 use mdm_exec::SystemClock;
 use mdm_exec::ssh::fetch_host_key as read_host_key;
 use mdm_store::TrustStore;
@@ -23,9 +23,11 @@ fn with_store<T>(
     let mut trust = state.trust.lock().unwrap_or_else(|e| e.into_inner());
     match trust.as_mut() {
         Ok(store) => f(store),
-        Err(message) => Err(AppError::new(
+        Err(reason) => Err(AppError::new(
             AppErrorKind::StorageUnavailable,
-            format!("主机信任库不可用：{message}"),
+            Message::TrustStoreUnavailable {
+                reason: Box::new(reason.clone()),
+            },
         )),
     }
 }

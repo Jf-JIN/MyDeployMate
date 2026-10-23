@@ -11,8 +11,8 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use mdm_core::{
-    Clock, ConnectError, ConnectErrorKind, HostTrustPrompt, OperatorPrompt, Server, ServerId,
-    Workspace,
+    Clock, ConnectError, ConnectErrorKind, HostTrustPrompt, Message, OperatorPrompt, Server,
+    ServerId, Workspace,
 };
 use mdm_exec::ssh::{SshSession, SshTarget, connect};
 use mdm_exec::{OperatorAnswer, SystemClock};
@@ -127,13 +127,16 @@ pub async fn test_connection(
         .iter()
         .find(|s| s.id == server_id)
         .cloned()
-        .ok_or_else(|| AppError::new(AppErrorKind::NotFound, "服务器不存在，可能已被删除"))?;
+        .ok_or_else(|| AppError::new(AppErrorKind::NotFound, Message::ServerNotFound))?;
 
     let cancel = CancellationToken::new();
     {
         let mut running = lock(&state.tests.running);
         if running.contains_key(&operation_id) {
-            return Err(AppError::new(AppErrorKind::Validation, "该测试已在进行"));
+            return Err(AppError::new(
+                AppErrorKind::Validation,
+                Message::TestRunning,
+            ));
         }
         running.insert(operation_id.clone(), cancel.clone());
     }
@@ -163,7 +166,8 @@ async fn run_test(
         on_event,
         cancel,
     };
-    let session = match open_session(app, server, "连接测试", &operator, cancel).await {
+    let session = match open_session(app, server, Message::ConnectionTest, &operator, cancel).await
+    {
         Ok(s) => s,
         Err(SessionError::Cancelled) => return TestOutcome::Cancelled,
         Err(SessionError::Failed(error)) => return TestOutcome::Failed { error: *error },
@@ -212,7 +216,7 @@ pub enum SessionError {
 pub async fn open_session(
     app: &AppHandle,
     server: &Server,
-    context: &str,
+    context: Message,
     operator: &dyn Operator,
     cancel: &CancellationToken,
 ) -> Result<SshSession, SessionError> {
@@ -223,7 +227,7 @@ pub async fn open_session(
         server_name: server.name.clone(),
         address: target.endpoint.to_string(),
         user: server.user.clone(),
-        context: context.to_owned(),
+        context,
     };
     let secrets = PromptingSecrets::new(app, &who, operator);
     // At most two rounds: the second follows a first trust the operator just confirmed.
@@ -267,7 +271,7 @@ pub async fn open_session(
 fn storage_error(e: AppError) -> SessionError {
     SessionError::Failed(Box::new(
         ConnectError::at(mdm_core::ConnectStage::HostKey, ConnectErrorKind::Protocol)
-            .with_detail(e.message),
+            .with_note(e.message),
     ))
 }
 

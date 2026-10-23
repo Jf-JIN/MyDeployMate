@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use mdm_core::{CredentialPurpose, CredentialRef, EnvironmentId, ServerId, VariableId};
+use mdm_core::{CredentialPurpose, CredentialRef, EnvironmentId, Message, ServerId, VariableId};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -156,7 +156,7 @@ impl SecretStore {
                 let file: IndexFile =
                     serde_json::from_slice(&bytes).map_err(|e| StoreError::Corrupt {
                         path: index_path.clone(),
-                        message: e.to_string(),
+                        reason: Message::text(e.to_string()),
                     })?;
                 if file.version > FORMAT_VERSION {
                     return Err(StoreError::UnsupportedVersion {
