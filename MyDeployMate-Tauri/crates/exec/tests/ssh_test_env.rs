@@ -4,6 +4,8 @@
 //! `test-env/run-ssh-tests.sh` sets everything up. The agent test also needs `SSH_AUTH_SOCK`
 //! with `id_ed25519` loaded, and the password-variable test needs `MDM_TEST_PASSWORD`.
 
+#![allow(clippy::result_large_err)]
+
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Duration;
