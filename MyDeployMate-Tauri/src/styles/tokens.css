@@ -27,6 +27,7 @@
 
   /* Actions and focus */
   --action-primary: #006d77; /* 6.08:1 on white */
+  --focus-halo: color-mix(in srgb, #006d77 22%, transparent);
   --action-hover: #005c64;
   --action-pressed: #004c53;
   --focus-ring: #2563eb; /* 5.17:1 on white */
@@ -135,6 +136,7 @@
   --border-control: #6f7a85; /* 3.70:1 on panel */
 
   --action-primary: #4fb8c2; /* 6.92:1 on panel */
+  --focus-halo: color-mix(in srgb, #4fb8c2 28%, transparent);
   --action-hover: #6ac6cf;
   --action-pressed: #86d2da;
   --focus-ring: #6ea8fe; /* 6.71:1 on panel */
