@@ -4,8 +4,11 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import UiConfirm from '@/components/ui/UiConfirm.vue'
+import { useT } from '@/i18n'
 import { call, toAppError } from '@/ipc'
 import { useToastStore } from '@/stores/toast'
+
+const t = useT()
 
 // IXD-29: closing the window during a run asks first. "取消并退出" cancels the run and the app
 // quits once it has stopped; nothing claims the run stopped before then.
@@ -42,17 +45,17 @@ async function quit() {
 <template>
   <UiConfirm
     :open="open"
-    :title="quitting ? '正在停止运行' : '有运行正在进行'"
-    confirm-label="取消并退出"
-    cancel-label="返回运行"
+    :title="quitting ? t('closeRun.stoppingTitle') : t('closeRun.activeTitle')"
+    :confirm-label="t('closeRun.confirm')"
+    :cancel-label="t('closeRun.back')"
     danger
     :busy="quitting"
     @confirm="quit"
     @cancel="open = false"
   >
-    <p v-if="quitting" class="close-text">正在停止当前任务，停止后应用会自动退出。</p>
+    <p v-if="quitting" class="close-text">{{ t('closeRun.stopping') }}</p>
     <p v-else class="close-text">
-      关闭应用前需要先取消运行。取消后不再开始后续任务，已完成的操作不会自动撤销。
+      {{ t('closeRun.body') }}
     </p>
   </UiConfirm>
 </template>

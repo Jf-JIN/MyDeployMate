@@ -7,9 +7,12 @@ import UiField from '@/components/ui/UiField.vue'
 import UiIconButton from '@/components/ui/UiIconButton.vue'
 import UiSegmented from '@/components/ui/UiSegmented.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
+import { useT } from '@/i18n'
 import type { ExecutionOrder, Pipeline, PipelineFailurePolicy } from '@/ipc'
 
 import { clearSkipServer, exampleSequence, skipServerUsers } from './pipeline'
+
+const t = useT()
 
 // IXD-08 (v0.2): pipeline-level settings. "跳过该服务器" needs server-first order; switching
 // back to step-first while it is in use lists the affected places and changes them on confirm.
@@ -19,10 +22,10 @@ defineProps<{ errorAt: (field: string) => string | null }>()
 const exampleId = useId()
 const showExample = ref(false)
 
-const orderOptions = [
-  { value: 'stepFirst' as ExecutionOrder, label: '步骤优先' },
-  { value: 'serverFirst' as ExecutionOrder, label: '服务器优先' },
-]
+const orderOptions = computed(() => [
+  { value: 'stepFirst' as ExecutionOrder, label: t('pipelines.settings.stepFirst') },
+  { value: 'serverFirst' as ExecutionOrder, label: t('pipelines.settings.serverFirst') },
+])
 
 const pendingOrder = ref(false)
 const affected = computed(() => skipServerUsers(pipeline.value))
@@ -45,37 +48,33 @@ function confirmStepFirst() {
 }
 
 const policyOptions = computed(() => [
-  { value: 'stop' as PipelineFailurePolicy, label: '失败停止' },
-  { value: 'continue' as PipelineFailurePolicy, label: '失败继续' },
+  { value: 'stop' as PipelineFailurePolicy, label: t('pipelines.settings.stop') },
+  { value: 'continue' as PipelineFailurePolicy, label: t('pipelines.settings.continue') },
   {
     value: 'skipServer' as PipelineFailurePolicy,
-    label: '跳过该服务器',
+    label: t('pipelines.settings.skipServer'),
     disabledReason:
-      pipeline.value.executionOrder === 'serverFirst' ? undefined : '仅服务器优先可用',
+      pipeline.value.executionOrder === 'serverFirst'
+        ? undefined
+        : t('pipelines.settings.serverFirstOnly'),
   },
 ])
 
-const policyHint = computed(
-  () =>
-    ({
-      stop: '任一任务失败后不再开始后续任务。',
-      continue: '任务失败后继续后续任务，整次运行最终记为失败。',
-      skipServer:
-        '某台服务器的任务失败后，跳过它的后续任务，其他服务器继续；整次运行最终记为失败。',
-    })[pipeline.value.failurePolicy],
-)
+const policyHint = computed(() => t(`pipelines.settings.hint.${pipeline.value.failurePolicy}`))
 
 const sequence = computed(() => exampleSequence(pipeline.value.executionOrder))
 </script>
 
 <template>
-  <section class="settings" aria-label="流程设置">
+  <section class="settings" :aria-label="t('pipelines.settings.label')">
     <div class="order">
-      <span class="label">执行顺序</span>
-      <UiSegmented v-model="order" :options="orderOptions" label="执行顺序" />
+      <span class="label">{{ t('pipelines.settings.order') }}</span>
+      <UiSegmented v-model="order" :options="orderOptions" :label="t('pipelines.settings.order')" />
       <UiIconButton
         :icon="Info"
-        :label="showExample ? '收起执行顺序示例' : '查看执行顺序示例'"
+        :label="
+          showExample ? t('pipelines.settings.hideExample') : t('pipelines.settings.showExample')
+        "
         :aria-expanded="showExample"
         :aria-controls="exampleId"
         @click="showExample = !showExample"
@@ -83,10 +82,11 @@ const sequence = computed(() => exampleSequence(pipeline.value.executionOrder))
     </div>
     <div v-if="showExample" :id="exampleId" class="example">
       <p class="example-title">
-        示例：两台服务器 A、B，步骤为构建（本地）、上传、重启。{{
+        {{ t('pipelines.example.intro')
+        }}{{
           pipeline.executionOrder === 'serverFirst'
-            ? '服务器优先：一台服务器做完全部远程步骤再到下一台。'
-            : '步骤优先：每一步在所有服务器上完成后再进入下一步。'
+            ? t('pipelines.example.serverFirst')
+            : t('pipelines.example.stepFirst')
         }}
       </p>
       <ol class="example-list">
@@ -95,7 +95,7 @@ const sequence = computed(() => exampleSequence(pipeline.value.executionOrder))
     </div>
     <UiField
       v-slot="{ id, describedBy, invalid }"
-      label="失败策略"
+      :label="t('pipelines.settings.policy')"
       :hint="policyHint"
       :error="errorAt('failurePolicy')"
     >
@@ -110,16 +110,16 @@ const sequence = computed(() => exampleSequence(pipeline.value.executionOrder))
 
     <UiConfirm
       :open="pendingOrder"
-      title="切换为步骤优先"
-      confirm-label="改为其他策略并切换"
+      :title="t('pipelines.settings.switchTitle')"
+      :confirm-label="t('pipelines.settings.switchConfirm')"
       @confirm="confirmStepFirst"
       @cancel="pendingOrder = false"
     >
-      <p class="confirm-text">“跳过该服务器”仅服务器优先可用。以下位置正在使用它：</p>
+      <p class="confirm-text">{{ t('pipelines.settings.switchBody') }}</p>
       <ul class="confirm-list">
-        <li v-if="affected.pipeline">流程失败策略：将改为“失败停止”</li>
+        <li v-if="affected.pipeline">{{ t('pipelines.settings.switchPipeline') }}</li>
         <li v-for="step in affected.steps" :key="step.id">
-          步骤 {{ step.name }}：将改为“继承流程”
+          {{ t('pipelines.settings.switchStep', { name: step.name }) }}
         </li>
       </ul>
     </UiConfirm>

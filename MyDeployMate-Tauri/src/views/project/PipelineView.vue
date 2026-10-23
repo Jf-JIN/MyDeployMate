@@ -16,6 +16,7 @@ import UiNotice from '@/components/ui/UiNotice.vue'
 import type { MenuEntry } from '@/components/ui/types'
 import { useProjectDraft } from '@/composables/projectDraft'
 import { cloneWorkspace, focusFirstInvalid } from '@/composables/workspaceDraft'
+import { useT } from '@/i18n'
 import {
   call,
   toAppError,
@@ -31,6 +32,8 @@ import { usePreviewStore } from '@/stores/preview'
 import { useRunStore } from '@/stores/run'
 import { useSessionStore } from '@/stores/session'
 import { useWorkspaceStore } from '@/stores/workspace'
+
+const t = useT()
 
 // P02 pipeline editor (IXD-08 – IXD-11): pipeline settings and steps on the left, the selected
 // step's parameters on the right. Step edits are a page draft saved from the context bar;
@@ -170,17 +173,16 @@ const deleteError = ref<string | null>(null)
 const busy = ref(false)
 
 const pipelineEntries = computed<MenuEntry[]>(() => [
-  { key: 'create', label: '新建流程', icon: Plus },
-  { key: 'rename', label: '重命名', icon: Pencil },
-  { key: 'copy', label: '复制流程', icon: Copy },
+  { key: 'create', label: t('pipelines.view.create'), icon: Plus },
+  { key: 'rename', label: t('pipelines.view.rename'), icon: Pencil },
+  { key: 'copy', label: t('pipelines.view.copy'), icon: Copy },
   {
     key: 'delete',
-    label: '删除流程',
+    label: t('pipelines.view.delete'),
     icon: Trash2,
     danger: true,
     separator: true,
-    disabledReason:
-      props.project.pipelines.length <= 1 ? '项目至少需要一个流程，请先新建替代流程' : undefined,
+    disabledReason: props.project.pipelines.length <= 1 ? t('pipelines.view.lastOne') : undefined,
   },
 ])
 
@@ -225,16 +227,18 @@ async function deletePipeline() {
   <div v-if="project && current" ref="page" class="pipeline-page">
     <DraftNotices :error="error" :issues="elsewhere" />
     <UiNotice v-if="run.active">
-      有运行进行中。更改将在下次运行生效，运行详情显示开始时的配置快照。
+      {{ t('pipelines.view.activeRun') }}
     </UiNotice>
 
     <div class="columns">
       <div class="left">
         <header class="pipeline-head">
           <h2 class="pipeline-name" :title="current.name">{{ current.name }}</h2>
-          <span class="step-count">{{ current.steps.length }} 个步骤</span>
+          <span class="step-count">{{
+            t('pipelines.view.stepCount', { n: current.steps.length })
+          }}</span>
           <UiMenu
-            label="流程操作"
+            :label="t('pipelines.view.actions')"
             :icon="Ellipsis"
             icon-only
             align="end"
@@ -257,8 +261,8 @@ async function deletePipeline() {
         />
         <EmptyState
           v-else
-          title="未选择步骤"
-          detail="在左侧选择或添加步骤。"
+          :title="t('pipelines.view.noStep')"
+          :detail="t('pipelines.view.noStepDetail')"
           :icon="MousePointerClick"
           compact
         />
@@ -274,8 +278,8 @@ async function deletePipeline() {
     />
     <UiConfirm
       :open="deleting"
-      :title="`删除流程 ${current.name}`"
-      confirm-label="删除流程"
+      :title="t('pipelines.view.deleteTitle', { name: current.name })"
+      :confirm-label="t('pipelines.view.delete')"
       danger
       :busy="busy"
       @confirm="deletePipeline"
@@ -283,8 +287,7 @@ async function deletePipeline() {
     >
       <UiNotice v-if="deleteError" tone="failure">{{ deleteError }}</UiNotice>
       <p class="confirm-text">
-        流程“{{ current.name }}”及其 {{ current.steps.length }}
-        个步骤将被删除。只删除本地配置，不影响服务器上的文件或服务；已有执行记录保留。
+        {{ t('pipelines.view.deleteBody', { name: current.name, n: current.steps.length }) }}
       </p>
     </UiConfirm>
   </div>
