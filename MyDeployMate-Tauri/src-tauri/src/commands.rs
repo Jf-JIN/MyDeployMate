@@ -1,7 +1,8 @@
 //! Tauri commands: app info, workspace load / validate / save (ARC-35), defaults for new
 //! objects, edits whose side effects the UI shows before saving (IXD-14, IXD-20), and local
 //! checks for the server form (IXD-17), project creation and copy, and effective variables
-//! (IXD-07, IXD-13), pipeline and step editing helpers (IXD-08–11), and the run preview (D03).
+//! (IXD-07, IXD-13), pipeline and step editing helpers (IXD-08–11), local shell lookup (STEP-02),
+//! and the run preview (D03).
 //! Drafts to validate or save arrive as raw JSON so type errors can be reported with their
 //! field path; the edit helpers take typed drafts the UI built from a loaded workspace.
 
@@ -15,10 +16,11 @@ use mdm_core::template::{BuiltinVariable, builtin_variables as template_builtins
 use mdm_core::wsl::parse_wsl_list;
 use mdm_core::{
     Environment, EnvironmentId, KeyFormat, Pipeline, PlanRequest, Project, ProjectId, Reference,
-    ResolvedPlan, Server, ServerEdit, ServerId, Step, StepKind, ValidationReport, Variable,
+    ResolvedPlan, Server, ServerEdit, ServerId, Shell, Step, StepKind, ValidationReport, Variable,
     Workspace, build_plan, check_workspace_json, defaults, detect_key_format, edit,
     parse_workspace, validate_workspace,
 };
+use mdm_exec::resolve_shell;
 use mdm_store::LoadOutcome;
 
 use crate::error::{AppError, AppErrorKind};
@@ -272,6 +274,27 @@ pub fn wsl_distros() -> Vec<String> {
         Ok(out) if out.status.success() => parse_wsl_list(&out.stdout),
         _ => Vec::new(),
     }
+}
+
+#[derive(Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ShellProgram {
+    pub shell: Shell,
+    /// Full path of the executable, or `None` when it is not on PATH.
+    pub path: Option<String>,
+}
+
+/// Which executable each local shell runs on this computer (STEP-02, ARC-17).
+#[tauri::command]
+pub fn shell_programs() -> Vec<ShellProgram> {
+    [Shell::Powershell, Shell::Pwsh, Shell::Cmd, Shell::Wsl]
+        .into_iter()
+        .map(|shell| ShellProgram {
+            shell,
+            path: resolve_shell(shell).map(|p| p.display().to_string()),
+        })
+        .collect()
 }
 
 impl AppState {
