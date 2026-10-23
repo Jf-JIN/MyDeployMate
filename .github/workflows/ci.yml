@@ -156,6 +156,16 @@ jobs:
       - name: build
         run: $PM run --if-present build
 
+  # 界面文字只写在 src/i18n，后端发消息码（NFR-05、ARC-38）：代码里出现中文就失败。
+  ui-text:
+    needs: detect
+    if: needs.detect.outputs.rust == 'true' || needs.detect.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: No hard-coded Chinese text
+        run: python3 scripts/check-ui-text.py "$APP_DIR"
+
   commits:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
