@@ -3,6 +3,7 @@
 
 mod commands;
 mod connection;
+mod credentials;
 mod error;
 mod run;
 mod state;
@@ -70,6 +71,11 @@ pub fn run() {
             trust::remove_trusted_host,
             trust::fetch_host_key,
             trust::replace_trusted_host,
+            credentials::submit_secret,
+            credentials::saved_credentials,
+            credentials::forget_credential,
+            credentials::set_variable_secret,
+            credentials::variable_secret_present,
         ])
         .run(tauri::generate_context!())
         .expect("error while running MyDeployMate");

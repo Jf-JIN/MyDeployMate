@@ -28,7 +28,6 @@ use ts_rs::TS;
 
 use crate::error::{AppError, AppErrorKind};
 use crate::state::AppState;
-use crate::values::ProcessValues;
 
 /// The run in progress, as the commands see it.
 pub struct ActiveRun {
@@ -176,7 +175,8 @@ pub fn start_run(
             "配置在预览后已被修改，请重新预览后再开始",
         ));
     }
-    let plan = build_plan(&workspace, &start.request, &ProcessValues)
+    let plan = state
+        .with_values(|values| build_plan(&workspace, &start.request, values))
         .map_err(|e| AppError::new(AppErrorKind::Validation, e.to_string()))?;
     if !plan.issues.is_empty() {
         return Err(AppError::new(

@@ -69,9 +69,10 @@ impl From<StoreError> for AppError {
             | StoreError::Migration { .. }
             | StoreError::HistoryVersion { .. } => AppErrorKind::UnsupportedVersion,
             StoreError::Locked(_) => AppErrorKind::Locked,
-            StoreError::Io { .. } | StoreError::Corrupt { .. } | StoreError::Database(_) => {
-                AppErrorKind::StorageUnavailable
-            }
+            StoreError::Io { .. }
+            | StoreError::Corrupt { .. }
+            | StoreError::Database(_)
+            | StoreError::Vault(_) => AppErrorKind::StorageUnavailable,
             StoreError::RunActive => AppErrorKind::RunActive,
             StoreError::TrustConflict(_) => AppErrorKind::HostKeyChanged,
         };

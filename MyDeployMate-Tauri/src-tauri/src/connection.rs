@@ -15,7 +15,7 @@ use mdm_core::{
     Clock, ConnectError, ConnectErrorKind, HostEndpoint, HostKey, Server, ServerId, Workspace,
 };
 use mdm_exec::SystemClock;
-use mdm_exec::ssh::{SecretFuture, SecretPrompt, SecretSource, SshTarget, connect};
+use mdm_exec::ssh::{SshTarget, connect};
 use serde::Serialize;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager};
@@ -23,6 +23,7 @@ use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use ts_rs::TS;
 
+use crate::credentials::{CredentialPrompt, PromptingSecrets, SecretContext};
 use crate::error::{AppError, AppErrorKind};
 use crate::state::AppState;
 
@@ -76,6 +77,8 @@ pub enum TestEvent {
         endpoint: HostEndpoint,
         presented: HostKey,
     },
+    /// A password or passphrase is needed: show D04 and answer with `submit_secret`.
+    Credential(CredentialPrompt),
 }
 
 #[derive(Default)]
@@ -177,13 +180,25 @@ async fn run_test(
 ) -> TestOutcome {
     let target = SshTarget::from_server(server);
     let state = app.state::<AppState>();
+    let secrets = PromptingSecrets::new(
+        app,
+        SecretContext {
+            server_id: server.id,
+            server_name: server.name.clone(),
+            address: target.endpoint.to_string(),
+            user: server.user.clone(),
+            context: "连接测试".into(),
+        },
+        cancel.clone(),
+        |prompt| on_event.send(TestEvent::Credential(prompt)).is_ok(),
+    );
     // At most two rounds: the second follows a first trust the operator just confirmed.
     for _ in 0..2 {
         let known = match crate::trust::known_keys(&state, &target.endpoint) {
             Ok(k) => k,
             Err(e) => return failed_storage(e),
         };
-        let session = match connect(&target, &known, &NoPrompt, cancel).await {
+        let session = match connect(&target, &known, &secrets, cancel).await {
             Ok(s) => s,
             Err(ConnectError {
                 kind: ConnectErrorKind::Cancelled,
@@ -280,16 +295,6 @@ pub fn cancel_connection_test(app: AppHandle, operation_id: String) {
     let state = app.state::<AppState>();
     if let Some(cancel) = lock(&state.tests.running).get(&operation_id) {
         cancel.cancel();
-    }
-}
-
-/// Passwords and passphrases are not asked yet: the D04 dialog arrives with plan task 5.3,
-/// so a test that needs one ends as cancelled.
-struct NoPrompt;
-
-impl SecretSource for NoPrompt {
-    fn secret<'a>(&'a self, _prompt: &'a SecretPrompt) -> SecretFuture<'a> {
-        Box::pin(async { None })
     }
 }
 
