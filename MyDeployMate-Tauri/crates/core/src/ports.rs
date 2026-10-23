@@ -3,6 +3,7 @@
 
 use thiserror::Error;
 
+use crate::log::LogEntry;
 use crate::machine::RunMachine;
 use crate::plan::ResolvedPlan;
 
@@ -20,6 +21,11 @@ pub trait RunStore: Send {
 
     /// Record the current state after an event.
     fn save_run(&mut self, machine: &RunMachine) -> Result<(), StorageError>;
+}
+
+/// Append-only log of one run (ARC-31). Entries are already redacted.
+pub trait LogSink: Send {
+    fn append(&mut self, entries: &[LogEntry]) -> Result<(), StorageError>;
 }
 
 /// Wall-clock time for records, in Unix milliseconds.
