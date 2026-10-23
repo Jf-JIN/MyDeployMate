@@ -64,6 +64,11 @@ impl DataDir {
         self.logs().join(format!("{run}.jsonl"))
     }
 
+    /// Trusted server keys (ARC-20, ARC-31). Not the user's `~/.ssh/known_hosts`.
+    pub fn trust_file(&self) -> PathBuf {
+        self.root.join("trust").join("known_hosts.json")
+    }
+
     pub fn lock_file(&self) -> PathBuf {
         self.root.join("app.lock")
     }
