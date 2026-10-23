@@ -109,8 +109,10 @@ let programmatic = false
 function toBottom() {
   const el = scroller.value
   if (!el) return
+  // Set the offset directly: the virtualizer's own "end" alignment measures the box with its
+  // horizontal scrollbar and stops a line or two short of the last one.
   programmatic = true
-  virtualizer.value.scrollToIndex(lines.value.length - 1, { align: 'end' })
+  el.scrollTop = el.scrollHeight
   requestAnimationFrame(() => {
     el.scrollTop = el.scrollHeight
     requestAnimationFrame(() => (programmatic = false))
@@ -405,7 +407,7 @@ const showTask = computed(() => taskFilter.value === 'all')
 
 .source {
   flex: none;
-  width: 56px;
+  width: 64px;
   color: var(--text-secondary);
 }
 

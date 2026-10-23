@@ -103,6 +103,7 @@ export function taskCommand(action: TaskAction): { text: string; sensitive: bool
   }
 }
 
+const ENCODING = { utf8: 'UTF-8', gbk: 'GBK' }
 const POLICY = { stop: '失败停止', continue: '失败继续', skipServer: '跳过该服务器' }
 
 /**
@@ -120,6 +121,7 @@ export function taskDetails(
     const shell = a.shell === 'wsl' ? `WSL ${a.wslDistro ?? ''}` : SHELL_LABEL[a.shell]
     const path = programPath?.(a.shell)
     out.push(path === null ? `${shell}（本机未找到）` : path ? `${shell} · ${path}` : shell)
+    if (a.outputEncoding !== 'auto') out.push(`输出编码 ${ENCODING[a.outputEncoding]}`)
   }
   if (a.type === 'upload')
     out.push(a.conflict === 'overwrite' ? '覆盖已有目标' : '目标已存在时报错')
