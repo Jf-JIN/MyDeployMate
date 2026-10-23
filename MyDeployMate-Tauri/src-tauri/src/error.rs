@@ -30,6 +30,9 @@ pub enum AppErrorKind {
     StorageUnavailable,
     /// Another run has not finished yet (ARC-08).
     RunActive,
+    /// A server key differs from the recorded one; only an explicit trust update may replace
+    /// it (SRV-03).
+    HostKeyChanged,
     /// The requested record does not exist, e.g. a run that was deleted.
     NotFound,
     Internal,
@@ -68,6 +71,7 @@ impl From<StoreError> for AppError {
                 AppErrorKind::StorageUnavailable
             }
             StoreError::RunActive => AppErrorKind::RunActive,
+            StoreError::TrustConflict(_) => AppErrorKind::HostKeyChanged,
         };
         Self::new(kind, message)
     }
