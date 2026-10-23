@@ -243,9 +243,15 @@ watch(
   async () => {
     if (!attempted.value) return
     const ticket = ++validating
-    const edit = await buildEdit()
-    if (!edit) return
-    const report = await call('validate_workspace_draft', { draft: edit.workspace })
+    let report
+    try {
+      const edit = await buildEdit()
+      if (!edit) return
+      report = await call('validate_workspace_draft', { draft: edit.workspace })
+    } catch (e) {
+      report = toAppError(e).validation
+      if (!report) return
+    }
     if (ticket === validating) issues.value = report.issues
   },
   { deep: true },
@@ -255,7 +261,10 @@ async function onSave() {
   error.value = null
   saving.value = true
   try {
-    const edit = await buildEdit()
+    const edit = await buildEdit().catch(async (e) => {
+      await fail(e)
+      return null
+    })
     if (!edit) return
     // IXD-20: an environment change shows the bindings it removes before anything is saved.
     if (edit.removedBindings.length && !props.isNew) {
@@ -277,16 +286,24 @@ async function commit(edit: ServerEdit) {
     if (server) emit('saved', server)
   } catch (e) {
     pending.value = null
-    const err = toAppError(e)
-    attempted.value = true
-    if (err.kind === 'validation' && err.validation) {
-      issues.value = err.validation.issues
-      await focusFirstInvalid(body.value)
-    } else {
-      error.value = err.message
-    }
+    await fail(e)
   } finally {
     saving.value = false
+  }
+}
+
+// A mistyped field fails already in `put_server`, before anything is saved.
+async function fail(e: unknown) {
+  const err = toAppError(e)
+  attempted.value = true
+  if (err.kind === 'validation' && err.validation) {
+    // The path of a new server is only known once Rust placed it.
+    const match = /^servers\[(\d+)\]/.exec(err.validation.issues[0]?.path ?? '')
+    if (index.value < 0 && match) index.value = Number(match[1])
+    issues.value = err.validation.issues
+    await focusFirstInvalid(body.value)
+  } else {
+    error.value = err.message
   }
 }
 

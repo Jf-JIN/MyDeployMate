@@ -89,7 +89,11 @@ async function refresh() {
     })
     if (mine === ticket) plan.value = result
   } catch (e) {
-    if (mine === ticket) error.value = toAppError(e).message
+    // An unsaved draft with a mistyped field cannot be planned; say which field.
+    const err = toAppError(e)
+    const issue = err.validation?.issues[0]
+    if (mine === ticket)
+      error.value = issue ? `${err.message}：${issue.path} ${issue.message}` : err.message
   } finally {
     if (mine === ticket) loading.value = false
   }

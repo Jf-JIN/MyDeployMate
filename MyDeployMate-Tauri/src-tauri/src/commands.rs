@@ -138,9 +138,10 @@ pub fn server_references(draft: Workspace, server_id: ServerId) -> Vec<Reference
 }
 
 /// Insert or replace a server in the draft; reports bindings an environment change removes.
+/// The server form arrives as raw JSON so a mistyped field fails as a validation issue.
 #[tauri::command]
-pub fn put_server(draft: Workspace, server: Server) -> ServerEdit {
-    edit::put_server(draft, server)
+pub fn put_server(draft: Workspace, server: serde_json::Value) -> Result<ServerEdit, AppError> {
+    edit::put_server_json(draft, server).map_err(AppError::validation)
 }
 
 /// Remove a server and its bindings from the draft.
@@ -247,7 +248,11 @@ pub fn builtin_variables() -> Vec<BuiltinVariable> {
 /// Resolve a run plan without running anything (D03, RUN-01): no network, no password prompt.
 /// The UI passes the page draft so an unsaved preview shows what the editor holds (IXD-21).
 #[tauri::command]
-pub fn preview_run(draft: Workspace, request: PlanRequest) -> Result<ResolvedPlan, AppError> {
+pub fn preview_run(
+    draft: serde_json::Value,
+    request: PlanRequest,
+) -> Result<ResolvedPlan, AppError> {
+    let draft = parse_workspace(draft).map_err(AppError::validation)?;
     build_plan(&draft, &request, &ProcessValues)
         .map_err(|e| AppError::new(AppErrorKind::Internal, e.to_string()))
 }
