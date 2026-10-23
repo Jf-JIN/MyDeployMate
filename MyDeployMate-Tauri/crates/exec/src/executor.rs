@@ -10,16 +10,18 @@ use std::time::{Duration, Instant};
 
 use mdm_core::log::size_text;
 use mdm_core::{
-    ArtifactManifest, Message, PlannedTask, PrivilegePolicy, ServerId, Shell, StepId, TaskAction,
-    TaskDetail, TaskId, UploadDetail, UploadProgress, compare_manifests,
+    ArtifactManifest, CredentialPurpose, Message, PlannedTask, PrivilegePolicy, ServerId, Shell,
+    StepId, TaskAction, TaskDetail, TaskId, UploadDetail, UploadProgress, compare_manifests,
 };
+use secrecy::SecretString;
 use tokio::sync::Mutex;
 
 use crate::coordinator::{TaskContext, TaskExecutor, TaskFuture, TaskOutcome};
 use crate::local::{LocalCommand, LocalEnd, LocalOutcome, run_local};
-use crate::remote::{RemoteEnd, Stop, run_remote, wrap_command};
+use crate::remote::{Elevation, RemoteEnd, Stop, run_remote, wrap_command};
 use crate::shell::{Invocation, program_name, resolve_shell};
-use crate::ssh::SshSession;
+use crate::ssh::{SecretPrompt, SecretSource, SshSession};
+use crate::sudo::{PasswordFeed, PasswordFuture, Sudo, prompt_marker};
 use crate::upload::{Sftp, UploadEnd, UploadJob, scan, upload};
 
 /// Upload progress goes to the UI at most this often, plus at every file boundary.
@@ -33,6 +35,10 @@ pub type ConnectFuture<'a> =
 /// task's outcome; nothing has run on the server yet.
 pub trait RemoteConnector: Send + Sync {
     fn connect<'a>(&'a self, server: ServerId, ctx: &'a TaskContext) -> ConnectFuture<'a>;
+
+    /// Where `server`'s sudo password comes from for this task: a remembered value, else D04
+    /// through `ctx` (SEC-03).
+    fn secrets<'a>(&'a self, server: ServerId, ctx: &'a TaskContext) -> Box<dyn SecretSource + 'a>;
 }
 
 /// Runs the tasks of one run. Connections are opened on first use and kept for the run's
@@ -44,6 +50,9 @@ pub struct AppExecutor {
     sessions: Mutex<HashMap<ServerId, Arc<SshSession>>>,
     /// The manifest each upload step recorded at its first target (ARC-28).
     manifests: Mutex<HashMap<StepId, ArtifactManifest>>,
+    /// sudo passwords accepted in this run, by server and target user; the login account is
+    /// fixed per server for the run (SEC-03). Dropped with the executor when the run ends.
+    sudo_passwords: std::sync::Mutex<HashMap<(ServerId, String), SecretString>>,
 }
 
 impl AppExecutor {
@@ -54,8 +63,12 @@ impl AppExecutor {
         }
     }
 
-    /// Disconnect every session; call when the run has ended.
+    /// Disconnect every session and forget the run's sudo passwords; call when the run ended.
     pub async fn close(&self) {
+        self.sudo_passwords
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
         let sessions: Vec<_> = self.sessions.lock().await.drain().map(|(_, s)| s).collect();
         for s in sessions {
             s.close().await;
@@ -92,9 +105,6 @@ impl AppExecutor {
         else {
             unreachable!("only remote tasks")
         };
-        if *privilege != PrivilegePolicy::None {
-            return failed(Message::SudoUnsupported);
-        }
         let Some(server) = &task.server else {
             return failed(Message::NoServer);
         };
@@ -105,11 +115,42 @@ impl AppExecutor {
         if ctx.cancel.is_cancelled() {
             return TaskOutcome::Cancelled;
         }
-        let wrapped = wrap_command(command, cwd.as_ref().map(|c| c.expose()));
+        let marker = prompt_marker(&TaskId::new().to_string());
+        let sudo = match privilege {
+            PrivilegePolicy::None => None,
+            PrivilegePolicy::SudoNonInteractive { run_as } => Some(Sudo::NonInteractive { run_as }),
+            PrivilegePolicy::SudoPassword { run_as } => Some(Sudo::Password {
+                run_as,
+                marker: &marker,
+            }),
+        };
+        let feed = match (&sudo, &self.remote) {
+            (Some(Sudo::Password { run_as, .. }), Some(remote)) => {
+                let key = (server.id, (*run_as).to_owned());
+                Some(SudoFeed {
+                    cached: self.cached_sudo(&key),
+                    key,
+                    secrets: remote.secrets(server.id, ctx),
+                    last: std::sync::Mutex::default(),
+                })
+            }
+            _ => None,
+        };
+        let elevation = sudo.map(|_| Elevation {
+            password: feed
+                .as_ref()
+                .map(|f| (marker.as_str(), f as &dyn PasswordFeed)),
+        });
+        let wrapped = wrap_command(command, cwd.as_ref().map(|c| c.expose()), sudo.as_ref());
         let timeout = task.timeout_sec.map(|s| Duration::from_secs(s.into()));
-        let outcome = match run_remote(&session, &wrapped, timeout, &ctx.cancel, |chunk| {
-            ctx.output(chunk)
-        })
+        let outcome = match run_remote(
+            &session,
+            &wrapped,
+            timeout,
+            &ctx.cancel,
+            elevation,
+            |chunk| ctx.output(chunk),
+        )
         .await
         {
             Ok(o) => o,
@@ -123,7 +164,36 @@ impl AppExecutor {
         if outcome.pgid.is_none() && matches!(outcome.end, RemoteEnd::Exited(_)) {
             ctx.note(Message::NoProcessGroup);
         }
-        remote_outcome(task, outcome.end)
+        if let Some(feed) = &feed
+            && outcome.sudo.accepted()
+        {
+            feed.accepted(self);
+        }
+        let result = remote_outcome(task, outcome.end);
+        match (&outcome.sudo.failure, sudo, result) {
+            (
+                Some(failure),
+                Some(sudo),
+                TaskOutcome::Failed {
+                    exit_code,
+                    exit_signal,
+                    ..
+                },
+            ) => TaskOutcome::Failed {
+                exit_code,
+                exit_signal,
+                reason: failure.message(sudo.run_as()),
+            },
+            (_, _, result) => result,
+        }
+    }
+
+    fn cached_sudo(&self, key: &(ServerId, String)) -> Option<SecretString> {
+        self.sudo_passwords
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(key)
+            .cloned()
     }
 }
 
@@ -244,6 +314,61 @@ impl AppExecutor {
             UploadEnd::Unknown(reason) => TaskOutcome::Unknown { reason },
             UploadEnd::Cancelled => TaskOutcome::Cancelled,
         }
+    }
+}
+
+/// The sudo password for one remote task: the value accepted earlier in this run, else from
+/// the connector (remembered value or D04).
+struct SudoFeed<'a> {
+    key: (ServerId, String),
+    cached: Option<SecretString>,
+    secrets: Box<dyn SecretSource + 'a>,
+    /// The value written last, and whether it came from this run's cache.
+    last: std::sync::Mutex<Option<(SecretString, bool)>>,
+}
+
+impl SudoFeed<'_> {
+    fn purpose(&self) -> CredentialPurpose {
+        CredentialPurpose::SudoPassword {
+            run_as: self.key.1.clone(),
+        }
+    }
+
+    /// The last value worked: keep it for the run and let the source remember it. A value
+    /// from the run's cache was already reported when it was first accepted.
+    fn accepted(&self, exec: &AppExecutor) {
+        let last = self.last.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some((value, from_cache)) = last {
+            exec.sudo_passwords
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(self.key.clone(), value);
+            if !from_cache {
+                self.secrets.accepted(&self.purpose());
+            }
+        }
+    }
+}
+
+impl PasswordFeed for SudoFeed<'_> {
+    fn password(&self, attempt: u8) -> PasswordFuture<'_> {
+        Box::pin(async move {
+            let (value, from_cache) = match (&self.cached, attempt) {
+                (Some(v), 1) => (Some(v.clone()), true),
+                _ => {
+                    let prompt = SecretPrompt {
+                        purpose: self.purpose(),
+                        attempt,
+                        rejected: attempt > 1,
+                        key_path: None,
+                    };
+                    (self.secrets.secret(&prompt).await, false)
+                }
+            };
+            *self.last.lock().unwrap_or_else(|e| e.into_inner()) =
+                value.clone().map(|v| (v, from_cache));
+            value
+        })
     }
 }
 

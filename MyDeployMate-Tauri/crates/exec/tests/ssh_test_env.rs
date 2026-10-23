@@ -501,9 +501,10 @@ mod remote {
         let mut err = String::new();
         let outcome = run_remote(
             session,
-            &wrap_command(cmd, cwd),
+            &wrap_command(cmd, cwd, None),
             timeout,
             cancel,
+            None,
             |c: OutputChunk| match c.stream {
                 mdm_exec::Stream::Stdout => out.push_str(&c.text),
                 mdm_exec::Stream::Stderr => err.push_str(&c.text),
@@ -1019,9 +1020,30 @@ mod upload_run {
     struct TestEnv {
         keys: PathBuf,
         known: Vec<HostKey>,
+        /// sudo passwords for every task of the run.
+        sudo: Arc<Answers>,
+    }
+
+    struct SharedAnswers(Arc<Answers>);
+
+    impl mdm_exec::ssh::SecretSource for SharedAnswers {
+        fn secret<'a>(&'a self, prompt: &'a SecretPrompt) -> SecretFuture<'a> {
+            self.0.secret(prompt)
+        }
+        fn accepted(&self, purpose: &CredentialPurpose) {
+            self.0.accepted(purpose)
+        }
     }
 
     impl RemoteConnector for TestEnv {
+        fn secrets<'a>(
+            &'a self,
+            _: ServerId,
+            _: &'a TaskContext,
+        ) -> Box<dyn mdm_exec::ssh::SecretSource + 'a> {
+            Box::new(SharedAnswers(Arc::clone(&self.sudo)))
+        }
+
         fn connect<'a>(&'a self, _: ServerId, _: &'a TaskContext) -> ConnectFuture<'a> {
             Box::pin(async move {
                 let t = key_target(MODERN, "deploy", self.keys.join("id_ed25519"));
@@ -1055,7 +1077,11 @@ mod upload_run {
     }
 
     /// A plan of upload tasks of one step, one per `(server, target)`, built on the demo plan.
-    fn plan(source: &std::path::Path, kind: SourceKind, targets: &[&str]) -> ResolvedPlan {
+    pub(super) fn plan(
+        source: &std::path::Path,
+        kind: SourceKind,
+        targets: &[&str],
+    ) -> ResolvedPlan {
         let demo = demo_workspace();
         let p = &demo.workspace.projects[0];
         let req = PlanRequest {
@@ -1098,9 +1124,19 @@ mod upload_run {
         plan: ResolvedPlan,
         after_first: impl Fn() + Send + Sync + 'static,
     ) -> (RunStatus, Vec<Task>, Vec<(u32, Message)>) {
+        run_with(keys, plan, after_first, Arc::default()).await
+    }
+
+    pub(super) async fn run_with(
+        keys: &std::path::Path,
+        plan: ResolvedPlan,
+        after_first: impl Fn() + Send + Sync + 'static,
+        sudo: Arc<Answers>,
+    ) -> (RunStatus, Vec<Task>, Vec<(u32, Message)>) {
         let env = TestEnv {
             keys: keys.to_path_buf(),
             known: vec![host_key(MODERN, keys).await],
+            sudo,
         };
         let exec = Hook {
             inner: AppExecutor::new(Arc::new(env)),
@@ -1220,5 +1256,314 @@ mod upload_run {
             Some(Message::PermissionDenied { ref path }) if path == b
         ));
         assert_eq!(upload_detail(&tasks[1]).stopped_at.as_deref(), Some(b));
+    }
+}
+
+mod sudo_run {
+    use super::*;
+    use std::sync::Arc;
+
+    use super::upload_run::*;
+    use mdm_core::plan::ResolvedCommand;
+    use mdm_core::{PrivilegePolicy, ResolvedText, RunStatus, StepKind, TaskAction, TaskStatus};
+
+    /// Two sudo tasks on one server ask once; the password is kept for the run (SEC-03). The
+    /// accepted value is reported once, so a remembering source can save it (AC-29).
+    #[tokio::test]
+    async fn the_sudo_password_is_asked_once_per_run() {
+        let keys = require_test_env!();
+        let local = tempfile::tempdir().unwrap();
+        let mut plan = plan(local.path(), mdm_core::SourceKind::Directory, &["/a", "/b"]);
+        let server = plan.tasks[0].server.clone();
+        for t in &mut plan.tasks {
+            t.kind = StepKind::Remote;
+            t.server = server.clone();
+            t.action = TaskAction::Remote {
+                command: ResolvedCommand::Script {
+                    script: ResolvedText::plain("id -un"),
+                },
+                cwd: None,
+                privilege: PrivilegePolicy::SudoPassword {
+                    run_as: "root".into(),
+                },
+                shell_elevation: true,
+            };
+        }
+        let sudo = Arc::new(Answers::new(&[Some("wrong"), Some("deploy-pass")]));
+        let (status, tasks, _) = run_with(&keys, plan, || {}, Arc::clone(&sudo)).await;
+        assert_eq!(status, RunStatus::Succeeded, "{tasks:#?}");
+        assert!(tasks.iter().all(|t| t.status == TaskStatus::Succeeded));
+        let asked = sudo.asked();
+        assert_eq!(asked.len(), 2, "{asked:?}");
+        assert_eq!((asked[1].attempt, asked[1].rejected), (2, true));
+        assert_eq!(
+            asked[0].purpose,
+            CredentialPurpose::SudoPassword {
+                run_as: "root".into()
+            }
+        );
+        assert_eq!(sudo.accepted.lock().unwrap().len(), 1);
+    }
+}
+
+// ---- sudo (SEC-01/02, ARC-24/25, AT-08) -------------------------------------------------------
+
+mod sudo {
+    use super::*;
+    use std::sync::Mutex;
+
+    use mdm_core::ResolvedText;
+    use mdm_core::plan::ResolvedCommand;
+    use mdm_exec::OutputChunk;
+    use mdm_exec::remote::{Elevation, RemoteEnd, RemoteOutcome, run_remote, wrap_command};
+    use mdm_exec::ssh::SshSession;
+    use mdm_exec::sudo::{PasswordFeed, PasswordFuture, Sudo, SudoFailure, prompt_marker};
+
+    async fn session(keys: &std::path::Path, user: &str) -> SshSession {
+        let key = host_key(MODERN, keys).await;
+        let t = key_target(MODERN, user, keys.join("id_ed25519"));
+        try_connect(&t, &[key], &Answers::default()).await.unwrap()
+    }
+
+    fn script(s: &str) -> ResolvedCommand {
+        ResolvedCommand::Script {
+            script: ResolvedText::plain(s),
+        }
+    }
+
+    /// Hands out passwords from a list and records the attempts asked for.
+    struct Feed {
+        values: Mutex<Vec<Option<&'static str>>>,
+        asked: Mutex<Vec<u8>>,
+    }
+
+    impl Feed {
+        fn new(values: &[Option<&'static str>]) -> Self {
+            Self {
+                values: Mutex::new(values.iter().rev().cloned().collect()),
+                asked: Mutex::default(),
+            }
+        }
+        fn asked(&self) -> Vec<u8> {
+            self.asked.lock().unwrap().clone()
+        }
+    }
+
+    impl PasswordFeed for Feed {
+        fn password(&self, attempt: u8) -> PasswordFuture<'_> {
+            self.asked.lock().unwrap().push(attempt);
+            let next = self.values.lock().unwrap().pop().flatten();
+            Box::pin(async move { next.map(|v| SecretString::from(v.to_owned())) })
+        }
+    }
+
+    async fn run(
+        s: &SshSession,
+        cmd: &ResolvedCommand,
+        cwd: Option<&str>,
+        password: Option<&Feed>,
+        cancel: &CancellationToken,
+    ) -> (RemoteOutcome, String, String) {
+        let marker = prompt_marker("t1");
+        let sudo = match password {
+            None => Sudo::NonInteractive { run_as: "root" },
+            Some(_) => Sudo::Password {
+                run_as: "root",
+                marker: &marker,
+            },
+        };
+        let elevation = Elevation {
+            password: password.map(|f| (marker.as_str(), f as &dyn PasswordFeed)),
+        };
+        let (mut out, mut err) = (String::new(), String::new());
+        let outcome = run_remote(
+            s,
+            &wrap_command(cmd, cwd, Some(&sudo)),
+            Some(Duration::from_secs(20)),
+            cancel,
+            Some(elevation),
+            |c: OutputChunk| match c.stream {
+                mdm_exec::Stream::Stdout => out.push_str(&c.text),
+                mdm_exec::Stream::Stderr => err.push_str(&c.text),
+            },
+        )
+        .await
+        .unwrap();
+        (outcome, out, err)
+    }
+
+    #[tokio::test]
+    async fn non_interactive_runs_with_a_grant_and_fails_fast_without() {
+        let keys = require_test_env!();
+        let s = session(&keys, "nopass").await;
+        let program = ResolvedCommand::Program {
+            executable: ResolvedText::plain("/usr/bin/id"),
+            args: vec![ResolvedText::plain("-un")],
+        };
+        let (o, out, _) = run(&s, &program, Some("/tmp"), None, &CancellationToken::new()).await;
+        assert_eq!((o.end, out.as_str()), (RemoteEnd::Exited(0), "root\n"));
+        let (o, out, _) = run(
+            &s,
+            &script("cd /root && pwd && id -un"),
+            None,
+            None,
+            &CancellationToken::new(),
+        )
+        .await;
+        assert_eq!(
+            (o.end, out.as_str()),
+            (RemoteEnd::Exited(0), "/root\nroot\n")
+        );
+
+        // A password user and a user without sudo both read as "not granted" (ARC-25).
+        for user in ["deploy", "nosudo"] {
+            let s = session(&keys, user).await;
+            let (o, out, _) =
+                run(&s, &script("id -un"), None, None, &CancellationToken::new()).await;
+            assert_eq!(o.sudo.failure, Some(SudoFailure::NotGranted), "{user}");
+            assert_eq!(o.sudo.prompts, 0);
+            assert_eq!(out, "");
+        }
+    }
+
+    #[tokio::test]
+    async fn password_is_sent_only_after_the_prompt_and_retried() {
+        let keys = require_test_env!();
+        let s = session(&keys, "deploy").await;
+        let feed = Feed::new(&[Some("wrong"), Some("deploy-pass")]);
+        let (o, out, err) = run(
+            &s,
+            &script("id -un"),
+            None,
+            Some(&feed),
+            &CancellationToken::new(),
+        )
+        .await;
+        assert_eq!(o.end, RemoteEnd::Exited(0), "{err}");
+        assert_eq!(out, "root\n");
+        assert_eq!(feed.asked(), vec![1, 2]);
+        assert!(o.sudo.accepted());
+        assert!(!err.contains("mdm-sudo"), "marker shown: {err}");
+        assert!(!err.contains("deploy-pass") && !out.contains("deploy-pass"));
+
+        // No prompt where no password is needed: nothing is asked or written.
+        let s = session(&keys, "nopass").await;
+        let feed = Feed::new(&[]);
+        let (o, out, _) = run(
+            &s,
+            &script("id -un"),
+            None,
+            Some(&feed),
+            &CancellationToken::new(),
+        )
+        .await;
+        assert_eq!((o.end, out.as_str()), (RemoteEnd::Exited(0), "root\n"));
+        assert!(feed.asked().is_empty());
+        assert!(!o.sudo.accepted());
+    }
+
+    #[tokio::test]
+    async fn three_wrong_passwords_fail() {
+        let keys = require_test_env!();
+        let s = session(&keys, "deploy").await;
+        let feed = Feed::new(&[Some("a"), Some("b"), Some("c"), Some("deploy-pass")]);
+        let (o, out, _) = run(
+            &s,
+            &script("id -un"),
+            None,
+            Some(&feed),
+            &CancellationToken::new(),
+        )
+        .await;
+        assert_eq!(o.sudo.failure, Some(SudoFailure::WrongPassword));
+        assert_eq!(feed.asked(), vec![1, 2, 3]);
+        assert!(!o.sudo.accepted());
+        assert_eq!(out, "");
+    }
+
+    #[tokio::test]
+    async fn declining_the_prompt_runs_nothing() {
+        let keys = require_test_env!();
+        let s = session(&keys, "deploy").await;
+        let flag = "/tmp/mdm-sudo-declined";
+        s.exec_collect(&format!("rm -f {flag}"), 1024)
+            .await
+            .unwrap();
+        let feed = Feed::new(&[None]);
+        let (o, _, _) = run(
+            &s,
+            &script(&format!("touch {flag}")),
+            None,
+            Some(&feed),
+            &CancellationToken::new(),
+        )
+        .await;
+        assert!(matches!(o.end, RemoteEnd::Cancelled(_)), "{o:?}");
+        let check = s
+            .exec_collect(&format!("test -e {flag}"), 1024)
+            .await
+            .unwrap();
+        assert_eq!(check.exit_status, Some(1));
+    }
+
+    #[tokio::test]
+    async fn requiretty_and_sudoers_refusals_are_named() {
+        let keys = require_test_env!();
+        let s = session(&keys, "ttyuser").await;
+        let feed = Feed::new(&[Some("ttyuser-pass")]);
+        let (o, _, _) = run(
+            &s,
+            &script("id -un"),
+            None,
+            Some(&feed),
+            &CancellationToken::new(),
+        )
+        .await;
+        assert_eq!(o.sudo.failure, Some(SudoFailure::RequiresTty));
+        assert!(feed.asked().is_empty());
+
+        // The password is right, but sudoers does not allow the user.
+        let s = session(&keys, "nosudo").await;
+        let feed = Feed::new(&[Some("nosudo-pass")]);
+        let (o, _, _) = run(
+            &s,
+            &script("id -un"),
+            None,
+            Some(&feed),
+            &CancellationToken::new(),
+        )
+        .await;
+        assert_eq!(o.sudo.failure, Some(SudoFailure::NotAllowed));
+        assert!(!o.sudo.accepted());
+    }
+
+    #[tokio::test]
+    async fn cancel_of_an_elevated_command_is_never_claimed_without_proof() {
+        let keys = require_test_env!();
+        let s = session(&keys, "nopass").await;
+        let cancel = CancellationToken::new();
+        let stopper = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            stopper.cancel();
+        });
+        let (o, _, _) = run(&s, &script("sleep 30"), None, None, &cancel).await;
+        let left = s
+            .exec_collect("pgrep -u root -x sleep || true", 1024)
+            .await
+            .unwrap();
+        let left = String::from_utf8_lossy(&left.stdout).into_owned();
+        // sudo does not pass on a signal from the login account, so the root process may live
+        // on. Then the stop must be reported as unconfirmed, never as done.
+        match (&o.end, left.is_empty()) {
+            (RemoteEnd::Cancelled(mdm_exec::remote::Stop::Confirmed), true) => {}
+            (RemoteEnd::Cancelled(mdm_exec::remote::Stop::Unconfirmed(why)), false) => {
+                assert_eq!(*why, Message::StillRunning);
+            }
+            other => panic!("{other:?} with {left:?} left"),
+        }
+        s.exec_collect("sudo -n pkill -x sleep", 1024)
+            .await
+            .unwrap();
     }
 }

@@ -22,6 +22,7 @@ ssh-key = { version = "=0.7.0-rc.11", features = ["ppk", "encryption"] }
 thiserror = "2.0.21"
 tokio = { version = "1.54.0", features = ["fs", "io-util", "macros", "net", "process", "rt", "sync", "time"] }
 tokio-util = "0.7.20"
+zeroize = "1.9.1"
 
 [target.'cfg(windows)'.dependencies]
 process-wrap = { version = "10.0.1", default-features = false, features = ["tokio1", "kill-on-drop", "job-object", "creation-flags"] }

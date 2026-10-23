@@ -35,6 +35,12 @@ pub trait Operator: Send + Sync {
     fn ask(&self, prompt: OperatorPrompt) -> AskFuture<'_>;
 }
 
+impl<T: Operator + ?Sized> Operator for &T {
+    fn ask(&self, prompt: OperatorPrompt) -> AskFuture<'_> {
+        (**self).ask(prompt)
+    }
+}
+
 /// Open prompts of connection tests, answered by `submit_secret` and `answer_host_trust`.
 #[derive(Default)]
 pub struct PromptBroker {
@@ -120,20 +126,20 @@ struct Given {
     from_saved: bool,
 }
 
-/// D04 plus remembered credentials, for one connection attempt.
+/// D04 plus remembered credentials, for one connection attempt or one sudo command.
 pub struct PromptingSecrets<'a> {
     app: &'a AppHandle,
-    who: &'a SecretContext,
-    operator: &'a dyn Operator,
+    who: SecretContext,
+    operator: Box<dyn Operator + 'a>,
     given: Mutex<Option<Given>>,
 }
 
 impl<'a> PromptingSecrets<'a> {
-    pub fn new(app: &'a AppHandle, who: &'a SecretContext, operator: &'a dyn Operator) -> Self {
+    pub fn new(app: &'a AppHandle, who: SecretContext, operator: impl Operator + 'a) -> Self {
         Self {
             app,
             who,
-            operator,
+            operator: Box::new(operator),
             given: Mutex::new(None),
         }
     }

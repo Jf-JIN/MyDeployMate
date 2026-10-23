@@ -308,8 +308,16 @@ pub enum Message {
     RunStorageFailed { reason: Box<Message> },
     #[serde(rename = "exec.noConnection")]
     NoConnection,
-    #[serde(rename = "exec.sudoUnsupported")]
-    SudoUnsupported,
+    #[serde(rename = "exec.sudoNotGranted")]
+    SudoNotGranted,
+    #[serde(rename = "exec.sudoRequiresTty")]
+    SudoRequiresTty,
+    #[serde(rename = "exec.sudoWrongPassword")]
+    SudoWrongPassword,
+    #[serde(rename = "exec.sudoNotAllowed")]
+    SudoNotAllowed { target: String },
+    #[serde(rename = "exec.sudoMissing")]
+    SudoMissing,
     #[serde(rename = "exec.noServer")]
     NoServer,
     #[serde(rename = "exec.startFailed")]
