@@ -9,6 +9,7 @@ import UiNotice from './components/ui/UiNotice.vue'
 import UiToasts from './components/ui/UiToasts.vue'
 import { openLayerCount } from './composables/focus'
 import { useDraftStore } from './stores/drafts'
+import { useLocaleStore } from './stores/locale'
 import { useRunStore } from './stores/run'
 import { useSessionStore } from './stores/session'
 import { useThemeStore } from './stores/theme'
@@ -19,6 +20,7 @@ const session = useSessionStore()
 const drafts = useDraftStore()
 const runs = useRunStore()
 useThemeStore()
+useLocaleStore()
 const route = useRoute()
 const router = useRouter()
 

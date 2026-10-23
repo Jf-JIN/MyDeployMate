@@ -28,6 +28,8 @@ import {
   type Variable,
   type VariableValue,
 } from '@/ipc'
+import { LOCALE_NAMES, useT } from '@/i18n'
+import { useLocaleStore, type LocalePreference } from '@/stores/locale'
 import { useThemeStore, type ThemePreference } from '@/stores/theme'
 
 // P10 configuration center: environments, global variables, host trust, saved credentials,
@@ -48,12 +50,19 @@ onMounted(async () => {
 })
 
 // Appearance applies at once and is kept on this machine, outside the workspace draft.
+const t = useT()
 const theme = useThemeStore()
-const themeOptions: { value: ThemePreference; label: string }[] = [
-  { value: 'system', label: '跟随系统' },
-  { value: 'light', label: '浅色' },
-  { value: 'dark', label: '深色' },
-]
+const themeOptions = computed<{ value: ThemePreference; label: string }[]>(() => [
+  { value: 'system', label: t('settings.look.themeOptions.system') },
+  { value: 'light', label: t('settings.look.themeOptions.light') },
+  { value: 'dark', label: t('settings.look.themeOptions.dark') },
+])
+const locale = useLocaleStore()
+const localeOptions = computed<{ value: LocalePreference; label: string }[]>(() => [
+  { value: 'system', label: t('settings.look.languageSystem') },
+  { value: 'zh-CN', label: LOCALE_NAMES['zh-CN'] },
+  { value: 'en-US', label: LOCALE_NAMES['en-US'] },
+])
 
 async function onSave() {
   saving.value = true
@@ -328,10 +337,28 @@ async function openDataDir() {
 
       <section class="section" aria-labelledby="look-title">
         <header class="section-head">
-          <h2 id="look-title">外观</h2>
-          <p class="section-hint">立即生效，只保存在本机，不写入配置文件，也不随导出。</p>
+          <h2 id="look-title">{{ t('settings.look.title') }}</h2>
+          <p class="section-hint">{{ t('settings.look.hint') }}</p>
         </header>
-        <UiSegmented v-model="theme.preference" :options="themeOptions" label="主题" />
+        <div class="look">
+          <span class="look-label">{{ t('settings.look.theme') }}</span>
+          <UiSegmented
+            v-model="theme.preference"
+            :options="themeOptions"
+            :label="t('settings.look.theme')"
+          />
+          <span class="look-label">{{ t('settings.look.language') }}</span>
+          <div class="look-control">
+            <UiSegmented
+              v-model="locale.preference"
+              :options="localeOptions"
+              :label="t('settings.look.language')"
+            />
+            <p v-if="$i18n.locale === 'en-US'" class="look-hint">
+              {{ t('settings.look.englishPreview') }}
+            </p>
+          </div>
+        </div>
       </section>
 
       <section class="section" aria-labelledby="data-title">
@@ -414,6 +441,33 @@ async function openDataDir() {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-1) var(--space-3);
+}
+
+.look {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  align-items: start;
+  justify-items: start;
+  gap: var(--space-3) var(--space-4);
+}
+
+.look-label {
+  /* Centred on the 32px segmented control. */
+  padding-top: 5px;
+  font: var(--font-label);
+}
+
+.look-control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.look-hint {
+  margin: 0;
+  color: var(--text-secondary);
+  font: var(--font-caption);
 }
 
 .section-hint {

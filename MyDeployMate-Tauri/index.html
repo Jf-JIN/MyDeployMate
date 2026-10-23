@@ -15,6 +15,19 @@
       } catch {
         document.documentElement.dataset.theme = 'light'
       }
+      // Same for the language (NFR-05), so the first paint uses the right font stack (UI-07);
+      // src/stores/locale.ts keeps it in sync.
+      try {
+        const pref = localStorage.getItem('mydeploymate.locale')
+        document.documentElement.lang =
+          pref === 'zh-CN' || pref === 'en-US'
+            ? pref
+            : navigator.language.toLowerCase().startsWith('zh')
+              ? 'zh-CN'
+              : 'en-US'
+      } catch {
+        // Keep the default lang.
+      }
     </script>
   </head>
   <body>
