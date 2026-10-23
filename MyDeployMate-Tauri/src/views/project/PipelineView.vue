@@ -44,7 +44,7 @@ const drafts = useDraftStore()
 const run = useRunStore()
 const page = ref<HTMLElement | null>(null)
 const { draft, project, prefix, issues, under, error } = useProjectDraft(
-  '流程编辑',
+  'drafts.labels.pipeline',
   page,
   () => props.project.id,
 )

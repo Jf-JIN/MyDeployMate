@@ -6,7 +6,10 @@ import { computed, ref, watch } from 'vue'
 import UiField from '@/components/ui/UiField.vue'
 import UiIconButton from '@/components/ui/UiIconButton.vue'
 import UiTextInput from '@/components/ui/UiTextInput.vue'
+import { useT } from '@/i18n'
 import { call } from '@/ipc'
+
+const t = useT()
 
 // PRJ-01 / IXD-07: optional local project root with a folder picker. A path that does not
 // exist is pointed out, not blocked; a purely remote project leaves it empty.
@@ -28,14 +31,12 @@ watch(
 )
 
 const hint = computed(() =>
-  exists.value === false
-    ? '该目录目前不存在，执行本地步骤前需要创建。'
-    : '本地步骤的相对路径以此为准；纯远端项目可留空。',
+  exists.value === false ? t('projects.root.missing') : t('projects.root.hint'),
 )
 
 async function browse() {
   const picked = await openFileDialog({
-    title: '选择项目根目录',
+    title: t('projects.root.pick'),
     directory: true,
     multiple: false,
     defaultPath: model.value || undefined,
@@ -45,7 +46,12 @@ async function browse() {
 </script>
 
 <template>
-  <UiField v-slot="{ id, describedBy, invalid }" label="根目录" :hint="hint" :error="error">
+  <UiField
+    v-slot="{ id, describedBy, invalid }"
+    :label="t('projects.root.label')"
+    :hint="hint"
+    :error="error"
+  >
     <div class="root">
       <UiTextInput
         :id="id"
@@ -55,7 +61,7 @@ async function browse() {
         :invalid="invalid"
         :described-by="describedBy"
       />
-      <UiIconButton tonal :icon="FolderOpen" label="浏览根目录" @click="browse" />
+      <UiIconButton tonal :icon="FolderOpen" :label="t('projects.root.browse')" @click="browse" />
     </div>
   </UiField>
 </template>

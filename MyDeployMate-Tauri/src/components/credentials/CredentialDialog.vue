@@ -6,9 +6,12 @@ import UiCheckbox from '@/components/ui/UiCheckbox.vue'
 import UiDialog from '@/components/ui/UiDialog.vue'
 import UiNotice from '@/components/ui/UiNotice.vue'
 import UiTextInput from '@/components/ui/UiTextInput.vue'
+import { useT } from '@/i18n'
 import type { CredentialPrompt } from '@/ipc'
 
 import { credentialTitle } from './credentialLabels'
+
+const t = useT()
 
 // D04 (IXD-31, IXD-32, SEC-02, SEC-03). The title names what the secret is for; the input
 // starts empty and masked; "remember" starts unticked unless it replaces a remembered value
@@ -44,11 +47,11 @@ const remaining = computed(() =>
 const fieldLabel = computed(() => {
   switch (props.prompt?.purpose) {
     case 'keyPassphrase':
-      return '私钥口令'
+      return t('credential.field.keyPassphrase')
     case 'sudoPassword':
-      return 'sudo 密码'
+      return t('credential.field.sudoPassword')
     default:
-      return '密码'
+      return t('credential.field.password')
   }
 })
 
@@ -70,26 +73,26 @@ function submit() {
   >
     <form v-if="prompt" ref="form" class="credential" @submit.prevent="submit">
       <UiNotice v-if="prompt.savedRejected" tone="warning">
-        已保存的凭据未通过验证，请重新输入。
+        {{ t('credential.savedRejected') }}
       </UiNotice>
       <dl class="facts">
-        <dt>服务器</dt>
+        <dt>{{ t('common.server') }}</dt>
         <dd>
           {{ prompt.serverName }} <code>{{ prompt.address }}</code>
         </dd>
-        <dt>登录账号</dt>
+        <dt>{{ t('credential.user') }}</dt>
         <dd>{{ prompt.user }}</dd>
         <template v-if="prompt.purpose === 'sudoPassword'">
-          <dt>提权为</dt>
+          <dt>{{ t('credential.runAs') }}</dt>
           <dd>{{ prompt.runAs }}</dd>
         </template>
         <template v-if="prompt.keyPath">
-          <dt>私钥文件</dt>
+          <dt>{{ t('credential.keyFile') }}</dt>
           <dd>
             <code class="path">{{ prompt.keyPath }}</code>
           </dd>
         </template>
-        <dt>用于</dt>
+        <dt>{{ t('credential.usedFor') }}</dt>
         <dd>{{ prompt.context }}</dd>
       </dl>
 
@@ -104,26 +107,26 @@ function submit() {
           autofocus
         />
         <p v-if="prompt.rejected && !prompt.savedRejected" class="error" role="alert">
-          验证未通过，剩余 {{ remaining }} 次
+          {{ t('credential.remaining', { n: remaining }) }}
         </p>
       </div>
 
       <div class="remember">
-        <UiCheckbox v-model="remember" label="记住此凭据（保存到 Windows 凭据管理器）" />
-        <p v-if="remember" class="hint">可在配置中心 › 已保存凭据中清除</p>
+        <UiCheckbox v-model="remember" :label="t('credential.remember')" />
+        <p v-if="remember" class="hint">{{ t('credential.rememberHint') }}</p>
       </div>
       <button type="submit" hidden />
     </form>
 
     <template #footer>
-      <UiButton :disabled="busy" @click="emit('cancel')">取消</UiButton>
+      <UiButton :disabled="busy" @click="emit('cancel')">{{ t('common.cancel') }}</UiButton>
       <UiButton
         variant="primary"
         :busy="busy"
-        :disabled-reason="secret ? null : `请输入${fieldLabel}`"
+        :disabled-reason="secret ? null : t('credential.enter', { field: fieldLabel })"
         @click="submit"
       >
-        确定
+        {{ t('common.ok') }}
       </UiButton>
     </template>
   </UiDialog>

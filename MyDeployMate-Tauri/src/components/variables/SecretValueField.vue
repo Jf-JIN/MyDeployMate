@@ -7,7 +7,10 @@ import UiDialog from '@/components/ui/UiDialog.vue'
 import UiNotice from '@/components/ui/UiNotice.vue'
 import UiTag from '@/components/ui/UiTag.vue'
 import UiTextInput from '@/components/ui/UiTextInput.vue'
+import { useT } from '@/i18n'
 import { call, toAppError } from '@/ipc'
+
+const t = useT()
 
 // The value of a sensitive variable kept in Windows Credential Manager (VAR-03, ARC-10). It is
 // written at once when entered, never into the workspace draft, and never read back into the
@@ -71,36 +74,38 @@ async function save() {
 
 <template>
   <span class="secret-field">
-    <UiTag v-if="present" tone="success" :icon="KeyRound">已保存在凭据管理器</UiTag>
-    <UiTag v-else-if="present === false" tone="warning">需填写</UiTag>
-    <UiTag v-else-if="error" tone="failure" :title="error">凭据管理器不可用</UiTag>
+    <UiTag v-if="present" tone="success" :icon="KeyRound">{{ t('secret.saved') }}</UiTag>
+    <UiTag v-else-if="present === false" tone="warning">{{ t('secret.required') }}</UiTag>
+    <UiTag v-else-if="error" tone="failure" :title="error">
+      {{ t('secret.unavailable') }}
+    </UiTag>
     <UiButton compact variant="ghost" :disabled-reason="error" @click="start">
-      {{ present ? '更改' : '填写' }}
+      {{ present ? t('common.edit') : t('common.fill') }}
     </UiButton>
   </span>
 
   <UiDialog
     :open="open"
-    :title="`填写 ${label}`"
+    :title="t('secret.dialogTitle', { name: label })"
     width="credential"
     :cancellable="!busy"
     @cancel="open = false"
   >
     <form class="secret-form" @submit.prevent="save">
-      <p class="hint">值保存到 Windows 凭据管理器，不写入配置文件，也不会显示在界面上。</p>
+      <p class="hint">{{ t('secret.hint') }}</p>
       <UiTextInput v-model="value" type="password" :aria-label="label" autofocus />
       <UiNotice v-if="saveError" tone="failure">{{ saveError }}</UiNotice>
       <button type="submit" hidden />
     </form>
     <template #footer>
-      <UiButton :disabled="busy" @click="open = false">取消</UiButton>
+      <UiButton :disabled="busy" @click="open = false">{{ t('common.cancel') }}</UiButton>
       <UiButton
         variant="primary"
         :busy="busy"
-        :disabled-reason="value ? null : '请输入值'"
+        :disabled-reason="value ? null : t('secret.enterValue')"
         @click="save"
       >
-        保存
+        {{ t('common.save') }}
       </UiButton>
     </template>
   </UiDialog>

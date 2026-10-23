@@ -10,12 +10,15 @@ import UiButton from '@/components/ui/UiButton.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
 import UiTag from '@/components/ui/UiTag.vue'
 import { cloneWorkspace } from '@/composables/workspaceDraft'
+import { useT } from '@/i18n'
 import type { Issue, Pipeline, Project, Workspace } from '@/ipc'
 import { useDraftStore } from '@/stores/drafts'
 import { usePreviewStore } from '@/stores/preview'
 import { useRunStore } from '@/stores/run'
 import { useSessionStore } from '@/stores/session'
 import { useWorkspaceStore } from '@/stores/workspace'
+
+const t = useT()
 
 // UI-12 / IXD-01: the top bar always shows project, pipeline and environment, plus Save,
 // Preview and Run. Switching environment goes through the leave guard (IXD-03).
@@ -72,8 +75,8 @@ function onJump(target: IssueTarget, issues: Issue[]) {
   }
 }
 
-const saveReason = computed(() => (drafts.anyDirty ? null : '没有未保存的更改'))
-const runReason = computed(() => (run.activeId ? '已有运行进行中' : null))
+const saveReason = computed(() => (drafts.anyDirty ? null : t('contextBar.noChanges')))
+const runReason = computed(() => (run.activeId ? t('contextBar.runActive') : null))
 
 // IXD-21: running starts from the saved configuration, so unsaved changes are saved first.
 async function openRun() {
@@ -97,7 +100,7 @@ function onStarted(runId: string) {
     </div>
     <span class="separator" aria-hidden="true" />
     <label class="context-env">
-      <span class="context-env-label">环境</span>
+      <span class="context-env-label">{{ t('common.environment') }}</span>
       <UiSelect
         :key="selectKey"
         v-model="selectedEnvironment"
@@ -106,10 +109,12 @@ function onStarted(runId: string) {
         compact
       />
     </label>
-    <UiTag v-if="environment?.protected" tone="warning" :icon="Shield">保护环境</UiTag>
+    <UiTag v-if="environment?.protected" tone="warning" :icon="Shield">{{
+      t('common.protectedEnv')
+    }}</UiTag>
     <div class="spacer" />
     <ActiveRunChip />
-    <UiTag v-if="drafts.anyDirty" tone="warning">未保存</UiTag>
+    <UiTag v-if="drafts.anyDirty" tone="warning">{{ t('common.unsaved') }}</UiTag>
     <UiButton
       variant="tonal"
       :icon="Save"
@@ -117,12 +122,14 @@ function onStarted(runId: string) {
       :disabled-reason="saveReason"
       @click="drafts.saveCurrent()"
     >
-      保存
+      {{ t('common.save') }}
     </UiButton>
     <template v-if="pipeline">
-      <UiButton variant="info" :icon="Eye" @click="openPreview">预览</UiButton>
+      <UiButton variant="info" :icon="Eye" @click="openPreview">
+        {{ t('common.preview') }}
+      </UiButton>
       <UiButton variant="primary" :icon="Play" :disabled-reason="runReason" @click="openRun">
-        执行
+        {{ t('common.run') }}
       </UiButton>
     </template>
     <PreviewDialog

@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import UiButton from '@/components/ui/UiButton.vue'
 import UiDialog from '@/components/ui/UiDialog.vue'
+import { useT } from '@/i18n'
 import { useDraftStore } from '@/stores/drafts'
+
+const t = useT()
 
 // IXD-03: leaving with unsaved changes offers save and continue, discard, or stay.
 const drafts = useDraftStore()
@@ -10,26 +13,28 @@ const drafts = useDraftStore()
 <template>
   <UiDialog
     :open="!!drafts.pending"
-    title="有未保存的更改"
+    :title="t('drafts.guard.title')"
     width="credential"
     @cancel="drafts.answer('cancel')"
   >
     <p class="guard-text">
       {{
         drafts.pending?.discardable === false
-          ? '执行前需要先保存这些更改。'
-          : '离开前要保存这些更改吗？'
+          ? t('drafts.guard.mustSave')
+          : t('drafts.guard.askSave')
       }}
     </p>
     <ul class="guard-list">
-      <li v-for="label in drafts.pending?.labels ?? []" :key="label">{{ label }}</li>
+      <li v-for="label in drafts.pending?.labels ?? []" :key="label">{{ t(label) }}</li>
     </ul>
     <template #footer>
-      <UiButton @click="drafts.answer('cancel')">取消</UiButton>
+      <UiButton @click="drafts.answer('cancel')">{{ t('common.cancel') }}</UiButton>
       <UiButton v-if="drafts.pending?.discardable !== false" @click="drafts.answer('discard')">
-        放弃更改
+        {{ t('drafts.guard.discard') }}
       </UiButton>
-      <UiButton variant="primary" @click="drafts.answer('save')">保存并继续</UiButton>
+      <UiButton variant="primary" @click="drafts.answer('save')">
+        {{ t('drafts.guard.saveAndContinue') }}
+      </UiButton>
     </template>
   </UiDialog>
 </template>

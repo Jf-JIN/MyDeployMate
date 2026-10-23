@@ -2,15 +2,22 @@
 // start; the step editor and the preview show it so the user sees what will actually run.
 import { ref } from 'vue'
 
+import { translate } from '@/i18n'
 import type { Shell } from '@/ipc/bindings/Shell'
 import type { ShellProgram } from '@/ipc/bindings/ShellProgram'
 import { call } from '@/ipc/invoke'
 
-export const SHELL_LABEL: Record<Shell, string> = {
-  powershell: 'Windows PowerShell',
-  pwsh: 'PowerShell 7（pwsh）',
-  cmd: 'cmd',
-  wsl: 'WSL',
+export function shellLabel(shell: Shell): string {
+  switch (shell) {
+    case 'powershell':
+      return 'Windows PowerShell'
+    case 'pwsh':
+      return translate('shell.pwsh')
+    case 'cmd':
+      return 'cmd'
+    case 'wsl':
+      return 'WSL'
+  }
 }
 
 const PROGRAM_NAME: Record<Shell, string> = {
@@ -42,7 +49,9 @@ export function useShellPrograms() {
   function programNote(shell: Shell): string | undefined {
     const path = programPath(shell)
     if (path === undefined) return undefined
-    return path === null ? `本机未找到 ${PROGRAM_NAME[shell]}，执行时会失败` : `将运行 ${path}`
+    return path === null
+      ? translate('shell.missing', { program: PROGRAM_NAME[shell] })
+      : translate('shell.willRun', { path })
   }
 
   return { programPath, programNote }

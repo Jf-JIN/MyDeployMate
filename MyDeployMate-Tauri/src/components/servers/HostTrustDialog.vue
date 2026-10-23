@@ -5,7 +5,10 @@ import { computed } from 'vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiDialog from '@/components/ui/UiDialog.vue'
 import UiNotice from '@/components/ui/UiNotice.vue'
+import { useT } from '@/i18n'
 import type { HostEndpoint, HostKey } from '@/ipc'
+
+const t = useT()
 
 // D02 (IXD-19, SRV-03). First trust asks the operator to compare the fingerprint, with the
 // focus on "取消连接" so nothing is trusted by a stray Enter. A changed key only informs and
@@ -24,7 +27,7 @@ const props = defineProps<{
 const emit = defineEmits<{ trust: []; cancel: []; manage: [] }>()
 
 const title = computed(() =>
-  props.mode === 'first' ? '确认服务器身份' : '服务器身份与已记录的不一致',
+  props.mode === 'first' ? t('trust.firstTitle') : t('trust.changedTitle'),
 )
 </script>
 
@@ -38,26 +41,29 @@ const title = computed(() =>
   >
     <div v-if="endpoint && presented" class="trust">
       <UiNotice v-if="mode === 'changed'" tone="failure">
-        服务器出示的密钥与已记录的不同，连接已停止。可能是服务器重装或更换了密钥，也可能有人在冒充该服务器。请先向服务器管理员核实。
+        {{ t('trust.changedNotice') }}
       </UiNotice>
-      <p v-else class="lead">
-        首次连接 <strong>{{ serverName }}</strong
-        >。请通过可信渠道（如服务器管理员或控制台）核对下面的指纹，一致后再信任。
-      </p>
+      <i18n-t v-else keypath="trust.firstLead" tag="p" class="lead">
+        <template #server>
+          <strong>{{ serverName }}</strong>
+        </template>
+      </i18n-t>
 
       <dl class="facts">
-        <dt>地址</dt>
+        <dt>{{ t('common.address') }}</dt>
         <dd>
           <code>{{ endpoint.host }}</code>
         </dd>
-        <dt>端口</dt>
+        <dt>{{ t('common.port') }}</dt>
         <dd class="num">{{ endpoint.port }}</dd>
-        <dt>登录账号</dt>
+        <dt>{{ t('common.user') }}</dt>
         <dd>{{ user }}</dd>
       </dl>
 
-      <section v-if="mode === 'changed'" class="key key--old" aria-label="已记录的密钥">
-        <h3><ShieldCheck :size="16" :stroke-width="1.75" aria-hidden="true" /> 已记录</h3>
+      <section v-if="mode === 'changed'" class="key key--old" :aria-label="t('trust.knownKeys')">
+        <h3>
+          <ShieldCheck :size="16" :stroke-width="1.75" aria-hidden="true" /> {{ t('trust.known') }}
+        </h3>
         <div v-for="k in known" :key="k.fingerprint" class="key-row">
           <span class="alg">{{ k.algorithm }}</span>
           <code class="fp">{{ k.fingerprint }}</code>
@@ -66,29 +72,34 @@ const title = computed(() =>
       <section
         class="key"
         :class="{ 'key--new': mode === 'changed' }"
-        aria-label="服务器出示的密钥"
+        :aria-label="t('trust.presentedKeys')"
       >
         <h3 v-if="mode === 'changed'">
-          <ShieldAlert :size="16" :stroke-width="1.75" aria-hidden="true" /> 本次出示
+          <ShieldAlert :size="16" :stroke-width="1.75" aria-hidden="true" />
+          {{ t('trust.presented') }}
         </h3>
         <div class="key-row">
           <span class="alg">{{ presented.algorithm }}</span>
           <code class="fp">{{ presented.fingerprint }}</code>
         </div>
       </section>
-      <p class="muted">信任只确认服务器身份，不代表信任它输出的任何内容。</p>
+      <p class="muted">{{ t('trust.scope') }}</p>
     </div>
 
     <template #footer>
       <template v-if="mode === 'first'">
-        <UiButton autofocus :disabled="busy" @click="emit('cancel')">取消连接</UiButton>
-        <UiButton variant="primary" :busy="busy" @click="emit('trust')"
-          >已核对，信任并连接</UiButton
-        >
+        <UiButton autofocus :disabled="busy" @click="emit('cancel')">
+          {{ t('trust.cancelConnect') }}
+        </UiButton>
+        <UiButton variant="primary" :busy="busy" @click="emit('trust')">{{
+          t('trust.trustAndConnect')
+        }}</UiButton>
       </template>
       <template v-else>
-        <UiButton autofocus @click="emit('cancel')">关闭</UiButton>
-        <UiButton variant="tonal" @click="emit('manage')">前往信任管理</UiButton>
+        <UiButton autofocus @click="emit('cancel')">{{ t('common.close') }}</UiButton>
+        <UiButton variant="tonal" @click="emit('manage')">
+          {{ t('trust.manage') }}
+        </UiButton>
       </template>
     </template>
   </UiDialog>

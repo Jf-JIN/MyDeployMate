@@ -38,6 +38,7 @@ import UiTag from '@/components/ui/UiTag.vue'
 import UiTextInput from '@/components/ui/UiTextInput.vue'
 import { cloneWorkspace } from '@/composables/workspaceDraft'
 import { purposeLabel } from '@/components/credentials/credentialLabels'
+import { useT } from '@/i18n'
 import {
   call,
   toAppError,
@@ -50,6 +51,8 @@ import { useConnectionTestStore } from '@/stores/connectionTests'
 import { useRunStore } from '@/stores/run'
 import { useToastStore } from '@/stores/toast'
 import { useWorkspaceStore } from '@/stores/workspace'
+
+const t = useT()
 
 // P06 server list (IXD-15, IXD-20) with single and batch connection tests (IXD-18) and first
 // trust of a server key (D02, IXD-19).
@@ -70,15 +73,15 @@ const environmentFilter = ref('')
 const statusFilter = ref<'' | 'untested' | 'succeeded' | 'failed'>('')
 
 const environmentOptions = computed(() => [
-  { value: '', label: '全部环境' },
+  { value: '', label: t('servers.allEnvironments') },
   ...store.environments.map((e) => ({ value: e.id, label: e.name })),
 ])
-const statusOptions = [
-  { value: '' as const, label: '全部状态' },
-  { value: 'untested' as const, label: '未测试' },
-  { value: 'succeeded' as const, label: '连接正常' },
-  { value: 'failed' as const, label: '测试失败' },
-]
+const statusOptions = computed(() => [
+  { value: '' as const, label: t('servers.allStatuses') },
+  { value: 'untested' as const, label: t('connectStatus.untested') },
+  { value: 'succeeded' as const, label: t('connectStatus.succeeded') },
+  { value: 'failed' as const, label: t('servers.testFailed') },
+])
 
 function statusOf(server: Server) {
   return testStatus(tests.results[server.id], !!tests.running[server.id])
@@ -145,7 +148,7 @@ function toggleAll(on: boolean) {
   selected.value = on ? new Set(visible.value.map((s) => s.id)) : new Set()
 }
 
-const batchReason = computed(() => (selectedVisible.value.length ? null : '先勾选要测试的服务器'))
+const batchReason = computed(() => (selectedVisible.value.length ? null : t('servers.selectFirst')))
 
 // ---- Connection tests (IXD-18) -------------------------------------------------------------
 
@@ -226,7 +229,7 @@ function edit(server: Server) {
 async function onSaved(server: Server) {
   const created = isNew.value
   editing.value = null
-  toast.show(created ? `已新增 ${server.name}` : `已保存 ${server.name}`)
+  toast.show(t(created ? 'servers.added' : 'servers.saved', { name: server.name }))
   if (!visible.value.some((s) => s.id === server.id)) clearFilters()
   highlighted.value = server.id
   await nextTick()
@@ -286,7 +289,7 @@ async function applyDelete() {
     })
     await store.save(result.workspace)
     toggle(server.id, false)
-    toast.show(`已删除 ${server.name}`)
+    toast.show(t('servers.deleted', { name: server.name }))
   } catch (e) {
     listError.value = toAppError(e).message
   } finally {
@@ -297,20 +300,26 @@ async function applyDelete() {
 </script>
 
 <template>
-  <PageLayout title="服务器">
+  <PageLayout :title="t('servers.title')">
     <template #actions>
       <template v-if="tests.batch">
         <span class="batch-progress num" role="status">
-          批量测试 {{ tests.batch.done }} / {{ tests.batch.total }}
+          {{ t('servers.batchProgress', { done: tests.batch.done, total: tests.batch.total }) }}
         </span>
         <UiButton :icon="CircleStop" :disabled="tests.batch.cancelled" @click="tests.cancelBatch()">
-          取消批量测试
+          {{ t('servers.cancelBatch') }}
         </UiButton>
       </template>
       <UiButton v-else :icon="PlugZap" :disabled-reason="batchReason" @click="runBatch">
-        批量测试{{ selectedVisible.length ? `（${selectedVisible.length}）` : '' }}
+        {{
+          selectedVisible.length
+            ? t('servers.batchCount', { n: selectedVisible.length })
+            : t('servers.batch')
+        }}
       </UiButton>
-      <UiButton variant="primary" :icon="Plus" @click="create">新增服务器</UiButton>
+      <UiButton variant="primary" :icon="Plus" @click="create">
+        {{ t('servers.add') }}
+      </UiButton>
     </template>
 
     <div class="servers">
@@ -327,23 +336,25 @@ async function applyDelete() {
             <Search class="search-icon" :size="16" :stroke-width="1.75" aria-hidden="true" />
             <UiTextInput
               v-model="query"
-              placeholder="搜索名称、地址或标签"
-              aria-label="搜索服务器"
+              :placeholder="t('servers.search')"
+              :aria-label="t('servers.searchLabel')"
             />
           </div>
           <UiSelect
             v-model="environmentFilter"
             class="filter"
             :options="environmentOptions"
-            aria-label="按环境筛选"
+            :aria-label="t('servers.filterEnv')"
           />
           <UiSelect
             v-model="statusFilter"
             class="filter"
             :options="statusOptions"
-            aria-label="按测试状态筛选"
+            :aria-label="t('servers.filterStatus')"
           />
-          <span class="count num">{{ visible.length }} / {{ store.servers.length }} 台</span>
+          <span class="count num">{{
+            t('servers.count', { shown: visible.length, total: store.servers.length })
+          }}</span>
         </div>
 
         <div class="table-wrap">
@@ -354,18 +365,20 @@ async function applyDelete() {
                   <UiCheckbox
                     :model-value="allSelected"
                     :indeterminate="!allSelected && selectedVisible.length > 0"
-                    label="全选"
+                    :label="t('servers.selectAll')"
                     hide-label
                     @update:model-value="toggleAll"
                   />
                 </th>
-                <th scope="col" class="col-name">名称</th>
-                <th scope="col" class="col-host">地址</th>
-                <th scope="col">登录用户</th>
-                <th scope="col">环境</th>
-                <th scope="col">标签</th>
-                <th scope="col" class="col-status">最近测试</th>
-                <th scope="col" class="col-actions"><span class="sr-only">操作</span></th>
+                <th scope="col" class="col-name">{{ t('common.name') }}</th>
+                <th scope="col" class="col-host">{{ t('common.address') }}</th>
+                <th scope="col">{{ t('servers.user') }}</th>
+                <th scope="col">{{ t('common.environment') }}</th>
+                <th scope="col">{{ t('servers.tags') }}</th>
+                <th scope="col" class="col-status">{{ t('servers.lastTest') }}</th>
+                <th scope="col" class="col-actions">
+                  <span class="sr-only">{{ t('common.actions') }}</span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -380,7 +393,7 @@ async function applyDelete() {
                 <td class="col-check" @click.stop>
                   <UiCheckbox
                     :model-value="selected.has(server.id)"
-                    :label="`选择 ${server.name}`"
+                    :label="t('servers.select', { name: server.name })"
                     hide-label
                     @update:model-value="toggle(server.id, $event)"
                   />
@@ -398,7 +411,7 @@ async function applyDelete() {
                       tone="warning"
                       :icon="Shield"
                     >
-                      保护
+                      {{ t('servers.protect') }}
                     </UiTag>
                   </span>
                 </td>
@@ -412,7 +425,7 @@ async function applyDelete() {
                     v-if="tests.results[server.id] && !tests.running[server.id]"
                     type="button"
                     class="status-button"
-                    :title="`查看 ${server.name} 的测试详情`"
+                    :title="t('servers.viewDetail', { name: server.name })"
                     @click="showDetail(server)"
                   >
                     <UiTag :tone="statusOf(server).tone" :icon="statusOf(server).icon">
@@ -431,7 +444,11 @@ async function applyDelete() {
                       {{ statusOf(server).label }}
                     </UiTag>
                     <span v-if="tests.running[server.id]" class="status-time num">
-                      {{ formatTime(tests.running[server.id]!.startedAtMs) }} 开始
+                      {{
+                        t('servers.startedAt', {
+                          time: formatTime(tests.running[server.id]!.startedAtMs),
+                        })
+                      }}
                     </span>
                   </span>
                 </td>
@@ -439,25 +456,25 @@ async function applyDelete() {
                   <span class="actions">
                     <UiIconButton
                       :icon="Pencil"
-                      :label="`编辑 ${server.name}`"
+                      :label="t('servers.editItem', { name: server.name })"
                       @click="edit(server)"
                     />
                     <UiIconButton
                       v-if="tests.running[server.id]"
                       :icon="CircleStop"
-                      :label="`取消测试 ${server.name}`"
+                      :label="t('servers.cancelTest', { name: server.name })"
                       @click="tests.cancel(server.id)"
                     />
                     <UiIconButton
                       v-else
                       :icon="PlugZap"
-                      :label="`测试 ${server.name}`"
-                      :disabled-reason="tests.batch ? '批量测试进行中' : null"
+                      :label="t('servers.test', { name: server.name })"
+                      :disabled-reason="tests.batch ? t('servers.batchRunning') : null"
                       @click="runTest(server)"
                     />
                     <UiIconButton
                       :icon="Trash2"
-                      :label="`删除 ${server.name}`"
+                      :label="t('servers.deleteItem', { name: server.name })"
                       @click="requestDelete(server)"
                     />
                   </span>
@@ -465,19 +482,23 @@ async function applyDelete() {
               </tr>
             </tbody>
           </table>
-          <EmptyState v-else title="没有符合条件的服务器" :icon="SearchX" compact>
-            <UiButton v-if="filtered" compact @click="clearFilters">清除筛选</UiButton>
+          <EmptyState v-else :title="t('servers.noMatch')" :icon="SearchX" compact>
+            <UiButton v-if="filtered" compact @click="clearFilters">
+              {{ t('common.clearFilters') }}
+            </UiButton>
           </EmptyState>
         </div>
       </template>
 
       <EmptyState
         v-else
-        title="尚无服务器"
-        detail="添加要部署到的 Linux 服务器，之后在项目里按环境勾选为目标。"
+        :title="t('servers.emptyTitle')"
+        :detail="t('servers.emptyDetail')"
         :icon="ServerIcon"
       >
-        <UiButton variant="primary" :icon="Plus" @click="create">新增服务器</UiButton>
+        <UiButton variant="primary" :icon="Plus" @click="create">
+          {{ t('servers.add') }}
+        </UiButton>
       </EmptyState>
     </div>
 
@@ -515,79 +536,85 @@ async function applyDelete() {
 
     <UiDialog
       :open="!!detail"
-      :title="`测试详情：${detail?.server.name ?? ''}`"
+      :title="t('servers.detail.title', { name: detail?.server.name ?? '' })"
       width="credential"
       backdrop-cancels
       @cancel="detail = null"
     >
       <dl v-if="detail" class="detail">
-        <dt>服务器</dt>
+        <dt>{{ t('common.server') }}</dt>
         <dd>
           {{ detail.server.user }}@<code>{{
             hostPort(detail.server.host, detail.server.port)
           }}</code>
         </dd>
-        <dt>开始时间</dt>
-        <dd class="num">{{ new Date(detail.test.startedAtMs).toLocaleString('zh-CN') }}</dd>
-        <dt>耗时</dt>
+        <dt>{{ t('servers.detail.started') }}</dt>
+        <dd class="num">{{ new Date(detail.test.startedAtMs).toLocaleString($i18n.locale) }}</dd>
+        <dt>{{ t('servers.detail.duration') }}</dt>
         <dd class="num">{{ formatDuration(detail.test.durationMs) }}</dd>
-        <dt>结果</dt>
+        <dt>{{ t('servers.detail.result') }}</dt>
         <dd>
           <UiTag :tone="statusOf(detail.server).tone" :icon="statusOf(detail.server).icon">
             {{ statusOf(detail.server).label }}
           </UiTag>
         </dd>
         <template v-if="detail.test.outcome.status === 'succeeded'">
-          <dt>系统</dt>
+          <dt>{{ t('servers.detail.system') }}</dt>
           <dd>
             <code>{{ detail.test.outcome.system }}</code>
           </dd>
         </template>
         <template v-if="detailError">
-          <dt>阶段</dt>
+          <dt>{{ t('servers.detail.stage') }}</dt>
           <dd>{{ stageLabel(detailError.stage) }}</dd>
-          <dt>原因</dt>
+          <dt>{{ t('common.reason') }}</dt>
           <dd class="detail-message">{{ detailError.message }}</dd>
         </template>
       </dl>
       <template #footer>
-        <UiButton @click="detail = null">关闭</UiButton>
+        <UiButton @click="detail = null">{{ t('common.close') }}</UiButton>
         <UiButton v-if="detailError && fixAction(detailError)" variant="tonal" @click="applyFix">
-          {{ fixAction(detailError) === 'trustManagement' ? '前往信任管理' : '编辑服务器' }}
+          {{
+            fixAction(detailError) === 'trustManagement'
+              ? t('servers.detail.manageTrust')
+              : t('servers.detail.editServer')
+          }}
         </UiButton>
       </template>
     </UiDialog>
 
     <UiConfirm
       :open="!!deleting"
-      :title="`删除服务器 ${deleting?.name ?? ''}`"
-      confirm-label="删除配置并解除绑定"
+      :title="t('servers.delete.title', { name: deleting?.name ?? '' })"
+      :confirm-label="t('servers.delete.confirm')"
       danger
       :busy="deleteBusy"
-      :blocked-reason="deleteBlocked ? '运行结束后才能删除' : null"
+      :blocked-reason="deleteBlocked ? t('servers.delete.blocked') : null"
       @cancel="deleting = null"
       @confirm="applyDelete"
     >
       <UiNotice v-if="deleteBlocked" tone="warning">
-        该服务器正被当前运行使用，运行结束后才能删除。
-        <button type="button" class="link" @click="openActiveRun">查看运行</button>
+        {{ t('servers.delete.inUse') }}
+        <button type="button" class="link" @click="openActiveRun">
+          {{ t('servers.delete.viewRun') }}
+        </button>
       </UiNotice>
       <template v-if="deleteRefs.length">
-        <p>以下项目绑定了该服务器，删除后会一并解除：</p>
+        <p>{{ t('servers.delete.refs') }}</p>
         <ul class="refs">
           <li v-for="(r, i) in deleteRefs" :key="i">{{ describeReference(r) }}</li>
         </ul>
       </template>
-      <p v-else>没有项目绑定该服务器。</p>
+      <p v-else>{{ t('servers.delete.noRefs') }}</p>
       <template v-if="deleteCredentials.length">
-        <p>该服务器的已保存凭据会一并删除：</p>
+        <p>{{ t('servers.delete.credentials') }}</p>
         <ul class="refs">
           <li v-for="c in deleteCredentials" :key="purposeLabel(c.purpose) + c.user">
             {{ c.user }} · {{ purposeLabel(c.purpose) }}
           </li>
         </ul>
       </template>
-      <p class="muted">运行历史会保留；不会删除服务器上的任何数据。</p>
+      <p class="muted">{{ t('servers.delete.keepHistory') }}</p>
     </UiConfirm>
   </PageLayout>
 </template>

@@ -3,6 +3,9 @@ import { X } from '@lucide/vue'
 import { nextTick, onBeforeUnmount, ref, useId, watch } from 'vue'
 
 import { focusInitial, isTopLayer, popLayer, pushLayer, trapTab } from '@/composables/focus'
+import { useT } from '@/i18n'
+
+const t = useT()
 
 // UI-14 / IXD-03: modal with fixed header and footer and a scrolling body. Focus moves to the
 // first field on open, stays inside while open, and returns to the trigger on close.
@@ -99,8 +102,8 @@ function onBackdrop(event: MouseEvent) {
             v-if="cancellable"
             type="button"
             class="dialog-close"
-            aria-label="关闭"
-            title="关闭"
+            :aria-label="t('common.close')"
+            :title="t('common.close')"
             @click="requestCancel"
           >
             <X :size="18" :stroke-width="1.75" aria-hidden="true" />

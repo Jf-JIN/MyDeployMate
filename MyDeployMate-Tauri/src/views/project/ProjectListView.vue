@@ -13,11 +13,14 @@ import UiIconButton from '@/components/ui/UiIconButton.vue'
 import UiNotice from '@/components/ui/UiNotice.vue'
 import UiTextInput from '@/components/ui/UiTextInput.vue'
 import { cloneWorkspace } from '@/composables/workspaceDraft'
+import { useT } from '@/i18n'
 import { toAppError, type Project } from '@/ipc'
 import { useRunStore } from '@/stores/run'
 import { useSessionStore } from '@/stores/session'
 import { useToastStore } from '@/stores/toast'
 import { useWorkspaceStore } from '@/stores/workspace'
+
+const t = useT()
 
 // P01 project list (IXD-06, IXD-07). Run results join with run history in phase 4.
 const store = useWorkspaceStore()
@@ -44,20 +47,20 @@ const visible = computed(() => {
 // First-run guide on the empty page: servers can be added before or after the project.
 const guide = computed(() => [
   {
-    title: '添加服务器',
-    detail: '录入要部署到的 Linux 服务器和登录方式。',
+    title: t('projects.guide.servers.title'),
+    detail: t('projects.guide.servers.detail'),
     done: store.servers.length > 0,
     to: { name: 'servers' },
-    link: '前往服务器',
+    link: t('projects.guide.servers.link'),
   },
   {
-    title: '新建项目',
-    detail: '选择默认环境，再为各环境勾选目标服务器。',
+    title: t('projects.guide.project.title'),
+    detail: t('projects.guide.project.detail'),
     done: false,
   },
   {
-    title: '编辑流程',
-    detail: '添加本地命令、上传文件、远程命令和人工确认，先预览再执行。',
+    title: t('projects.guide.pipeline.title'),
+    detail: t('projects.guide.pipeline.detail'),
     done: false,
   },
 ])
@@ -68,7 +71,7 @@ function currentEnvironment(project: Project) {
 
 function currentTargets(project: Project) {
   const env = currentEnvironment(project)
-  return project.targets.find((t) => t.environmentId === env)?.serverIds.length ?? 0
+  return project.targets.find((b) => b.environmentId === env)?.serverIds.length ?? 0
 }
 
 // ---- Create and copy ----------------------------------------------------------------------
@@ -89,7 +92,7 @@ function copy(project: Project) {
 async function onSaved(project: Project) {
   const copied = dialog.value === 'copy'
   dialog.value = null
-  toast.show(copied ? `已复制为 ${project.name}` : `已创建 ${project.name}`)
+  toast.show(t(copied ? 'projects.copied' : 'projects.created', { name: project.name }))
   const first = project.pipelines[0]
   await router.push(
     first
@@ -103,7 +106,7 @@ async function onSaved(project: Project) {
 const deleting = ref<Project | null>(null)
 const deleteBusy = ref(false)
 const listError = ref<string | null>(null)
-const deleteReason = computed(() => (run.active ? '有运行进行中，结束后才能删除项目' : null))
+const deleteReason = computed(() => (run.active ? t('projects.deleteBlocked') : null))
 
 async function applyDelete() {
   const project = deleting.value
@@ -113,7 +116,7 @@ async function applyDelete() {
     const draft = cloneWorkspace(store.workspace)
     draft.projects = draft.projects.filter((p) => p.id !== project.id)
     await store.save(draft)
-    toast.show(`已删除 ${project.name}`)
+    toast.show(t('projects.deleted', { name: project.name }))
   } catch (e) {
     listError.value = toAppError(e).message
   } finally {
@@ -124,9 +127,11 @@ async function applyDelete() {
 </script>
 
 <template>
-  <PageLayout title="项目">
+  <PageLayout :title="t('projects.title')">
     <template #actions>
-      <UiButton variant="primary" :icon="Plus" @click="create">新建项目</UiButton>
+      <UiButton variant="primary" :icon="Plus" @click="create">
+        {{ t('projects.create') }}
+      </UiButton>
     </template>
 
     <div class="projects">
@@ -138,22 +143,30 @@ async function applyDelete() {
         <div class="filters" role="search">
           <div class="search">
             <Search class="search-icon" :size="16" :stroke-width="1.75" aria-hidden="true" />
-            <UiTextInput v-model="query" placeholder="搜索名称或说明" aria-label="搜索项目" />
+            <UiTextInput
+              v-model="query"
+              :placeholder="t('projects.list.search')"
+              :aria-label="t('projects.list.searchLabel')"
+            />
           </div>
-          <span class="count num">{{ visible.length }} / {{ store.projects.length }} 个</span>
+          <span class="count num">{{
+            t('projects.list.count', { shown: visible.length, total: store.projects.length })
+          }}</span>
         </div>
 
         <div class="table-wrap">
           <table v-if="visible.length" class="table">
             <thead>
               <tr>
-                <th scope="col" class="col-name">名称</th>
-                <th scope="col">说明</th>
-                <th scope="col">默认环境</th>
-                <th scope="col" class="num">流程</th>
-                <th scope="col">当前环境目标</th>
-                <th scope="col">最近运行</th>
-                <th scope="col" class="col-actions"><span class="sr-only">操作</span></th>
+                <th scope="col" class="col-name">{{ t('common.name') }}</th>
+                <th scope="col">{{ t('common.description') }}</th>
+                <th scope="col">{{ t('projects.dialog.defaultEnvironment') }}</th>
+                <th scope="col" class="num">{{ t('projects.list.pipelines') }}</th>
+                <th scope="col">{{ t('projects.list.currentTargets') }}</th>
+                <th scope="col">{{ t('projects.list.lastRun') }}</th>
+                <th scope="col" class="col-actions">
+                  <span class="sr-only">{{ t('common.actions') }}</span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -174,21 +187,25 @@ async function applyDelete() {
                 <td class="col-desc" :title="project.description">{{ project.description }}</td>
                 <td>{{ store.environmentName(project.defaultEnvironmentId) }}</td>
                 <td class="num">{{ project.pipelines.length }}</td>
-                <td>
-                  {{ store.environmentName(currentEnvironment(project)) }} ·
-                  <span class="num">{{ currentTargets(project) }}</span> 台
-                </td>
-                <td class="muted">尚无运行记录</td>
+                <i18n-t keypath="projects.list.targetsCell" tag="td">
+                  <template #environment>
+                    {{ store.environmentName(currentEnvironment(project)) }}
+                  </template>
+                  <template #count>
+                    <span class="num">{{ currentTargets(project) }}</span>
+                  </template>
+                </i18n-t>
+                <td class="muted">{{ t('projects.list.noRuns') }}</td>
                 <td class="col-actions">
                   <span class="actions">
                     <UiIconButton
                       :icon="Copy"
-                      :label="`复制 ${project.name}`"
+                      :label="t('projects.list.copyItem', { name: project.name })"
                       @click="copy(project)"
                     />
                     <UiIconButton
                       :icon="Trash2"
-                      :label="`删除 ${project.name}`"
+                      :label="t('projects.list.deleteItem', { name: project.name })"
                       :disabled-reason="deleteReason"
                       @click="deleting = project"
                     />
@@ -197,21 +214,23 @@ async function applyDelete() {
               </tr>
             </tbody>
           </table>
-          <EmptyState v-else title="没有符合条件的项目" :icon="SearchX" compact>
-            <UiButton compact @click="query = ''">清除搜索</UiButton>
+          <EmptyState v-else :title="t('projects.list.noMatch')" :icon="SearchX" compact>
+            <UiButton compact @click="query = ''">{{ t('tree.clearSearch') }}</UiButton>
           </EmptyState>
         </div>
       </template>
 
       <EmptyState
         v-else
-        title="尚无项目"
-        detail="项目把目标服务器、变量和发布流程组织在一起，按环境分别发布。"
+        :title="t('projects.list.emptyTitle')"
+        :detail="t('projects.list.emptyDetail')"
         :icon="FolderKanban"
       >
-        <UiButton variant="primary" :icon="Plus" @click="create">新建项目</UiButton>
+        <UiButton variant="primary" :icon="Plus" @click="create">
+          {{ t('projects.create') }}
+        </UiButton>
         <template #after>
-          <ol class="guide" aria-label="开始使用">
+          <ol class="guide" :aria-label="t('projects.guide.label')">
             <li v-for="(step, i) in guide" :key="step.title" :class="{ done: step.done }">
               <span class="guide-mark" aria-hidden="true">
                 <Check v-if="step.done" :size="14" :stroke-width="2.5" />
@@ -219,7 +238,8 @@ async function applyDelete() {
               </span>
               <span class="guide-text">
                 <span class="guide-title">
-                  {{ step.title }}<span v-if="step.done" class="sr-only">（已完成）</span>
+                  {{ step.title
+                  }}<span v-if="step.done" class="sr-only">{{ t('projects.guide.done') }}</span>
                 </span>
                 <span class="guide-detail">{{ step.detail }}</span>
               </span>
@@ -236,18 +256,22 @@ async function applyDelete() {
 
     <UiConfirm
       :open="!!deleting"
-      :title="`删除项目 ${deleting?.name ?? ''}`"
-      confirm-label="删除项目"
+      :title="t('projects.delete.title', { name: deleting?.name ?? '' })"
+      :confirm-label="t('projects.delete.confirm')"
       danger
       :busy="deleteBusy"
       @cancel="deleting = null"
       @confirm="applyDelete"
     >
       <p v-if="deleting">
-        将删除 {{ deleting.pipelines.length }} 个流程和
-        {{ boundTargetCount(deleting) }} 个目标绑定。
+        {{
+          t('projects.delete.counts', {
+            pipelines: deleting.pipelines.length,
+            targets: boundTargetCount(deleting),
+          })
+        }}
       </p>
-      <p class="muted">只删除本地配置，不会删除服务器上的目录或服务；运行历史会保留。</p>
+      <p class="muted">{{ t('projects.delete.localOnly') }}</p>
     </UiConfirm>
   </PageLayout>
 </template>

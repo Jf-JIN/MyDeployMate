@@ -11,9 +11,12 @@ import UiConfirm from '@/components/ui/UiConfirm.vue'
 import UiDialog from '@/components/ui/UiDialog.vue'
 import UiIconButton from '@/components/ui/UiIconButton.vue'
 import UiNotice from '@/components/ui/UiNotice.vue'
+import { useT } from '@/i18n'
 import { call, toAppError, type HostEndpoint, type HostKey, type TrustedHost } from '@/ipc'
 import { useToastStore } from '@/stores/toast'
 import { useWorkspaceStore } from '@/stores/workspace'
+
+const t = useT()
 
 // P10 › 主机信任 (IXD-19, IXD-36, SRV-03). Lists every recorded server key. An update reads the
 // key the server presents now, shows it next to the recorded one, and needs an explicit
@@ -101,7 +104,9 @@ async function applyUpdate() {
   try {
     await call('replace_trusted_host', { endpoint: updating.value.endpoint, key: fetched.value })
     toast.show(
-      `已更新 ${hostPort(updating.value.endpoint.host, updating.value.endpoint.port)} 的信任记录`,
+      t('settings.trust.updated', {
+        host: hostPort(updating.value.endpoint.host, updating.value.endpoint.port),
+      }),
     )
     updating.value = null
     await load()
@@ -123,7 +128,9 @@ async function applyRemove() {
   removeBusy.value = true
   try {
     await call('remove_trusted_host', { endpoint: host.endpoint })
-    toast.show(`已删除 ${hostPort(host.endpoint.host, host.endpoint.port)} 的信任记录`)
+    toast.show(
+      t('settings.trust.removed', { host: hostPort(host.endpoint.host, host.endpoint.port) }),
+    )
     await load()
   } catch (e) {
     error.value = toAppError(e).message
@@ -137,9 +144,9 @@ async function applyRemove() {
 <template>
   <section id="trust" ref="root" class="section" aria-labelledby="trust-title">
     <header class="section-head">
-      <h2 id="trust-title">主机信任</h2>
+      <h2 id="trust-title">{{ t('settings.trust.title') }}</h2>
       <p class="section-hint">
-        首次连接时核对并信任的服务器密钥。密钥变化时连接会被阻止，只能在这里重新获取并确认后更新。
+        {{ t('settings.trust.hint') }}
       </p>
     </header>
     <UiNotice v-if="error" tone="failure" dismissible @dismiss="error = null">{{ error }}</UiNotice>
@@ -147,11 +154,13 @@ async function applyRemove() {
       <table class="table">
         <thead>
           <tr>
-            <th scope="col">地址</th>
-            <th scope="col">服务器</th>
-            <th scope="col">密钥</th>
-            <th scope="col" class="col-time">信任时间</th>
-            <th scope="col" class="col-actions"><span class="sr-only">操作</span></th>
+            <th scope="col">{{ t('common.address') }}</th>
+            <th scope="col">{{ t('common.server') }}</th>
+            <th scope="col">{{ t('settings.trust.key') }}</th>
+            <th scope="col" class="col-time">{{ t('settings.trust.trustedAt') }}</th>
+            <th scope="col" class="col-actions">
+              <span class="sr-only">{{ t('common.actions') }}</span>
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -164,10 +173,10 @@ async function applyRemove() {
                 {{
                   serversAt(h.endpoint)
                     .map((s) => s.name)
-                    .join('、')
+                    .join(t('common.listSeparator'))
                 }}
               </span>
-              <span v-else class="muted">无</span>
+              <span v-else class="muted">{{ t('common.none') }}</span>
             </td>
             <td>
               <span class="alg">{{ h.key.algorithm }}</span>
@@ -178,12 +187,20 @@ async function applyRemove() {
               <span class="actions">
                 <UiIconButton
                   :icon="RefreshCw"
-                  :label="`重新获取并更新 ${hostPort(h.endpoint.host, h.endpoint.port)}`"
+                  :label="
+                    t('settings.trust.refetch', {
+                      host: hostPort(h.endpoint.host, h.endpoint.port),
+                    })
+                  "
                   @click="startUpdate(h.endpoint)"
                 />
                 <UiIconButton
                   :icon="Trash2"
-                  :label="`删除 ${hostPort(h.endpoint.host, h.endpoint.port)} 的信任记录`"
+                  :label="
+                    t('settings.trust.removeItem', {
+                      host: hostPort(h.endpoint.host, h.endpoint.port),
+                    })
+                  "
                   @click="removing = h"
                 />
               </span>
@@ -192,18 +209,25 @@ async function applyRemove() {
         </tbody>
       </table>
     </div>
-    <p v-else class="muted">尚无信任记录。首次测试或连接服务器时会请你核对指纹。</p>
+    <p v-else class="muted">{{ t('settings.trust.empty') }}</p>
 
     <UiDialog
       :open="!!updating"
-      :title="`更新信任：${updating ? hostPort(updating.endpoint.host, updating.endpoint.port) : ''}`"
+      :title="
+        t('settings.trust.updateTitle', {
+          host: updating ? hostPort(updating.endpoint.host, updating.endpoint.port) : '',
+        })
+      "
       width="server"
       :cancellable="!saving"
       @cancel="updating = null"
     >
       <div v-if="updating" class="update">
-        <section class="key" aria-label="已记录的密钥">
-          <h3><ShieldCheck :size="16" :stroke-width="1.75" aria-hidden="true" /> 已记录</h3>
+        <section class="key" :aria-label="t('trust.knownKeys')">
+          <h3>
+            <ShieldCheck :size="16" :stroke-width="1.75" aria-hidden="true" />
+            {{ t('trust.known') }}
+          </h3>
           <div v-for="k in updating.known" :key="k.fingerprint" class="key-row">
             <span class="alg">{{ k.algorithm }}</span>
             <code class="fp">{{ k.fingerprint }}</code>
@@ -212,7 +236,7 @@ async function applyRemove() {
         <section
           class="key"
           :class="{ 'key--new': fetched && !unchanged }"
-          aria-label="服务器当前出示的密钥"
+          :aria-label="t('settings.trust.currentKeys')"
         >
           <h3>
             <ShieldAlert
@@ -221,49 +245,53 @@ async function applyRemove() {
               :stroke-width="1.75"
               aria-hidden="true"
             />
-            服务器当前出示
+            {{ t('settings.trust.current') }}
           </h3>
-          <p v-if="fetching" class="muted" role="status">正在连接服务器读取密钥…</p>
+          <p v-if="fetching" class="muted" role="status">{{ t('settings.trust.fetching') }}</p>
           <UiNotice v-else-if="fetchError" tone="failure">{{ fetchError }}</UiNotice>
           <div v-else-if="fetched" class="key-row">
             <span class="alg">{{ fetched.algorithm }}</span>
             <code class="fp">{{ fetched.fingerprint }}</code>
           </div>
         </section>
-        <UiNotice v-if="unchanged" tone="success">指纹与已记录的一致，无需更新。</UiNotice>
+        <UiNotice v-if="unchanged" tone="success">{{ t('settings.trust.unchanged') }}</UiNotice>
         <template v-else-if="fetched">
           <UiNotice tone="warning">
-            更新后将只信任新的密钥。请先通过可信渠道（如服务器管理员或控制台）核对新指纹。
+            {{ t('settings.trust.updateWarning') }}
           </UiNotice>
-          <UiCheckbox v-model="checked" label="我已核对新指纹，确认服务器确实更换了密钥" />
+          <UiCheckbox v-model="checked" :label="t('settings.trust.checked')" />
         </template>
       </div>
       <template #footer>
         <UiButton autofocus :disabled="saving" @click="updating = null">
-          {{ unchanged ? '关闭' : '取消' }}
+          {{ unchanged ? t('common.close') : t('common.cancel') }}
         </UiButton>
         <UiButton
           v-if="fetched && !unchanged"
           variant="danger"
           :busy="saving"
-          :disabled-reason="checked ? null : '请先勾选已核对新指纹'"
+          :disabled-reason="checked ? null : t('settings.trust.checkFirst')"
           @click="applyUpdate"
         >
-          更新信任
+          {{ t('settings.trust.update') }}
         </UiButton>
       </template>
     </UiDialog>
 
     <UiConfirm
       :open="!!removing"
-      :title="`删除信任记录 ${removing ? hostPort(removing.endpoint.host, removing.endpoint.port) : ''}`"
-      confirm-label="删除"
+      :title="
+        t('settings.trust.removeTitle', {
+          host: removing ? hostPort(removing.endpoint.host, removing.endpoint.port) : '',
+        })
+      "
+      :confirm-label="t('common.delete')"
       danger
       :busy="removeBusy"
       @cancel="removing = null"
       @confirm="applyRemove"
     >
-      <p>删除后，下次连接该地址时会重新请你核对服务器指纹。</p>
+      <p>{{ t('settings.trust.removeBody') }}</p>
     </UiConfirm>
   </section>
 </template>

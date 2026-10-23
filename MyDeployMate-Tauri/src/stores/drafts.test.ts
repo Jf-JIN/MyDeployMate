@@ -2,9 +2,11 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick, ref } from 'vue'
 
+import type { MessageKey } from '@/i18n'
+
 import { useDraftStore } from './drafts'
 
-function source(label: string, saveResult = true) {
+function source(label: MessageKey, saveResult = true) {
   const dirty = ref(false)
   return {
     dirty,
@@ -25,14 +27,14 @@ describe('draft store', () => {
 
   it('lets navigation through when nothing is dirty', async () => {
     const store = useDraftStore()
-    store.register(source('流程').source)
+    store.register(source('drafts.labels.pipeline').source)
     await expect(store.confirmLeave()).resolves.toBe(true)
     expect(store.pending).toBeNull()
   })
 
   it('tracks dirtiness reactively and unregisters', () => {
     const store = useDraftStore()
-    const a = source('流程 发布流程')
+    const a = source('drafts.labels.pipeline')
     const unregister = store.register(a.source)
     expect(store.anyDirty).toBe(false)
     a.dirty.value = true
@@ -47,12 +49,12 @@ describe('draft store', () => {
     ['save', true, 1, 0],
   ] as const)('answers %s', async (choice, leaves, saves, discards) => {
     const store = useDraftStore()
-    const a = source('流程 发布流程')
+    const a = source('drafts.labels.pipeline')
     store.register(a.source)
     a.dirty.value = true
     const leaving = store.confirmLeave()
     await nextTick()
-    expect(store.pending?.labels).toEqual(['流程 发布流程'])
+    expect(store.pending?.labels).toEqual(['drafts.labels.pipeline'])
     store.answer(choice)
     await expect(leaving).resolves.toBe(leaves)
     expect(a.source.save).toHaveBeenCalledTimes(saves)
@@ -62,7 +64,7 @@ describe('draft store', () => {
 
   it('stays when saving fails validation', async () => {
     const store = useDraftStore()
-    const a = source('服务器 api-01', false)
+    const a = source('drafts.labels.targets', false)
     store.register(a.source)
     a.dirty.value = true
     const leaving = store.confirmLeave()
@@ -74,8 +76,8 @@ describe('draft store', () => {
 
   it('saves only the most recent dirty editor on Ctrl+S', async () => {
     const store = useDraftStore()
-    const a = source('流程')
-    const b = source('服务器')
+    const a = source('drafts.labels.pipeline')
+    const b = source('drafts.labels.settings')
     store.register(a.source)
     store.register(b.source)
     a.dirty.value = true

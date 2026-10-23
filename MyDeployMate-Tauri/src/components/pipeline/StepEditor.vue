@@ -3,7 +3,7 @@ import { FolderOpen } from '@lucide/vue'
 import { open as openFileDialog } from '@tauri-apps/plugin-dialog'
 import { computed, onMounted, ref, useId, watch } from 'vue'
 
-import { SHELL_LABEL, useShellPrograms } from '@/composables/shellPrograms'
+import { shellLabel, useShellPrograms } from '@/composables/shellPrograms'
 import UiField from '@/components/ui/UiField.vue'
 import UiIconButton from '@/components/ui/UiIconButton.vue'
 import UiNotice from '@/components/ui/UiNotice.vue'
@@ -88,7 +88,7 @@ const local = computed(() =>
 )
 const shellOptions = (['powershell', 'pwsh', 'cmd', 'wsl'] as const).map((value) => ({
   value,
-  label: SHELL_LABEL[value],
+  label: shellLabel(value),
 }))
 const { programNote } = useShellPrograms()
 const encodingOptions = [

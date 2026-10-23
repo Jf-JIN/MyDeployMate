@@ -36,7 +36,10 @@ import { useThemeStore, type ThemePreference } from '@/stores/theme'
 // appearance and the data directory (IXD-14, IXD-19, IXD-36, UI-02). Import/export and updates
 // join in later phases.
 const page = ref<HTMLElement | null>(null)
-const { draft, dirty, at, issues, error, save, discard } = useWorkspaceDraft('配置中心', page)
+const { draft, dirty, at, issues, error, save, discard } = useWorkspaceDraft(
+  'drafts.labels.settings',
+  page,
+)
 const saving = ref(false)
 
 const info = ref<AppInfo | null>(null)
@@ -130,11 +133,11 @@ function sourceOptions(variable: Variable) {
   return [
     {
       value: 'literal' as SourceKind,
-      label: '直接填写',
-      disabledReason: variable.sensitive ? '敏感变量不能以明文保存' : undefined,
+      label: t('variables.value.literal'),
+      disabledReason: variable.sensitive ? t('variables.value.sensitiveNoLiteral') : undefined,
     },
-    { value: 'envRef' as SourceKind, label: '环境变量' },
-    { value: 'secretRef' as SourceKind, label: '凭据管理器' },
+    { value: 'envRef' as SourceKind, label: t('variables.value.envRef') },
+    { value: 'secretRef' as SourceKind, label: t('variables.value.secretRef') },
   ]
 }
 
@@ -176,26 +179,26 @@ async function openDataDir() {
 </script>
 
 <template>
-  <PageLayout title="配置中心">
+  <PageLayout :title="t('settings.title')">
     <template #actions>
-      <UiTag v-if="dirty" tone="warning">未保存</UiTag>
-      <UiButton :disabled-reason="dirty ? null : '没有未保存的更改'" @click="discard">
-        放弃更改
+      <UiTag v-if="dirty" tone="warning">{{ t('common.unsaved') }}</UiTag>
+      <UiButton :disabled-reason="dirty ? null : t('common.noChanges')" @click="discard">
+        {{ t('common.discard') }}
       </UiButton>
       <UiButton
         variant="primary"
         :busy="saving"
-        :disabled-reason="dirty ? null : '没有未保存的更改'"
+        :disabled-reason="dirty ? null : t('common.noChanges')"
         @click="onSave"
       >
-        保存
+        {{ t('common.save') }}
       </UiButton>
     </template>
 
     <div v-if="draft" ref="page" class="settings">
       <UiNotice v-if="error" tone="failure">{{ error.message }}</UiNotice>
       <UiNotice v-if="elsewhere.length" tone="warning">
-        配置的其他位置还有 {{ elsewhere.length }} 个问题，需要先修正才能保存：
+        {{ t('drafts.issuesElsewhere', { n: elsewhere.length }) }}
         <ul class="elsewhere">
           <li v-for="issue in elsewhere" :key="issue.path">{{ issue.message }}</li>
         </ul>
@@ -203,16 +206,20 @@ async function openDataDir() {
 
       <section class="section" aria-labelledby="env-title">
         <header class="section-head">
-          <h2 id="env-title">环境</h2>
-          <p class="section-hint">保护环境在执行前需要键入环境名确认；改名不影响已有绑定。</p>
-          <UiButton :icon="Plus" compact @click="addEnvironment">新增环境</UiButton>
+          <h2 id="env-title">{{ t('settings.env.title') }}</h2>
+          <p class="section-hint">{{ t('settings.env.hint') }}</p>
+          <UiButton :icon="Plus" compact @click="addEnvironment">
+            {{ t('settings.env.add') }}
+          </UiButton>
         </header>
         <table class="table">
           <thead>
             <tr>
-              <th scope="col">名称</th>
-              <th scope="col" class="col-protect">保护</th>
-              <th scope="col" class="col-actions"><span class="sr-only">操作</span></th>
+              <th scope="col">{{ t('common.name') }}</th>
+              <th scope="col" class="col-protect">{{ t('settings.env.protect') }}</th>
+              <th scope="col" class="col-actions">
+                <span class="sr-only">{{ t('common.actions') }}</span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -221,7 +228,7 @@ async function openDataDir() {
                 <UiTextInput
                   v-model="env.name"
                   :invalid="!!at(`environments[${i}].name`)"
-                  :aria-label="`环境 ${i + 1} 名称`"
+                  :aria-label="t('settings.env.nameOf', { n: i + 1 })"
                 />
                 <p v-if="at(`environments[${i}].name`)" class="cell-error">
                   {{ at(`environments[${i}].name`) }}
@@ -231,16 +238,22 @@ async function openDataDir() {
                 <div class="protect">
                   <UiSwitch
                     :model-value="env.protected"
-                    :label="`${env.name || '该环境'} 为保护环境`"
+                    :label="
+                      t('settings.env.protectSwitch', {
+                        name: env.name || t('settings.env.thisEnv'),
+                      })
+                    "
                     @update:model-value="requestProtect(env)"
                   />
-                  <UiTag v-if="env.protected" tone="warning" :icon="Shield">保护</UiTag>
+                  <UiTag v-if="env.protected" tone="warning" :icon="Shield">
+                    {{ t('settings.env.protect') }}
+                  </UiTag>
                 </div>
               </td>
               <td class="col-actions">
                 <UiIconButton
                   :icon="Trash2"
-                  :label="`删除环境 ${env.name}`"
+                  :label="t('settings.env.delete', { name: env.name })"
                   @click="requestDelete(env)"
                 />
               </td>
@@ -251,18 +264,22 @@ async function openDataDir() {
 
       <section class="section" aria-labelledby="var-title">
         <header class="section-head">
-          <h2 id="var-title">全局变量</h2>
-          <p class="section-hint">所有项目都可引用；项目变量和环境覆盖优先。敏感变量只保存引用。</p>
-          <UiButton :icon="Plus" compact @click="addVariable">新增变量</UiButton>
+          <h2 id="var-title">{{ t('settings.vars.title') }}</h2>
+          <p class="section-hint">{{ t('settings.vars.hint') }}</p>
+          <UiButton :icon="Plus" compact @click="addVariable">
+            {{ t('settings.vars.add') }}
+          </UiButton>
         </header>
         <table v-if="draft.globalVariables.length" class="table">
           <thead>
             <tr>
-              <th scope="col">变量名</th>
-              <th scope="col" class="col-source">来源</th>
-              <th scope="col">值</th>
-              <th scope="col" class="col-sensitive">敏感</th>
-              <th scope="col" class="col-actions"><span class="sr-only">操作</span></th>
+              <th scope="col">{{ t('common.variableName') }}</th>
+              <th scope="col" class="col-source">{{ t('common.source') }}</th>
+              <th scope="col">{{ t('common.value') }}</th>
+              <th scope="col" class="col-sensitive">{{ t('common.sensitive') }}</th>
+              <th scope="col" class="col-actions">
+                <span class="sr-only">{{ t('common.actions') }}</span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -272,7 +289,7 @@ async function openDataDir() {
                   v-model="v.name"
                   mono
                   :invalid="!!at(`globalVariables[${i}].name`)"
-                  :aria-label="`变量 ${i + 1} 名称`"
+                  :aria-label="t('settings.vars.nameOf', { n: i + 1 })"
                 />
                 <p v-if="at(`globalVariables[${i}].name`)" class="cell-error">
                   {{ at(`globalVariables[${i}].name`) }}
@@ -282,7 +299,9 @@ async function openDataDir() {
                 <UiSelect
                   :model-value="v.value.kind"
                   :options="sourceOptions(v)"
-                  :aria-label="`${v.name || '变量'} 的来源`"
+                  :aria-label="
+                    t('settings.vars.sourceOf', { name: v.name || t('common.variable') })
+                  "
                   @update:model-value="setSource(v, $event)"
                 />
               </td>
@@ -292,17 +311,23 @@ async function openDataDir() {
                   v-model="v.value.value"
                   mono
                   :invalid="!!at(`globalVariables[${i}].value`)"
-                  :aria-label="`${v.name || '变量'} 的值`"
+                  :aria-label="t('settings.vars.valueOf', { name: v.name || t('common.variable') })"
                 />
                 <UiTextInput
                   v-else-if="v.value.kind === 'envRef'"
                   v-model="v.value.name"
                   mono
-                  placeholder="环境变量名"
+                  :placeholder="t('variables.value.envName')"
                   :invalid="!!at(`globalVariables[${i}].value.name`)"
-                  :aria-label="`${v.name || '变量'} 读取的环境变量名`"
+                  :aria-label="
+                    t('settings.vars.envNameOf', { name: v.name || t('common.variable') })
+                  "
                 />
-                <SecretValueField v-else :variable-id="v.id" :label="`${v.name || '变量'} 的值`" />
+                <SecretValueField
+                  v-else
+                  :variable-id="v.id"
+                  :label="t('settings.vars.valueOf', { name: v.name || t('common.variable') })"
+                />
                 <p
                   v-if="at(`globalVariables[${i}].value`) || at(`globalVariables[${i}].value.name`)"
                   class="cell-error"
@@ -313,7 +338,7 @@ async function openDataDir() {
               <td class="col-sensitive">
                 <UiCheckbox
                   :model-value="v.sensitive"
-                  :label="`${v.name || '变量'} 为敏感变量`"
+                  :label="t('settings.vars.sensitiveOf', { name: v.name || t('common.variable') })"
                   hide-label
                   @update:model-value="setSensitive(v, $event)"
                 />
@@ -321,14 +346,14 @@ async function openDataDir() {
               <td class="col-actions">
                 <UiIconButton
                   :icon="Trash2"
-                  :label="`删除变量 ${v.name}`"
+                  :label="t('settings.vars.delete', { name: v.name })"
                   @click="removeVariable(i)"
                 />
               </td>
             </tr>
           </tbody>
         </table>
-        <p v-else class="empty">尚无全局变量</p>
+        <p v-else class="empty">{{ t('settings.vars.empty') }}</p>
       </section>
 
       <TrustedHostsSection />
@@ -363,16 +388,18 @@ async function openDataDir() {
 
       <section class="section" aria-labelledby="data-title">
         <header class="section-head">
-          <h2 id="data-title">数据目录与版本</h2>
+          <h2 id="data-title">{{ t('settings.data.title') }}</h2>
         </header>
         <UiNotice v-if="infoError" tone="failure">{{ infoError }}</UiNotice>
         <dl v-if="info" class="facts">
-          <dt>数据目录</dt>
+          <dt>{{ t('settings.data.dir') }}</dt>
           <dd class="facts-dir">
             <code>{{ info.dataDir }}</code>
-            <UiButton :icon="FolderOpen" compact @click="openDataDir">打开数据目录</UiButton>
+            <UiButton :icon="FolderOpen" compact @click="openDataDir">
+              {{ t('settings.data.open') }}
+            </UiButton>
           </dd>
-          <dt>版本</dt>
+          <dt>{{ t('settings.data.version') }}</dt>
           <dd class="num">{{ info.version }}</dd>
         </dl>
       </section>
@@ -380,43 +407,46 @@ async function openDataDir() {
 
     <UiConfirm
       :open="!!protectTarget"
-      :title="protectTarget?.protected ? '取消保护环境' : '设为保护环境'"
-      :confirm-label="protectTarget?.protected ? '取消保护' : '设为保护环境'"
+      :title="
+        protectTarget?.protected ? t('settings.env.unprotectTitle') : t('settings.env.protectTitle')
+      "
+      :confirm-label="
+        protectTarget?.protected ? t('settings.env.unprotect') : t('settings.env.protectTitle')
+      "
       @cancel="protectTarget = null"
       @confirm="applyProtect"
     >
       <p v-if="protectTarget?.protected">
-        取消后，在 {{ protectTarget?.name }} 执行前不再要求键入环境名。已有的运行记录不受影响。
+        {{ t('settings.env.unprotectBody', { name: protectTarget?.name ?? '' }) }}
       </p>
       <p v-else>
-        设为保护环境后，在
-        {{ protectTarget?.name }} 执行前需要键入环境名确认。已有的运行记录不受影响。
+        {{ t('settings.env.protectBody', { name: protectTarget?.name ?? '' }) }}
       </p>
-      <p class="muted">保存配置后生效。</p>
+      <p class="muted">{{ t('common.effectiveAfterSave') }}</p>
     </UiConfirm>
 
     <UiConfirm
       :open="!!deleteTarget"
-      title="删除环境"
-      confirm-label="删除环境"
+      :title="t('settings.env.deleteTitle')"
+      :confirm-label="t('settings.env.deleteTitle')"
       danger
       @cancel="deleteTarget = null"
       @confirm="applyDelete"
     >
-      <p>删除环境 {{ deleteTarget?.name }}？没有服务器或项目引用它。保存配置后生效。</p>
+      <p>{{ t('settings.env.deleteBody', { name: deleteTarget?.name ?? '' }) }}</p>
     </UiConfirm>
 
     <UiDialog
       :open="!!blockedEnvironment"
-      :title="`无法删除环境 ${blockedEnvironment?.name ?? ''}`"
-      description="先移除下列引用，再删除该环境。"
+      :title="t('settings.env.blockedTitle', { name: blockedEnvironment?.name ?? '' })"
+      :description="t('settings.env.blockedHint')"
       @cancel="blockedEnvironment = null"
     >
       <ul class="refs">
         <li v-for="(r, i) in blockingRefs" :key="i">{{ describeReference(r) }}</li>
       </ul>
       <template #footer>
-        <UiButton @click="blockedEnvironment = null">关闭</UiButton>
+        <UiButton @click="blockedEnvironment = null">{{ t('common.close') }}</UiButton>
       </template>
     </UiDialog>
   </PageLayout>

@@ -1,4 +1,4 @@
-import { SHELL_LABEL } from '@/composables/shellPrograms'
+import { shellLabel } from '@/composables/shellPrograms'
 import type { Issue, PlannedTask, PrivilegePolicy, ResolvedCommand, Shell, TaskAction } from '@/ipc'
 
 /** Where clicking a preflight issue leads (IXD-24). */
@@ -118,7 +118,7 @@ export function taskDetails(
   const a = task.action
   if ((a.type === 'local' || a.type === 'remote') && a.cwd) out.push(`目录 ${a.cwd.display}`)
   if (a.type === 'local') {
-    const shell = a.shell === 'wsl' ? `WSL ${a.wslDistro ?? ''}` : SHELL_LABEL[a.shell]
+    const shell = a.shell === 'wsl' ? `WSL ${a.wslDistro ?? ''}` : shellLabel(a.shell)
     const path = programPath?.(a.shell)
     out.push(path === null ? `${shell}（本机未找到）` : path ? `${shell} · ${path}` : shell)
     if (a.outputEncoding !== 'auto') out.push(`输出编码 ${ENCODING[a.outputEncoding]}`)

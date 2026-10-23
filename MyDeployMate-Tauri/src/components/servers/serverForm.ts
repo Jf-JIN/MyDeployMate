@@ -1,23 +1,28 @@
+import { translate } from '@/i18n'
 import type { KeyFormat } from '@/ipc'
 
 /** The format line under the key file field (IXD-17), e.g. "OpenSSH · 已加密". */
 export function describeKeyFormat(format: KeyFormat): string {
-  const lock = (encrypted: boolean) => (encrypted ? '已加密' : '未加密')
+  const line = (name: string, encrypted: boolean) =>
+    translate('servers.keyFormat.line', {
+      format: name,
+      lock: translate(encrypted ? 'servers.keyFormat.encrypted' : 'servers.keyFormat.unencrypted'),
+    })
   switch (format.format) {
     case 'openSsh':
-      return `OpenSSH · ${lock(format.encrypted)}`
+      return line('OpenSSH', format.encrypted)
     case 'pem':
-      return `PEM · ${lock(format.encrypted)}`
+      return line('PEM', format.encrypted)
     case 'putty':
-      return `PuTTY v${format.version} · ${lock(format.encrypted)}`
+      return line(`PuTTY v${format.version}`, format.encrypted)
     case 'unknown':
-      return '无法识别的格式'
+      return translate('servers.keyFormat.unknown')
   }
 }
 
 /** Tags typed as one line, split on spaces and commas; duplicates are dropped. */
 export function parseTags(text: string): string[] {
-  return [...new Set(text.split(/[\s,，、]+/).filter(Boolean))]
+  return [...new Set(text.split(/[\s,\uFF0C\u3001]+/).filter(Boolean))]
 }
 
 /** `host:port` for display; an IPv6 address is bracketed so the port stays readable. */

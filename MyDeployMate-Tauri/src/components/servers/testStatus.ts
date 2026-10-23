@@ -2,6 +2,7 @@ import type { Component } from 'vue'
 import { CircleAlert, CircleCheck, CircleSlash, LoaderCircle, ShieldAlert } from '@lucide/vue'
 
 import type { Tone } from '@/components/ui/types'
+import { translate, type MessageKey } from '@/i18n'
 import type { ConnectError, ConnectionTest, ConnectStage } from '@/ipc'
 
 export interface TestStatus {
@@ -13,71 +14,79 @@ export interface TestStatus {
 
 /** IXD-15: name the actual result, never turn an old failure into "offline". */
 export function testStatus(result: ConnectionTest | undefined, running: boolean): TestStatus {
-  if (running) return { label: '测试中', tone: 'running', icon: LoaderCircle, spin: true }
-  if (!result) return { label: '未测试', tone: 'neutral' }
+  if (running)
+    return {
+      label: translate('connectStatus.testing'),
+      tone: 'running',
+      icon: LoaderCircle,
+      spin: true,
+    }
+  if (!result) return { label: translate('connectStatus.untested'), tone: 'neutral' }
   const outcome = result.outcome
   switch (outcome.status) {
     case 'succeeded':
-      return { label: '连接正常', tone: 'success', icon: CircleCheck }
+      return { label: translate('connectStatus.succeeded'), tone: 'success', icon: CircleCheck }
     case 'cancelled':
-      return { label: '已取消', tone: 'neutral', icon: CircleSlash }
+      return { label: translate('connectStatus.cancelled'), tone: 'neutral', icon: CircleSlash }
     case 'failed':
       return failureStatus(outcome.error)
   }
 }
 
 function failureStatus(error: ConnectError): TestStatus {
-  const failure = (label: string): TestStatus => ({ label, tone: 'failure', icon: CircleAlert })
+  const failure = (key: MessageKey): TestStatus => ({
+    label: translate(key),
+    tone: 'failure',
+    icon: CircleAlert,
+  })
   switch (error.kind) {
     case 'hostKeyChanged':
-      return { label: '身份不一致', tone: 'failure', icon: ShieldAlert }
+      return {
+        label: translate('connectStatus.hostKeyChanged'),
+        tone: 'failure',
+        icon: ShieldAlert,
+      }
     case 'hostKeyUnknown':
-      return { label: '待核对身份', tone: 'warning', icon: ShieldAlert }
+      return {
+        label: translate('connectStatus.hostKeyUnknown'),
+        tone: 'warning',
+        icon: ShieldAlert,
+      }
     case 'resolveFailed':
-      return failure('解析失败')
+      return failure('connectStatus.resolveFailed')
     case 'connectionRefused':
-      return failure('拒绝连接')
+      return failure('connectStatus.connectionRefused')
     case 'unreachable':
-      return failure('网络不可达')
+      return failure('connectStatus.unreachable')
     case 'timeout':
-      return failure('超时')
+      return failure('connectStatus.timeout')
     case 'algorithmNegotiation':
-      return failure('算法不兼容')
+      return failure('connectStatus.algorithmNegotiation')
     case 'authenticationFailed':
     case 'keyPassphraseWrong':
-      return failure('认证失败')
+      return failure('connectStatus.authenticationFailed')
     case 'agentUnavailable':
-      return failure('Agent 不可用')
+      return failure('connectStatus.agentUnavailable')
     case 'agentNoIdentities':
-      return failure('Agent 无密钥')
+      return failure('connectStatus.agentNoIdentities')
     case 'keyFileUnreadable':
     case 'keyFormatUnsupported':
-      return failure('私钥不可用')
+      return failure('connectStatus.keyUnavailable')
     case 'passwordEnvMissing':
-      return failure('缺少密码变量')
+      return failure('connectStatus.passwordEnvMissing')
     case 'commandFailed':
-      return failure('命令失败')
+      return failure('connectStatus.commandFailed')
     case 'disconnected':
-      return failure('连接断开')
+      return failure('connectStatus.disconnected')
     case 'cancelled':
-      return { label: '已取消', tone: 'neutral', icon: CircleSlash }
+      return { label: translate('connectStatus.cancelled'), tone: 'neutral', icon: CircleSlash }
     case 'protocol':
-      return failure('连接失败')
+      return failure('connectStatus.protocol')
   }
 }
 
-const STAGES: Record<ConnectStage, string> = {
-  prepare: '准备认证',
-  resolve: '解析地址',
-  connect: '建立连接',
-  handshake: 'SSH 握手',
-  hostKey: '核对服务器身份',
-  authenticate: '登录认证',
-  command: '探测命令',
-}
-
 export function stageLabel(stage: ConnectStage): string {
-  return STAGES[stage]
+  return translate(`connectStatus.stage.${stage}`)
 }
 
 /** What the test details offer as the next step (IXD-18). */
@@ -108,5 +117,5 @@ export function formatTime(ms: number): string {
 }
 
 export function formatDuration(ms: number): string {
-  return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} 秒`
+  return ms < 1000 ? `${ms} ms` : translate('common.seconds', { n: (ms / 1000).toFixed(1) })
 }

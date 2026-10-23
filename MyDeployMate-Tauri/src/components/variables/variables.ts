@@ -1,3 +1,4 @@
+import { translate } from '@/i18n'
 import type { Project, Variable, VariableOrigin, VariableOverride, VariableValue } from '@/ipc'
 
 /** The override of `name` in an environment, if set (IXD-13: unset differs from empty). */
@@ -58,12 +59,15 @@ export function describeSource(
   environment: string,
 ): string {
   const where = {
-    global: '全局',
-    project: '项目',
-    environmentOverride: `${environment} 覆盖`,
-    run: '运行时',
-  }[origin]
-  if (value?.kind === 'envRef') return `${where} · 环境变量 ${value.name || '（未填写）'}`
-  if (value?.kind === 'secretRef') return `${where} · 凭据管理器`
+    global: () => translate('variables.source.global'),
+    project: () => translate('variables.source.project'),
+    environmentOverride: () => translate('variables.source.environmentOverride', { environment }),
+    run: () => translate('variables.source.run'),
+  }[origin]()
+  if (value?.kind === 'envRef') {
+    const name = value.name || translate('variables.source.unnamed')
+    return translate('variables.source.envRef', { where, name })
+  }
+  if (value?.kind === 'secretRef') return translate('variables.source.secretRef', { where })
   return where
 }

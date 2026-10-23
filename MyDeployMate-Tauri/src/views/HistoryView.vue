@@ -3,13 +3,16 @@ import { History } from '@lucide/vue'
 
 import EmptyState from '@/components/EmptyState.vue'
 import PageLayout from '@/components/PageLayout.vue'
+import { useT } from '@/i18n'
+
+const t = useT()
 </script>
 
 <template>
-  <PageLayout title="执行记录">
+  <PageLayout :title="t('history.title')">
     <EmptyState
-      title="尚无执行记录"
-      detail="执行流程后，每次运行的结果和日志会列在这里。"
+      :title="t('history.emptyTitle')"
+      :detail="t('history.emptyDetail')"
       :icon="History"
     />
   </PageLayout>

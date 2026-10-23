@@ -1,19 +1,24 @@
 <script setup lang="ts">
 import { FolderKanban, History, Layers, LayoutTemplate, Server, Settings } from '@lucide/vue'
+import { computed } from 'vue'
+
+import { useT } from '@/i18n'
+
+const t = useT()
 
 // UI-10 (v0.3): first-level navigation as a 56 px icon rail; every item has a tooltip and an
 // accessible name, and the current item gets the selected background plus a 3 px edge.
-const main = [
-  { to: '/projects', label: '项目与流程', icon: FolderKanban },
-  { to: '/servers', label: '服务器', icon: Server },
-  { to: '/history', label: '执行记录', icon: History },
-  { to: '/templates', label: '流程模板', icon: LayoutTemplate },
-]
-const bottom = [{ to: '/settings', label: '配置中心', icon: Settings }]
+const main = computed(() => [
+  { to: '/projects', label: t('nav.projects'), icon: FolderKanban },
+  { to: '/servers', label: t('nav.servers'), icon: Server },
+  { to: '/history', label: t('nav.history'), icon: History },
+  { to: '/templates', label: t('nav.templates'), icon: LayoutTemplate },
+])
+const bottom = computed(() => [{ to: '/settings', label: t('nav.settings'), icon: Settings }])
 </script>
 
 <template>
-  <nav class="rail" aria-label="主导航">
+  <nav class="rail" :aria-label="t('nav.main')">
     <span class="brand" title="MyDeployMate" aria-hidden="true">
       <Layers :size="16" :stroke-width="2" />
     </span>
