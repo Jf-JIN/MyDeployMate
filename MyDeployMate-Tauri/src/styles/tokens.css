@@ -16,6 +16,7 @@
   --surface-sidebar-hover: #e9ecef;
   --surface-popover: #f8f9fa; /* select lists: set apart from the white work area */
   --surface-popover-hover: #eceff2;
+  --surface-table-header: #e1e6ea; /* a step darker than a hovered row */
   --scrollbar-thumb: #b8c0c8;
 
   /* Text */
@@ -130,6 +131,7 @@
   --surface-sidebar-hover: #22272c;
   --surface-popover: #262b30;
   --surface-popover-hover: #30363c;
+  --surface-table-header: #2d343a;
   --scrollbar-thumb: #4a525a;
 
   --text-primary: #e6e9ec; /* 13.29:1 on panel */
