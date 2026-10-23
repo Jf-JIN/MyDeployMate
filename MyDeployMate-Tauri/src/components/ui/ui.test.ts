@@ -7,6 +7,7 @@ import UiConfirm from './UiConfirm.vue'
 import UiDialog from './UiDialog.vue'
 import UiField from './UiField.vue'
 import UiSegmented from './UiSegmented.vue'
+import UiSelect from './UiSelect.vue'
 import UiSwitch from './UiSwitch.vue'
 
 afterEach(() => {
@@ -186,6 +187,55 @@ describe('UiConfirm', () => {
     await nextTick()
     confirm().click()
     expect(wrapper.emitted('confirm')).toHaveLength(1)
+    wrapper.unmount()
+  })
+})
+
+describe('UiSelect', () => {
+  const options = [
+    { value: 'ps', label: 'PowerShell' },
+    { value: 'cmd', label: 'cmd', disabledReason: '不可用' },
+    { value: 'wsl', label: 'WSL' },
+  ]
+
+  function mountSelect() {
+    const value = ref('ps')
+    const wrapper = mount(UiSelect, {
+      attachTo: document.body,
+      props: {
+        modelValue: value.value,
+        options,
+        ariaLabel: 'Shell',
+        'onUpdate:modelValue': (v: string | number) => (value.value = String(v)),
+      },
+    })
+    return { wrapper, value }
+  }
+
+  it('picks with the keyboard and skips disabled options', async () => {
+    const { wrapper, value } = mountSelect()
+    const trigger = wrapper.get('[role=combobox]')
+    await trigger.trigger('keydown', { key: 'ArrowDown' })
+    expect(trigger.attributes('aria-expanded')).toBe('true')
+    const listbox = document.querySelector('[role=listbox]')!
+    expect(listbox.querySelectorAll('[role=option]')).toHaveLength(3)
+    await trigger.trigger('keydown', { key: 'ArrowDown' })
+    const active = trigger.attributes('aria-activedescendant')!
+    expect(document.getElementById(active)!.textContent).toContain('WSL')
+    await trigger.trigger('keydown', { key: 'Enter' })
+    expect(value.value).toBe('wsl')
+    expect(document.querySelector('[role=listbox]')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('closes on Escape without changing the value', async () => {
+    const { wrapper, value } = mountSelect()
+    const trigger = wrapper.get('[role=combobox]')
+    await trigger.trigger('click')
+    await trigger.trigger('keydown', { key: 'ArrowDown' })
+    await trigger.trigger('keydown', { key: 'Escape' })
+    expect(trigger.attributes('aria-expanded')).toBe('false')
+    expect(value.value).toBe('ps')
     wrapper.unmount()
   })
 })

@@ -14,6 +14,8 @@
   --surface-selected: #e7f2f3;
   --surface-sidebar: #f5f6f7; /* icon rail and project tree; the work area is --surface-panel */
   --surface-sidebar-hover: #e9ecef;
+  --surface-popover: #f8f9fa; /* select lists: set apart from the white work area */
+  --surface-popover-hover: #eceff2;
   --scrollbar-thumb: #b8c0c8;
 
   /* Text */
@@ -126,6 +128,8 @@
   --surface-selected: #183538;
   --surface-sidebar: #15181b;
   --surface-sidebar-hover: #22272c;
+  --surface-popover: #262b30;
+  --surface-popover-hover: #30363c;
   --scrollbar-thumb: #4a525a;
 
   --text-primary: #e6e9ec; /* 13.29:1 on panel */
