@@ -1,7 +1,9 @@
-//! MyDeployMate Tauri shell: wires the store into commands and enforces a single instance.
+//! MyDeployMate Tauri shell: wires the store and the run coordinator into commands and enforces
+//! a single instance.
 
 mod commands;
 mod error;
+mod run;
 mod state;
 mod values;
 
@@ -47,6 +49,10 @@ pub fn run() {
             commands::wsl_distros,
             commands::shell_programs,
             commands::preview_run,
+            run::start_run,
+            run::active_run,
+            run::cancel_run,
+            run::answer_confirmation,
         ])
         .run(tauri::generate_context!())
         .expect("error while running MyDeployMate");

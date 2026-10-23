@@ -2,7 +2,9 @@ use std::sync::Mutex;
 
 use mdm_core::Clock;
 use mdm_exec::SystemClock;
-use mdm_store::{DataDir, HistoryStore, InstanceLock, StoreError, WorkspaceStore};
+use mdm_store::{DataDir, HistoryStore, InstanceLock, SharedHistory, StoreError, WorkspaceStore};
+
+use crate::run::ActiveRun;
 
 use crate::error::{AppError, AppErrorKind};
 
@@ -11,16 +13,10 @@ pub struct AppState {
     pub data_dir: DataDir,
     pub store: Mutex<WorkspaceStore>,
     /// Run records; `None` when the database could not be opened (`history_error` says why).
-    #[expect(
-        dead_code,
-        reason = "read by the start and run detail commands (plan tasks 4.5, 4.6)"
-    )]
-    pub history: Mutex<Option<HistoryStore>>,
-    #[expect(
-        dead_code,
-        reason = "read by the start and run detail commands (plan tasks 4.5, 4.6)"
-    )]
+    pub history: Option<SharedHistory>,
     pub history_error: Option<String>,
+    /// The single run in progress (ARC-08).
+    pub active: Mutex<Option<ActiveRun>>,
     /// Held for the life of the process (ARC-08).
     _lock: Option<InstanceLock>,
     /// When the data directory could not be prepared, every workspace command reports this.
@@ -44,15 +40,16 @@ impl AppState {
         };
         let (history, history_error) = match &lock {
             Some(_) => match open_history(&data_dir) {
-                Ok(h) => (Some(h), None),
+                Ok(h) => (Some(SharedHistory::new(h)), None),
                 Err(e) => (None, Some(e.to_string())),
             },
             None => (None, startup_error.clone()),
         };
         Self {
             store: Mutex::new(WorkspaceStore::new(data_dir.clone())),
-            history: Mutex::new(history),
+            history,
             history_error,
+            active: Mutex::new(None),
             data_dir,
             _lock: lock,
             startup_error,

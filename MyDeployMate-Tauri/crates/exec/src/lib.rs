@@ -9,6 +9,7 @@ mod coordinator_tests;
 pub mod decode;
 pub mod executor;
 pub mod local;
+pub mod logs;
 pub mod shell;
 
 pub use coordinator::{
@@ -18,4 +19,5 @@ pub use coordinator::{
 pub use decode::OutputDecoder;
 pub use executor::AppExecutor;
 pub use local::{LocalCommand, LocalEnd, LocalError, LocalOutcome, OutputChunk, Stream, run_local};
+pub use logs::{LogPipeline, RunView};
 pub use shell::{Invocation, find_program, program_name, resolve_shell};

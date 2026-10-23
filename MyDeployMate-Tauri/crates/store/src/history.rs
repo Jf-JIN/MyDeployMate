@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use mdm_core::machine::TaskMeta;
 use mdm_core::{
@@ -300,6 +301,35 @@ impl RunStore for HistoryStore {
 
     fn save_run(&mut self, machine: &RunMachine) -> Result<(), StorageError> {
         self.save(machine).map_err(|e| StorageError(e.to_string()))
+    }
+}
+
+/// One [`HistoryStore`] shared by the running coordinator and the commands that read history.
+#[derive(Clone)]
+pub struct SharedHistory(Arc<Mutex<HistoryStore>>);
+
+impl SharedHistory {
+    pub fn new(store: HistoryStore) -> Self {
+        SharedHistory(Arc::new(Mutex::new(store)))
+    }
+
+    pub fn lock(&self) -> MutexGuard<'_, HistoryStore> {
+        // A panic while holding the lock leaves SQLite consistent; keep using the store.
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
+impl RunStore for SharedHistory {
+    fn create_run(
+        &mut self,
+        machine: &RunMachine,
+        plan: &ResolvedPlan,
+    ) -> Result<(), StorageError> {
+        self.lock().create_run(machine, plan)
+    }
+
+    fn save_run(&mut self, machine: &RunMachine) -> Result<(), StorageError> {
+        self.lock().save_run(machine)
     }
 }
 

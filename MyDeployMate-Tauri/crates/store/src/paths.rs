@@ -55,6 +55,15 @@ impl DataDir {
         self.root.join("history.sqlite")
     }
 
+    pub fn logs(&self) -> PathBuf {
+        self.root.join("logs")
+    }
+
+    /// Redacted log of one run, JSON Lines (ARC-31).
+    pub fn run_log(&self, run: mdm_core::RunId) -> PathBuf {
+        self.logs().join(format!("{run}.jsonl"))
+    }
+
     pub fn lock_file(&self) -> PathBuf {
         self.root.join("app.lock")
     }
