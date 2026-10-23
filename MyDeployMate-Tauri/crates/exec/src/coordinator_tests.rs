@@ -27,6 +27,8 @@ enum Script {
     UntilCancelled(TaskOutcome),
     /// Ask for a credential; succeed with it, or report cancelled without one.
     AskCredential,
+    /// Record a detail and succeed at once, before the coordinator reads the detail.
+    Detail,
 }
 
 #[derive(Default)]
@@ -91,6 +93,13 @@ impl TaskExecutor for FakeExecutor {
                     exit_signal: None,
                     reason: Message::ExitCode { code: 1 },
                 },
+                Script::Detail => {
+                    ctx.detail(TaskDetail::Upload(UploadDetail {
+                        committed: vec![format!("/srv/{}", task.seq)],
+                        ..Default::default()
+                    }));
+                    TaskOutcome::Succeeded { exit_code: None }
+                }
                 Script::UntilCancelled(outcome) => {
                     ctx.cancel.cancelled().await;
                     outcome
@@ -541,4 +550,30 @@ fn failed_create_runs_nothing() {
     );
     assert!(result.is_err());
     assert!(store.0.lock().unwrap().executed.is_empty());
+}
+
+#[tokio::test]
+async fn details_are_recorded_before_the_outcome() {
+    let plan = plan(
+        ExecutionOrder::StepFirst,
+        PipelineFailurePolicy::Stop,
+        false,
+    );
+    let h = Harness::start(plan, &[(1, Script::Detail)], None);
+    let (status, _, shared) = h.finish().await;
+    assert_eq!(status, RunStatus::Succeeded);
+    let tasks = shared.saved.unwrap().1;
+    assert_eq!(
+        tasks[1].detail,
+        Some(TaskDetail::Upload(UploadDetail {
+            committed: vec!["/srv/1".into()],
+            ..Default::default()
+        }))
+    );
+    assert!(
+        tasks
+            .iter()
+            .enumerate()
+            .all(|(i, t)| i == 1 || t.detail.is_none())
+    );
 }

@@ -5,25 +5,32 @@
 //! manifests for later targets of the same step, and the remote path rules.
 
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
+
+use crate::message::Message;
 
 use crate::model::SourceKind;
 
 /// One local file of an upload source.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub struct ManifestEntry {
     /// Path relative to the source directory with `/` separators; empty for a file source.
     pub path: String,
+    #[ts(type = "number")]
     pub size: u64,
     /// Modification time in Unix milliseconds, when the file system reports one.
+    #[ts(type = "number | null")]
     pub modified_ms: Option<i64>,
     /// Lowercase hex SHA-256 of the content.
     pub sha256: String,
 }
 
 /// The files of an upload source at the moment it was scanned (ARC-28).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export)]
 pub struct ArtifactManifest {
     pub kind: SourceKind,
     /// Sorted by path.
@@ -40,8 +47,9 @@ impl ArtifactManifest {
 }
 
 /// How a later target's source differs from the manifest recorded for the step (ARC-28).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", content = "path", rename_all = "camelCase")]
+#[ts(export)]
 pub enum ArtifactChange {
     Added(String),
     Removed(String),
@@ -85,6 +93,50 @@ pub fn compare_manifests(
     }
     out.sort_by(|a, b| a.path().cmp(b.path()));
     out
+}
+
+/// What an upload task records in the run (ARC-28, ARC-30), shown in the task's details.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct UploadDetail {
+    /// The manifest this task recorded: only the step's first upload task records one, before
+    /// it transfers anything. Later targets are checked against it.
+    pub manifest: Option<ArtifactManifest>,
+    /// Why a later target failed the check against the recorded manifest.
+    pub changes: Vec<ArtifactChange>,
+    /// Remote paths committed, in upload order.
+    pub committed: Vec<String>,
+    /// The remote path that failed, or whose commit is unknown.
+    pub stopped_at: Option<String>,
+    /// Remote paths not reached.
+    pub unprocessed: Vec<String>,
+    /// Temporary files of this task that could not be removed.
+    pub temp_left: Vec<Message>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum UploadPhase {
+    /// Scanning and hashing the source, and comparing it with the recorded manifest.
+    #[default]
+    Verifying,
+    Transferring,
+}
+
+/// Progress of a running upload task; shown only, never stored (STEP-04).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct UploadProgress {
+    pub phase: UploadPhase,
+    pub files_done: u32,
+    pub files_total: u32,
+    #[ts(type = "number")]
+    pub bytes_done: u64,
+    #[ts(type = "number")]
+    pub bytes_total: u64,
 }
 
 /// The remote path a manifest entry is committed to. A file source goes to `target` itself;

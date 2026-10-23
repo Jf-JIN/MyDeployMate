@@ -835,7 +835,7 @@ mod upload {
         assert_eq!(
             r.end,
             UploadEnd::Failed(Message::PermissionDenied {
-                path: format!("{dir}/locked/.x.mdm-t1.tmp")
+                path: format!("{dir}/locked/x")
             })
         );
         assert_eq!(r.committed, vec![format!("{dir}/a")]);
@@ -965,5 +965,260 @@ mod upload_cancel {
         let out = s.exec_collect(&format!("ls -A {dir}"), 1024).await.unwrap();
         assert_eq!(String::from_utf8_lossy(&out.stdout), "");
         assert_eq!(out.exit_status, Some(0));
+    }
+}
+
+// ---- Upload tasks in a run (STEP-04, ARC-28; AC-11, AT-10) ------------------------------------
+
+mod upload_run {
+    use super::*;
+    use std::sync::Arc;
+
+    use mdm_core::fixtures::demo_workspace;
+    use mdm_core::resolve::NoValues;
+    use mdm_core::{
+        ArtifactChange, ConflictPolicy, PipelineFailurePolicy, PlanRequest, PlannedTask,
+        ResolvedPlan, ResolvedText, Run, RunId, RunMachine, RunScope, RunStatus, RunStore,
+        ServerId, SourceKind, StepKind, StorageError, Task, TaskAction, TaskDetail, TaskStatus,
+        build_plan,
+    };
+    use mdm_exec::{
+        AppExecutor, ConnectFuture, Coordinator, OperatorRequest, OutputChunk, RemoteConnector,
+        RunObserver, SystemClock, TaskContext, TaskExecutor, TaskFuture, TaskOutcome,
+    };
+
+    type Saved = Option<(Run, Vec<Task>)>;
+
+    #[derive(Clone, Default)]
+    struct MemStore(Arc<std::sync::Mutex<Saved>>);
+
+    impl RunStore for MemStore {
+        fn create_run(&mut self, m: &RunMachine, _: &ResolvedPlan) -> Result<(), StorageError> {
+            self.save_run(m)
+        }
+        fn save_run(&mut self, m: &RunMachine) -> Result<(), StorageError> {
+            *self.0.lock().unwrap() = Some((m.run().clone(), m.tasks().to_vec()));
+            Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct Notes(std::sync::Mutex<Vec<(u32, Message)>>);
+
+    impl RunObserver for Notes {
+        fn changed(&self, _: &RunMachine) {}
+        fn output(&self, _: u32, _: OutputChunk) {}
+        fn note(&self, seq: u32, message: Message) {
+            self.0.lock().unwrap().push((seq, message));
+        }
+        fn requested(&self, _: &OperatorRequest) {}
+        fn storage_failed(&self, _: &StorageError) {}
+    }
+
+    /// Every server is the modern test container, logged in as deploy with the plain key.
+    struct TestEnv {
+        keys: PathBuf,
+        known: Vec<HostKey>,
+    }
+
+    impl RemoteConnector for TestEnv {
+        fn connect<'a>(&'a self, _: ServerId, _: &'a TaskContext) -> ConnectFuture<'a> {
+            Box::pin(async move {
+                let t = key_target(MODERN, "deploy", self.keys.join("id_ed25519"));
+                try_connect(&t, &self.known, &Answers::default())
+                    .await
+                    .map_err(|e| TaskOutcome::Failed {
+                        exit_code: None,
+                        exit_signal: None,
+                        reason: e.message,
+                    })
+            })
+        }
+    }
+
+    /// Runs `after_first` once task 0 has ended, e.g. to change the artifact.
+    struct Hook {
+        inner: AppExecutor,
+        after_first: Box<dyn Fn() + Send + Sync>,
+    }
+
+    impl TaskExecutor for Hook {
+        fn execute<'a>(&'a self, task: &'a PlannedTask, ctx: TaskContext) -> TaskFuture<'a> {
+            Box::pin(async move {
+                let out = self.inner.execute(task, ctx).await;
+                if task.seq == 0 {
+                    (self.after_first)();
+                }
+                out
+            })
+        }
+    }
+
+    /// A plan of upload tasks of one step, one per `(server, target)`, built on the demo plan.
+    fn plan(source: &std::path::Path, kind: SourceKind, targets: &[&str]) -> ResolvedPlan {
+        let demo = demo_workspace();
+        let p = &demo.workspace.projects[0];
+        let req = PlanRequest {
+            project_id: p.id,
+            pipeline_id: p.pipelines[0].id,
+            environment_id: demo.staging,
+            scope: RunScope::Full,
+            server_ids: None,
+            version: None,
+        };
+        let mut plan = build_plan(&demo.workspace, &req, &NoValues).unwrap();
+        let template = plan
+            .tasks
+            .iter()
+            .find(|t| t.kind == StepKind::Upload)
+            .unwrap()
+            .clone();
+        plan.tasks = targets
+            .iter()
+            .enumerate()
+            .map(|(i, target)| {
+                let mut t = template.clone();
+                t.seq = i as u32;
+                t.failure_policy = PipelineFailurePolicy::Stop;
+                t.server.as_mut().unwrap().id = ServerId::new();
+                t.action = TaskAction::Upload {
+                    source: ResolvedText::plain(source.to_string_lossy()),
+                    source_kind: kind,
+                    target: ResolvedText::plain(*target),
+                    conflict: ConflictPolicy::Overwrite,
+                };
+                t
+            })
+            .collect();
+        plan
+    }
+
+    async fn run(
+        keys: &std::path::Path,
+        plan: ResolvedPlan,
+        after_first: impl Fn() + Send + Sync + 'static,
+    ) -> (RunStatus, Vec<Task>, Vec<(u32, Message)>) {
+        let env = TestEnv {
+            keys: keys.to_path_buf(),
+            known: vec![host_key(MODERN, keys).await],
+        };
+        let exec = Hook {
+            inner: AppExecutor::new(Arc::new(env)),
+            after_first: Box::new(after_first),
+        };
+        let store = MemStore::default();
+        let notes = Arc::new(Notes::default());
+        let (_control, control_rx) = tokio::sync::mpsc::unbounded_channel();
+        let coordinator = Coordinator::create(
+            Arc::new(plan),
+            RunId::new(),
+            store.clone(),
+            Arc::new(SystemClock),
+            Arc::new(exec),
+            notes.clone(),
+            control_rx,
+        )
+        .map_err(|(e, _)| e)
+        .unwrap();
+        let (status, _) = coordinator.run().await;
+        let (_, tasks) = store.0.lock().unwrap().clone().unwrap();
+        let notes = notes.0.lock().unwrap().clone();
+        (status, tasks, notes)
+    }
+
+    fn upload_detail(t: &Task) -> &mdm_core::UploadDetail {
+        match t.detail.as_ref().expect("upload detail") {
+            TaskDetail::Upload(d) => d,
+        }
+    }
+
+    #[tokio::test]
+    async fn later_target_fails_when_the_artifact_changed() {
+        let keys = require_test_env!();
+        let local = tempfile::tempdir().unwrap();
+        let root = local.path().join("dist");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("app.js"), "v1").unwrap();
+        std::fs::write(root.join("old.js"), "x").unwrap();
+        let a = "/home/deploy/mdm-run-changed/a";
+        let b = "/home/deploy/mdm-run-changed/b";
+        let plan = plan(&root, SourceKind::Directory, &[a, b]);
+        let changed = root.clone();
+        let (status, tasks, notes) = run(&keys, plan, move || {
+            std::fs::write(changed.join("app.js"), "v2").unwrap();
+            std::fs::remove_file(changed.join("old.js")).unwrap();
+            std::fs::write(changed.join("new.js"), "n").unwrap();
+        })
+        .await;
+
+        assert_eq!(status, RunStatus::Failed, "{tasks:#?}");
+        assert_eq!(tasks[0].status, TaskStatus::Succeeded);
+        let first = upload_detail(&tasks[0]);
+        assert_eq!(first.manifest.as_ref().unwrap().files.len(), 2);
+        assert_eq!(
+            first.committed,
+            vec![format!("{a}/app.js"), format!("{a}/old.js")]
+        );
+
+        assert_eq!(tasks[1].status, TaskStatus::Failed);
+        assert_eq!(tasks[1].reason, Some(Message::ArtifactChanged { n: 3 }));
+        let second = upload_detail(&tasks[1]);
+        assert!(second.manifest.is_none() && second.committed.is_empty());
+        assert_eq!(
+            second.changes,
+            vec![
+                ArtifactChange::Modified("app.js".into()),
+                ArtifactChange::Added("new.js".into()),
+                ArtifactChange::Removed("old.js".into()),
+            ]
+        );
+        assert!(
+            notes.iter().any(
+                |(seq, m)| *seq == 0 && matches!(m, Message::ManifestRecorded { files: 2, .. })
+            )
+        );
+        assert!(
+            notes
+                .iter()
+                .any(|(seq, m)| *seq == 0 && matches!(m, Message::UploadDone { files: 2, .. }))
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_artifact_fails_at_the_upload_and_a_failed_target_stops_the_run() {
+        let keys = require_test_env!();
+        let local = tempfile::tempdir().unwrap();
+        let src = local.path().join("app.jar");
+        let a = "/home/deploy/mdm-run-stop/app.jar";
+        // Not built (yet): the upload task itself reports it (AC-11).
+        let (status, tasks, _) = run(&keys, plan(&src, SourceKind::File, &[a]), || {}).await;
+        assert_eq!(status, RunStatus::Failed);
+        assert_eq!(
+            tasks[0].reason,
+            Some(Message::SourceMissing {
+                path: src.to_string_lossy().into_owned()
+            })
+        );
+
+        // A succeeds, B has no permission: B fails, the rest is skipped, A stays (AC-15).
+        std::fs::write(&src, "built").unwrap();
+        let b = "/opt/protected/app.jar";
+        let c = "/home/deploy/mdm-run-stop/c.jar";
+        let (status, tasks, _) = run(&keys, plan(&src, SourceKind::File, &[a, b, c]), || {}).await;
+        assert_eq!(status, RunStatus::Failed);
+        let statuses: Vec<_> = tasks.iter().map(|t| t.status).collect();
+        assert_eq!(
+            statuses,
+            vec![
+                TaskStatus::Succeeded,
+                TaskStatus::Failed,
+                TaskStatus::Skipped
+            ]
+        );
+        assert!(matches!(
+            tasks[1].reason,
+            Some(Message::PermissionDenied { ref path }) if path == b
+        ));
+        assert_eq!(upload_detail(&tasks[1]).stopped_at.as_deref(), Some(b));
     }
 }

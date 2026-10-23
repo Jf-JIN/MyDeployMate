@@ -4,9 +4,10 @@ import type { Message } from "./Message";
 import type { Run } from "./Run";
 import type { RunRequest } from "./RunRequest";
 import type { Task } from "./Task";
+import type { UploadProgress } from "./UploadProgress";
 
 /**
  * Pushed to the UI while a run is active. `state` carries the run and all its tasks after a
  * recorded change.
  */
-export type RunUpdate = { "type": "state", run: Run, tasks: Array<Task>, cancelReason: Message | null, } | { "type": "logs", entries: Array<LogEntry>, } | { "type": "request" } & RunRequest | { "type": "storageFailed", message: Message, };
+export type RunUpdate = { "type": "state", run: Run, tasks: Array<Task>, cancelReason: Message | null, } | { "type": "logs", entries: Array<LogEntry>, } | { "type": "request" } & RunRequest | { "type": "storageFailed", message: Message, } | { "type": "progress", task: number, progress: UploadProgress, };

@@ -19,7 +19,7 @@ use crate::ids::{RunId, ServerId, TaskId};
 use crate::message::Message;
 use crate::model::{PipelineFailurePolicy, StepKind};
 use crate::plan::{ResolvedPlan, RunScope};
-use crate::run::{Run, RunStatus, Task, TaskStatus};
+use crate::run::{Run, RunStatus, Task, TaskDetail, TaskStatus};
 
 /// Something that happened to the run. `seq` is the task position in the plan.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -48,6 +48,12 @@ pub enum RunEvent {
         exit_code: Option<i32>,
         exit_signal: Option<String>,
         reason: Message,
+    },
+    /// The executor recorded details of the running task, e.g. an upload's manifest before the
+    /// transfer and its file lists after (ARC-28).
+    TaskDetail {
+        seq: u32,
+        detail: Box<TaskDetail>,
     },
     /// The remote result cannot be confirmed (lost channel, cancel not verified).
     TaskOutcomeUnknown {
@@ -159,6 +165,7 @@ impl RunMachine {
                 reason: None,
                 started_at_ms: None,
                 finished_at_ms: None,
+                detail: None,
             })
             .collect();
         let meta = plan
@@ -284,6 +291,10 @@ impl RunMachine {
             }
             RunEvent::CredentialProvided { seq } => {
                 self.expect(seq, &[TaskStatus::WaitingCredential])?.status = TaskStatus::Running;
+            }
+            RunEvent::TaskDetail { seq, detail } => {
+                self.expect(seq, &[TaskStatus::Running, TaskStatus::WaitingCredential])?
+                    .detail = Some(*detail);
             }
             RunEvent::TaskSucceeded { seq, exit_code } => {
                 let t = self.expect(seq, &[TaskStatus::Running])?;

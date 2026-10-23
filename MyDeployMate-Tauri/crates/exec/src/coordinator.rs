@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use mdm_core::{
     Clock, Message, Next, OperatorPrompt, PlannedTask, ResolvedPlan, RunEvent, RunId, RunMachine,
-    RunStatus, RunStore, StepKind, StorageError, TaskStatus,
+    RunStatus, RunStore, StepKind, StorageError, TaskDetail, TaskStatus, UploadProgress,
 };
 use secrecy::SecretString;
 use tokio::sync::{mpsc, oneshot};
@@ -98,6 +98,8 @@ pub trait RunObserver: Send + Sync {
     /// A task waits for the operator; the run is already recorded as waiting.
     fn requested(&self, request: &OperatorRequest);
     fn storage_failed(&self, error: &StorageError);
+    /// Progress of a running upload; may be dropped or coalesced.
+    fn progress(&self, _seq: u32, _progress: UploadProgress) {}
 }
 
 pub type TaskFuture<'a> = Pin<Box<dyn Future<Output = TaskOutcome> + Send + 'a>>;
@@ -113,6 +115,7 @@ pub struct TaskContext {
     pub cancel: CancellationToken,
     observer: Arc<dyn RunObserver>,
     requests: mpsc::UnboundedSender<(OperatorPrompt, oneshot::Sender<Option<OperatorAnswer>>)>,
+    details: mpsc::UnboundedSender<TaskDetail>,
 }
 
 impl TaskContext {
@@ -122,6 +125,16 @@ impl TaskContext {
 
     pub fn note(&self, message: Message) {
         self.observer.note(self.seq, message);
+    }
+
+    pub fn progress(&self, progress: UploadProgress) {
+        self.observer.progress(self.seq, progress);
+    }
+
+    /// Record details of this task in the run; persisted before the task's next state change
+    /// (and before its outcome).
+    pub fn detail(&self, detail: TaskDetail) {
+        let _ = self.details.send(detail);
     }
 
     /// Ask the operator and wait (D02, D04). `None` means the prompt was declined or the run
@@ -269,6 +282,17 @@ impl<S: RunStore> Coordinator<S> {
         }
     }
 
+    /// Details of a task that already ended (cancelled during a prompt) are dropped.
+    fn record_detail(&mut self, seq: u32, detail: TaskDetail) -> Result<(), Abort> {
+        if self.machine.tasks()[seq as usize].status.is_terminal() {
+            return Ok(());
+        }
+        self.step(RunEvent::TaskDetail {
+            seq,
+            detail: Box::new(detail),
+        })
+    }
+
     async fn dispatch(&mut self, seq: u32) -> Result<(), Abort> {
         // The intent is on disk before anything runs (ARC-14).
         self.step(RunEvent::TaskStarted { seq })?;
@@ -278,11 +302,13 @@ impl<S: RunStore> Coordinator<S> {
         debug_assert_ne!(task.kind, StepKind::Confirm);
         let cancel = CancellationToken::new();
         let (req_tx, mut req_rx) = mpsc::unbounded_channel();
+        let (detail_tx, mut detail_rx) = mpsc::unbounded_channel();
         let ctx = TaskContext {
             seq,
             cancel: cancel.clone(),
             observer: Arc::clone(&self.observer),
             requests: req_tx,
+            details: detail_tx,
         };
         let executor = Arc::clone(&self.executor);
         let mut running = executor.execute(task, ctx);
@@ -292,6 +318,12 @@ impl<S: RunStore> Coordinator<S> {
         let outcome = loop {
             tokio::select! {
                 outcome = &mut running => break outcome,
+                Some(detail) = detail_rx.recv() => {
+                    if failed.is_none() && let Err(abort) = self.record_detail(seq, detail) {
+                        failed = Some(abort);
+                        cancel.cancel();
+                    }
+                }
                 Some((prompt, reply)) = req_rx.recv() => {
                     let id = self.next_request;
                     self.next_request += 1;
@@ -351,6 +383,11 @@ impl<S: RunStore> Coordinator<S> {
             }
         };
         drop(running);
+        while failed.is_none()
+            && let Ok(detail) = detail_rx.try_recv()
+        {
+            failed = self.record_detail(seq, detail).err();
+        }
         if let Some(abort) = failed {
             return Err(abort);
         }
