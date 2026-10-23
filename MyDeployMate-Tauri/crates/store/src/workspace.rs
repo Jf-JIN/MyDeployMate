@@ -143,7 +143,7 @@ impl WorkspaceStore {
 }
 
 /// Antivirus and indexers briefly hold files open on Windows; retry a few times.
-fn retry(mut op: impl FnMut() -> std::io::Result<()>) -> std::io::Result<()> {
+pub(crate) fn retry(mut op: impl FnMut() -> std::io::Result<()>) -> std::io::Result<()> {
     let mut attempt = 0;
     loop {
         match op() {

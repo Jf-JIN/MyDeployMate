@@ -28,6 +28,8 @@ pub enum StoreError {
     HistoryVersion { found: u32, supported: u32 },
     #[error("另一个运行尚未结束，同一时间只能有一个运行")]
     RunActive,
+    #[error("{0} 的服务器身份已有记录，只能通过信任管理显式更新")]
+    TrustConflict(String),
     #[error("配置校验未通过（{} 个问题）", .0.issues.len())]
     Invalid(ValidationReport),
 }
