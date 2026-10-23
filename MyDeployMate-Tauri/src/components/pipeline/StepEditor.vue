@@ -3,6 +3,7 @@ import { FolderOpen } from '@lucide/vue'
 import { open as openFileDialog } from '@tauri-apps/plugin-dialog'
 import { computed, onMounted, ref, useId, watch } from 'vue'
 
+import { SHELL_LABEL, useShellPrograms } from '@/composables/shellPrograms'
 import UiField from '@/components/ui/UiField.vue'
 import UiIconButton from '@/components/ui/UiIconButton.vue'
 import UiNotice from '@/components/ui/UiNotice.vue'
@@ -85,12 +86,11 @@ const failureHint = computed(() => {
 const local = computed(() =>
   step.value.spec.type === 'local' ? (step.value.spec as LocalSpec) : null,
 )
-const shellOptions = [
-  { value: 'powershell' as const, label: 'Windows PowerShell' },
-  { value: 'pwsh' as const, label: 'PowerShell 7（pwsh）' },
-  { value: 'cmd' as const, label: 'cmd' },
-  { value: 'wsl' as const, label: 'WSL' },
-]
+const shellOptions = (['powershell', 'pwsh', 'cmd', 'wsl'] as const).map((value) => ({
+  value,
+  label: SHELL_LABEL[value],
+}))
+const { programNote } = useShellPrograms()
 const encodingOptions = [
   { value: 'auto' as const, label: '自动' },
   { value: 'utf8' as const, label: 'UTF-8' },
@@ -327,7 +327,7 @@ const usesSudo = computed(() => {
         </div>
       </UiField>
       <div class="grid">
-        <UiField v-slot="{ id }" label="Shell">
+        <UiField v-slot="{ id }" label="Shell" :hint="programNote(local.shell)">
           <UiSelect :id="id" v-model="local.shell" :options="shellOptions" />
         </UiField>
         <UiField v-slot="{ id }" label="输出编码" hint="出现乱码时可手动指定">

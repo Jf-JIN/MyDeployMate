@@ -22,6 +22,7 @@ import {
   type RunScope,
   type Workspace,
 } from '@/ipc'
+import { SHELL_LABEL, useShellPrograms } from '@/composables/shellPrograms'
 import { useToastStore } from '@/stores/toast'
 
 import { groupTasks, issueTarget, privilegeLabel, taskCommand, type IssueTarget } from './preview'
@@ -130,6 +131,8 @@ const issueSteps = computed(
     new Set(issues.value.filter((i) => i.object?.kind === 'step').map((i) => i.object?.id ?? '')),
 )
 
+const { programPath } = useShellPrograms()
+
 const POLICY = { stop: '失败停止', continue: '失败继续', skipServer: '跳过该服务器' }
 const ORDER = { stepFirst: '步骤优先', serverFirst: '服务器优先' }
 
@@ -137,7 +140,11 @@ function details(task: PlannedTask): string[] {
   const out: string[] = []
   const a = task.action
   if ((a.type === 'local' || a.type === 'remote') && a.cwd) out.push(`目录 ${a.cwd.display}`)
-  if (a.type === 'local') out.push(a.shell === 'wsl' ? `WSL ${a.wslDistro ?? ''}` : a.shell)
+  if (a.type === 'local') {
+    const shell = a.shell === 'wsl' ? `WSL ${a.wslDistro ?? ''}` : SHELL_LABEL[a.shell]
+    const path = programPath(a.shell)
+    out.push(path === null ? `${shell}（本机未找到）` : path ? `${shell} · ${path}` : shell)
+  }
   if (a.type === 'upload')
     out.push(a.conflict === 'overwrite' ? '覆盖已有目标' : '目标已存在时报错')
   if (a.type === 'remote') out.push(privilegeLabel(a.privilege))

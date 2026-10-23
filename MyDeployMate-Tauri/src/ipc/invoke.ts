@@ -18,6 +18,7 @@ import type { ResolvedPlan } from './bindings/ResolvedPlan'
 import type { Server } from './bindings/Server'
 import type { ServerEdit } from './bindings/ServerEdit'
 import type { ServerId } from './bindings/ServerId'
+import type { ShellProgram } from './bindings/ShellProgram'
 import type { Step } from './bindings/Step'
 import type { StepKind } from './bindings/StepKind'
 import type { ValidationReport } from './bindings/ValidationReport'
@@ -54,6 +55,7 @@ export interface Commands {
   copy_step: [{ step: Step }, Step]
   builtin_variables: [Record<string, never>, BuiltinVariable[]]
   wsl_distros: [Record<string, never>, string[]]
+  shell_programs: [Record<string, never>, ShellProgram[]]
   preview_run: [{ draft: Workspace; request: PlanRequest }, ResolvedPlan]
 }
 

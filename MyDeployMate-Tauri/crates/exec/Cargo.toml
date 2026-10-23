@@ -11,4 +11,20 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+encoding_rs = "0.8.42"
 mdm-core = { version = "0.1.0", path = "../core" }
+process-wrap = { version = "10.0.1", default-features = false, features = ["tokio1", "kill-on-drop"] }
+thiserror = "2.0.21"
+tokio = { version = "1.54.0", features = ["io-util", "macros", "process", "rt", "time"] }
+tokio-util = "0.7.20"
+
+[target.'cfg(windows)'.dependencies]
+process-wrap = { version = "10.0.1", default-features = false, features = ["tokio1", "kill-on-drop", "job-object", "creation-flags"] }
+windows = { version = "0.62.2", features = ["Win32_System_Threading"] }
+
+[target.'cfg(unix)'.dependencies]
+process-wrap = { version = "10.0.1", default-features = false, features = ["tokio1", "kill-on-drop", "process-group"] }
+
+[dev-dependencies]
+pretty_assertions = "1.4.1"
+tokio = { version = "1.54.0", features = ["io-util", "macros", "process", "rt", "rt-multi-thread", "time"] }
