@@ -12,6 +12,7 @@ import UiSegmented from '@/components/ui/UiSegmented.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
 import UiTextarea from '@/components/ui/UiTextarea.vue'
 import UiTextInput from '@/components/ui/UiTextInput.vue'
+import { useT } from '@/i18n'
 import {
   call,
   type LocalSpec,
@@ -28,6 +29,8 @@ import {
 import { effectivePrivilege } from './pipeline'
 import VariableMenu from './VariableMenu.vue'
 
+const t = useT()
+
 // IXD-10 / IXD-11: the parameter panel of one step. Common fields stay in the same place for
 // every kind; a step's kind never changes here (add a new step instead).
 /** The draft step; edited in place, as the page draft owns it. */
@@ -43,30 +46,30 @@ const props = defineProps<{
 const uid = useId()
 const fid = (name: string) => `${uid}-${name}`
 
-const kindLabel = computed(
-  () =>
-    ({ local: '本地命令', upload: '上传文件', remote: '远程命令', confirm: '人工确认' })[
-      step.value.spec.type
-    ],
-)
+const kindLabel = computed(() => t(`steps.kind.${step.value.spec.type}`))
 
 // ---- Common ----------------------------------------------------------------------------------
 
-const PIPELINE_POLICY = { stop: '失败停止', continue: '失败继续', skipServer: '跳过该服务器' }
 const failureOptions = computed(() => {
   const local = step.value.spec.type === 'local'
   const stepFirst = props.pipeline.executionOrder !== 'serverFirst'
   return [
     {
       value: 'inherit' as StepFailurePolicy,
-      label: `继承流程（${PIPELINE_POLICY[props.pipeline.failurePolicy]}）`,
+      label: t('stepEditor.inherit', {
+        policy: t(`pipelines.settings.${props.pipeline.failurePolicy}`),
+      }),
     },
-    { value: 'stop' as StepFailurePolicy, label: '失败停止' },
-    { value: 'continue' as StepFailurePolicy, label: '失败继续' },
+    { value: 'stop' as StepFailurePolicy, label: t('pipelines.settings.stop') },
+    { value: 'continue' as StepFailurePolicy, label: t('pipelines.settings.continue') },
     {
       value: 'skipServer' as StepFailurePolicy,
-      label: '跳过该服务器',
-      disabledReason: local ? '本地命令没有目标服务器' : stepFirst ? '仅服务器优先可用' : undefined,
+      label: t('pipelines.settings.skipServer'),
+      disabledReason: local
+        ? t('variableMenu.noServer')
+        : stepFirst
+          ? t('pipelines.settings.serverFirstOnly')
+          : undefined,
     },
   ]
 })
@@ -74,11 +77,7 @@ const failureOptions = computed(() => {
 const failureHint = computed(() => {
   const policy =
     step.value.failurePolicy === 'inherit' ? props.pipeline.failurePolicy : step.value.failurePolicy
-  return {
-    stop: '失败后不再开始后续任务。',
-    continue: '失败后继续后续任务，整次运行最终记为失败。',
-    skipServer: '该服务器的后续任务记为跳过，其他服务器继续，整次运行最终记为失败。',
-  }[policy]
+  return t(`stepEditor.failureHint.${policy}`)
 })
 
 // ---- Local ---------------------------------------------------------------------------------
@@ -86,16 +85,18 @@ const failureHint = computed(() => {
 const local = computed(() =>
   step.value.spec.type === 'local' ? (step.value.spec as LocalSpec) : null,
 )
-const shellOptions = (['powershell', 'pwsh', 'cmd', 'wsl'] as const).map((value) => ({
-  value,
-  label: shellLabel(value),
-}))
+const shellOptions = computed(() =>
+  (['powershell', 'pwsh', 'cmd', 'wsl'] as const).map((value) => ({
+    value,
+    label: shellLabel(value),
+  })),
+)
 const { programNote } = useShellPrograms()
-const encodingOptions = [
-  { value: 'auto' as const, label: '自动' },
+const encodingOptions = computed(() => [
+  { value: 'auto' as const, label: t('stepEditor.encodingAuto') },
   { value: 'utf8' as const, label: 'UTF-8' },
   { value: 'gbk' as const, label: 'GBK' },
-]
+])
 const distros = ref<string[] | null>(null)
 onMounted(async () => {
   distros.value = await call('wsl_distros').catch(() => [])
@@ -117,7 +118,7 @@ const wslDistro = optional(
 
 async function browseDir(set: (v: string) => void, current: string) {
   const picked = await openFileDialog({
-    title: '选择目录',
+    title: t('stepEditor.pickDir'),
     directory: true,
     multiple: false,
     defaultPath: current || undefined,
@@ -130,19 +131,19 @@ async function browseDir(set: (v: string) => void, current: string) {
 const upload = computed(() =>
   step.value.spec.type === 'upload' ? (step.value.spec as UploadSpec) : null,
 )
-const sourceKindOptions = [
-  { value: 'file' as const, label: '文件' },
-  { value: 'directory' as const, label: '目录' },
-]
-const conflictOptions = [
-  { value: 'error' as const, label: '目标已存在时报错' },
-  { value: 'overwrite' as const, label: '覆盖' },
-]
+const sourceKindOptions = computed(() => [
+  { value: 'file' as const, label: t('stepEditor.file') },
+  { value: 'directory' as const, label: t('stepEditor.directory') },
+])
+const conflictOptions = computed(() => [
+  { value: 'error' as const, label: t('stepEditor.conflictError') },
+  { value: 'overwrite' as const, label: t('stepEditor.overwrite') },
+])
 async function browseSource() {
   if (!upload.value) return
   const directory = upload.value.sourceKind === 'directory'
   const picked = await openFileDialog({
-    title: directory ? '选择要上传的目录' : '选择要上传的文件',
+    title: directory ? t('stepEditor.pickUploadDir') : t('stepEditor.pickUploadFile'),
     directory,
     multiple: false,
     defaultPath: upload.value.source || undefined,
@@ -155,10 +156,10 @@ async function browseSource() {
 const remote = computed(() =>
   step.value.spec.type === 'remote' ? (step.value.spec as RemoteSpec) : null,
 )
-const modeOptions = [
-  { value: 'script' as const, label: '脚本' },
-  { value: 'program' as const, label: '程序及参数' },
-]
+const modeOptions = computed(() => [
+  { value: 'script' as const, label: t('stepEditor.script') },
+  { value: 'program' as const, label: t('stepEditor.program') },
+])
 
 // IXD-10: both forms keep their own draft while the panel is open; only the current one is
 // saved. Nothing is converted between them.
@@ -225,12 +226,13 @@ const remoteCwd = optional(
 )
 
 type PrivilegeMode = StepPrivilege['mode']
-const privilegeOptions = [
-  { value: 'inherit' as const, label: '继承服务器默认' },
-  { value: 'none' as const, label: '不提权' },
-  { value: 'sudoNonInteractive' as const, label: 'sudo 免交互（sudo -n）' },
-  { value: 'sudoPassword' as const, label: 'sudo 运行时输入密码' },
-]
+const privilegeOptions = computed(() => [
+  { value: 'inherit' as const, label: t('stepEditor.privInherit') },
+  ...(['none', 'sudoNonInteractive', 'sudoPassword'] as const).map((value) => ({
+    value,
+    label: t(`servers.dialog.privilege.${value}`),
+  })),
+])
 const runAs = ref('root')
 watch(
   () => step.value.id,
@@ -267,13 +269,18 @@ const usesSudo = computed(() => {
     </header>
 
     <div class="grid">
-      <UiField v-slot="{ id, describedBy, invalid }" label="名称" :error="errorAt('name')" required>
+      <UiField
+        v-slot="{ id, describedBy, invalid }"
+        :label="t('common.name')"
+        :error="errorAt('name')"
+        required
+      >
         <UiTextInput :id="id" v-model="step.name" :invalid="invalid" :described-by="describedBy" />
       </UiField>
       <UiField
         v-if="step.spec.type !== 'confirm'"
         v-slot="{ id, describedBy, invalid }"
-        label="超时（秒）"
+        :label="t('stepEditor.timeout')"
         :error="errorAt('timeoutSec')"
       >
         <UiNumberInput
@@ -288,7 +295,7 @@ const usesSudo = computed(() => {
     <UiField
       v-if="step.spec.type !== 'confirm'"
       v-slot="{ id, describedBy, invalid }"
-      label="失败策略"
+      :label="t('pipelines.settings.policy')"
       :hint="failureHint"
       :error="errorAt('failurePolicy')"
     >
@@ -306,7 +313,7 @@ const usesSudo = computed(() => {
     <template v-if="local">
       <UiField
         v-slot="{ describedBy, invalid }"
-        label="命令"
+        :label="t('stepEditor.command')"
         :error="errorAt('spec.command')"
         required
       >
@@ -321,7 +328,7 @@ const usesSudo = computed(() => {
           <VariableMenu
             v-model="local.command"
             :field-id="fid('command')"
-            field-label="命令"
+            :field-label="t('stepEditor.command')"
             local
           />
         </div>
@@ -330,17 +337,19 @@ const usesSudo = computed(() => {
         <UiField v-slot="{ id }" label="Shell" :hint="programNote(local.shell)">
           <UiSelect :id="id" v-model="local.shell" :options="shellOptions" />
         </UiField>
-        <UiField v-slot="{ id }" label="输出编码" hint="出现乱码时可手动指定">
+        <UiField
+          v-slot="{ id }"
+          :label="t('stepEditor.encoding')"
+          :hint="t('stepEditor.encodingHint')"
+        >
           <UiSelect :id="id" v-model="local.outputEncoding" :options="encodingOptions" />
         </UiField>
       </div>
       <UiField
         v-if="local.shell === 'wsl'"
         v-slot="{ id, describedBy, invalid }"
-        label="WSL 发行版"
-        :hint="
-          distros && !distros.length ? '未检测到已安装的 WSL 发行版，可手动填写名称。' : undefined
-        "
+        :label="t('stepEditor.wslDistro')"
+        :hint="distros && !distros.length ? t('stepEditor.noDistros') : undefined"
         :error="errorAt('spec.wslDistro')"
         required
       >
@@ -348,7 +357,7 @@ const usesSudo = computed(() => {
           v-if="distroOptions.length"
           :id="id"
           v-model="wslDistro"
-          :options="[{ value: '', label: '请选择' }, ...distroOptions]"
+          :options="[{ value: '', label: t('stepEditor.choose') }, ...distroOptions]"
           :invalid="invalid"
           :described-by="describedBy"
         />
@@ -364,12 +373,8 @@ const usesSudo = computed(() => {
       </UiField>
       <UiField
         v-slot="{ describedBy, invalid }"
-        label="工作目录"
-        :hint="
-          local.shell === 'wsl'
-            ? 'Linux 绝对路径，例如 /home/user/app；不会自动换算 Windows 路径。'
-            : '留空使用项目根目录；相对路径以项目根目录为准。'
-        "
+        :label="t('stepEditor.cwd')"
+        :hint="local.shell === 'wsl' ? t('stepEditor.wslCwdHint') : t('stepEditor.cwdHint')"
         :error="errorAt('spec.cwd')"
       >
         <div class="with-menu">
@@ -384,23 +389,34 @@ const usesSudo = computed(() => {
             v-if="local.shell !== 'wsl'"
             tonal
             :icon="FolderOpen"
-            label="浏览工作目录"
+            :label="t('stepEditor.browseCwd')"
             @click="browseDir((v) => (localCwd = v), localCwd)"
           />
-          <VariableMenu v-model="localCwd" :field-id="fid('cwd')" field-label="工作目录" local />
+          <VariableMenu
+            v-model="localCwd"
+            :field-id="fid('cwd')"
+            :field-label="t('stepEditor.cwd')"
+            local
+          />
         </div>
       </UiField>
     </template>
 
     <!-- Upload (STEP-03) -->
     <template v-if="upload">
-      <UiField label="源类型" group>
-        <UiSegmented v-model="upload.sourceKind" :options="sourceKindOptions" label="源类型" />
+      <UiField :label="t('stepEditor.sourceKind')" group>
+        <UiSegmented
+          v-model="upload.sourceKind"
+          :options="sourceKindOptions"
+          :label="t('stepEditor.sourceKind')"
+        />
       </UiField>
       <UiField
         v-slot="{ describedBy, invalid }"
-        :label="upload.sourceKind === 'directory' ? '本地目录' : '本地文件'"
-        hint="相对路径以项目根目录为准；构建产物暂不存在时在执行时检查。"
+        :label="
+          upload.sourceKind === 'directory' ? t('stepEditor.localDir') : t('stepEditor.localFile')
+        "
+        :hint="t('stepEditor.sourceHint')"
         :error="errorAt('spec.source')"
         required
       >
@@ -412,22 +428,27 @@ const usesSudo = computed(() => {
             :invalid="invalid"
             :described-by="describedBy"
           />
-          <UiIconButton tonal :icon="FolderOpen" label="浏览本地路径" @click="browseSource" />
+          <UiIconButton
+            tonal
+            :icon="FolderOpen"
+            :label="t('stepEditor.browseSource')"
+            @click="browseSource"
+          />
           <VariableMenu
             v-model="upload.source"
             :field-id="fid('source')"
-            field-label="本地路径"
+            :field-label="t('stepEditor.localPath')"
             local
           />
         </div>
       </UiField>
       <UiField
         v-slot="{ describedBy, invalid }"
-        label="远端目标"
+        :label="t('stepEditor.target')"
         :hint="
           upload.sourceKind === 'directory'
-            ? '远端绝对路径；目录中的内容放到这里。'
-            : '远端绝对路径，包含文件名。'
+            ? t('stepEditor.targetDirHint')
+            : t('stepEditor.targetFileHint')
         "
         :error="errorAt('spec.target')"
         required
@@ -440,27 +461,31 @@ const usesSudo = computed(() => {
             :invalid="invalid"
             :described-by="describedBy"
           />
-          <VariableMenu v-model="upload.target" :field-id="fid('target')" field-label="远端目标" />
+          <VariableMenu
+            v-model="upload.target"
+            :field-id="fid('target')"
+            :field-label="t('stepEditor.target')"
+          />
         </div>
       </UiField>
-      <UiField v-slot="{ id }" label="目标已存在时">
+      <UiField v-slot="{ id }" :label="t('stepEditor.conflict')">
         <UiSelect :id="id" v-model="upload.conflict" class="policy" :options="conflictOptions" />
       </UiField>
     </template>
 
     <!-- Remote command (STEP-05) -->
     <template v-if="remote">
-      <UiField label="写法" group>
-        <UiSegmented v-model="mode" :options="modeOptions" label="写法" />
+      <UiField :label="t('stepEditor.mode')" group>
+        <UiSegmented v-model="mode" :options="modeOptions" :label="t('stepEditor.mode')" />
       </UiField>
       <UiNotice v-if="switchedMode" tone="warning">
-        切换写法不会转换内容，两种写法的草稿各自保留；保存时只保存当前写法。
+        {{ t('stepEditor.modeSwitched') }}
       </UiNotice>
       <UiField
         v-if="mode === 'script'"
         v-slot="{ describedBy, invalid }"
-        label="脚本"
-        hint="由远端 sh -c 执行。"
+        :label="t('stepEditor.script')"
+        :hint="t('stepEditor.scriptHint')"
         :error="errorAt('spec.command.script')"
         required
       >
@@ -472,14 +497,18 @@ const usesSudo = computed(() => {
             :invalid="invalid"
             :described-by="describedBy"
           />
-          <VariableMenu v-model="script" :field-id="fid('script')" field-label="脚本" />
+          <VariableMenu
+            v-model="script"
+            :field-id="fid('script')"
+            :field-label="t('stepEditor.script')"
+          />
         </div>
       </UiField>
       <template v-else>
         <UiField
           v-slot="{ describedBy, invalid }"
-          label="可执行文件"
-          hint="远端绝对路径，例如 /usr/bin/systemctl"
+          :label="t('stepEditor.executable')"
+          :hint="t('stepEditor.executableHint')"
           :error="errorAt('spec.command.executable')"
           required
         >
@@ -491,13 +520,17 @@ const usesSudo = computed(() => {
               :invalid="invalid"
               :described-by="describedBy"
             />
-            <VariableMenu v-model="executable" :field-id="fid('exe')" field-label="可执行文件" />
+            <VariableMenu
+              v-model="executable"
+              :field-id="fid('exe')"
+              :field-label="t('stepEditor.executable')"
+            />
           </div>
         </UiField>
         <UiField
           v-slot="{ describedBy, invalid }"
-          label="参数"
-          hint="每行一个参数，原样传递，不经过 Shell。"
+          :label="t('stepEditor.args')"
+          :hint="t('stepEditor.argsHint')"
           :error="errorAt('spec.command.args')"
         >
           <div class="with-menu">
@@ -509,14 +542,18 @@ const usesSudo = computed(() => {
               :invalid="invalid"
               :described-by="describedBy"
             />
-            <VariableMenu v-model="argsText" :field-id="fid('args')" field-label="参数" />
+            <VariableMenu
+              v-model="argsText"
+              :field-id="fid('args')"
+              :field-label="t('stepEditor.args')"
+            />
           </div>
         </UiField>
       </template>
       <UiField
         v-slot="{ describedBy, invalid }"
-        label="远端目录"
-        hint="留空使用登录用户的默认目录；否则填写远端绝对路径。"
+        :label="t('stepEditor.remoteCwd')"
+        :hint="t('stepEditor.remoteCwdHint')"
         :error="errorAt('spec.cwd')"
       >
         <div class="with-menu">
@@ -527,17 +564,21 @@ const usesSudo = computed(() => {
             :invalid="invalid"
             :described-by="describedBy"
           />
-          <VariableMenu v-model="remoteCwd" :field-id="fid('rcwd')" field-label="远端目录" />
+          <VariableMenu
+            v-model="remoteCwd"
+            :field-id="fid('rcwd')"
+            :field-label="t('stepEditor.remoteCwd')"
+          />
         </div>
       </UiField>
       <div class="grid">
-        <UiField v-slot="{ id }" label="提权">
+        <UiField v-slot="{ id }" :label="t('stepEditor.privilege')">
           <UiSelect :id="id" v-model="privilegeMode" :options="privilegeOptions" />
         </UiField>
         <UiField
           v-if="privilegeMode === 'sudoNonInteractive' || privilegeMode === 'sudoPassword'"
           v-slot="{ id, describedBy, invalid }"
-          label="目标用户"
+          :label="t('servers.dialog.runAs')"
           :error="errorAt('spec.privilege.runAs')"
           required
         >
@@ -551,10 +592,10 @@ const usesSudo = computed(() => {
         </UiField>
       </div>
       <p v-if="mode === 'script' && usesSudo" class="note">
-        脚本写法加 sudo 时以 sudo sh -c 运行，需要服务器授权该用户执行 Shell。
+        {{ t('stepEditor.sudoScriptNote') }}
       </p>
       <div v-if="targets.length" class="per-target">
-        <p class="per-target-title">当前环境各目标的生效提权</p>
+        <p class="per-target-title">{{ t('stepEditor.perTarget') }}</p>
         <ul>
           <li v-for="server in targets" :key="server.id">
             <span class="server">{{ server.name }}</span>
@@ -568,8 +609,8 @@ const usesSudo = computed(() => {
     <template v-if="step.spec.type === 'confirm'">
       <UiField
         v-slot="{ id, describedBy, invalid }"
-        label="确认提示"
-        hint="运行到这里时暂停，显示这段提示，等你确认后继续。"
+        :label="t('stepEditor.prompt')"
+        :hint="t('stepEditor.promptHint')"
         :error="errorAt('spec.prompt')"
         required
       >

@@ -1,3 +1,4 @@
+import { translate } from '@/i18n'
 import type { ExecutionOrder, Pipeline, Server, Step, StepPrivilege } from '@/ipc'
 
 /** Steps (and whether the pipeline itself) use "跳过该服务器" (IXD-08). */
@@ -42,28 +43,28 @@ export function insertExpression(
 
 /** Task order for the execution-order example: three steps on two servers (IXD-08). */
 export function exampleSequence(order: ExecutionOrder): string[] {
-  const steps = ['构建', '上传', '重启']
+  const remote = [translate('pipelines.example.upload'), translate('pipelines.example.restart')]
   const servers = ['A', 'B']
+  const task = (step: string, server: string) =>
+    translate('pipelines.example.task', { step, server })
+  const build = translate('pipelines.example.buildOnce')
   if (order === 'serverFirst') {
-    return [
-      '构建（本地，一次）',
-      ...servers.flatMap((s) => steps.slice(1).map((x) => `${x} → ${s}`)),
-    ]
+    return [build, ...servers.flatMap((s) => remote.map((x) => task(x, s)))]
   }
-  return ['构建（本地，一次）', ...steps.slice(1).flatMap((x) => servers.map((s) => `${x} → ${s}`))]
+  return [build, ...remote.flatMap((x) => servers.map((s) => task(x, s)))]
 }
 
 /** What a remote step actually runs with on one server (IXD-10: no blanket "all passwordless"). */
 export function effectivePrivilege(step: StepPrivilege, server: Server): string {
   const policy = step.mode === 'inherit' ? server.privilege : step
-  const fromServer = step.mode === 'inherit' ? '（服务器默认）' : ''
+  const from = step.mode === 'inherit' ? translate('privilege.fromServer') : ''
   switch (policy.mode) {
     case 'none':
-      return `不提权${fromServer}`
+      return translate('privilege.none', { from })
     case 'sudoNonInteractive':
-      return `sudo 免交互，以 ${policy.runAs} 运行${fromServer}`
+      return translate('privilege.sudoNonInteractive', { user: policy.runAs, from })
     case 'sudoPassword':
-      return `sudo 运行时输入密码，以 ${policy.runAs} 运行${fromServer}`
+      return translate('privilege.sudoPassword', { user: policy.runAs, from })
     default:
       return ''
   }

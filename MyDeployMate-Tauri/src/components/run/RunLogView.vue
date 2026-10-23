@@ -7,16 +7,17 @@ import UiIconButton from '@/components/ui/UiIconButton.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
 import UiSwitch from '@/components/ui/UiSwitch.vue'
 import UiTextInput from '@/components/ui/UiTextInput.vue'
+import { useT } from '@/i18n'
 import type { LogSource } from '@/ipc'
 import type { RunDetail } from '@/stores/run'
 
 import { clockTime, highlight, LIVE_LINES, type LogLine } from './runLog'
 
+const t = useT()
+
 // IXD-27 / UI-26: the run log. Follows new output until the user scrolls up; each task filter
 // keeps its own reading position. Text is always rendered as plain text, never as HTML.
 const props = defineProps<{ detail: RunDetail; selected: number | null }>()
-
-const SOURCE: Record<LogSource, string> = { stdout: 'stdout', stderr: 'stderr', system: '系统' }
 
 type TaskFilter = 'all' | number
 const taskFilter = ref<TaskFilter>(props.selected ?? 'all')
@@ -34,7 +35,7 @@ watch(
 )
 
 const taskOptions = computed(() => [
-  { value: 'all' as TaskFilter, label: '全部任务' },
+  { value: 'all' as TaskFilter, label: t('log.allTasks') },
   ...props.detail.tasks.map((t) => ({
     value: t.seq as TaskFilter,
     label: `${t.seq + 1} · ${t.stepName}${t.serverName ? ` → ${t.serverName}` : ''}`,
@@ -42,16 +43,17 @@ const taskOptions = computed(() => [
 ])
 const servers = computed(() => props.detail.plan.targets.filter((t) => t.selected))
 const serverOptions = computed(() => [
-  { value: 'all', label: '全部服务器' },
-  { value: 'local', label: '本地' },
+  { value: 'all', label: t('log.allServers') },
+  { value: 'local', label: t('common.local') },
   ...servers.value.map((s) => ({ value: s.serverId, label: s.name })),
 ])
-const sourceOptions = [
-  { value: 'all' as const, label: '全部来源' },
+const sourceLabel = (source: LogSource) => (source === 'system' ? t('log.system') : source)
+const sourceOptions = computed(() => [
+  { value: 'all' as const, label: t('log.allSources') },
   { value: 'stdout' as const, label: 'stdout' },
   { value: 'stderr' as const, label: 'stderr' },
-  { value: 'system' as const, label: '系统' },
-]
+  { value: 'system' as const, label: t('log.system') },
+])
 
 const filtering = computed(
   () =>
@@ -206,14 +208,14 @@ const showTask = computed(() => taskFilter.value === 'all')
 </script>
 
 <template>
-  <section class="log" aria-label="日志">
+  <section class="log" :aria-label="t('log.label')">
     <div class="toolbar">
       <UiSelect
         v-model="taskFilter"
         class="filter filter--task"
         :options="taskOptions"
         compact
-        aria-label="任务"
+        :aria-label="t('log.task')"
       />
       <UiSelect
         v-if="servers.length"
@@ -221,58 +223,64 @@ const showTask = computed(() => taskFilter.value === 'all')
         class="filter"
         :options="serverOptions"
         compact
-        aria-label="服务器"
+        :aria-label="t('common.server')"
       />
       <UiSelect
         v-model="sourceFilter"
         class="filter"
         :options="sourceOptions"
         compact
-        aria-label="来源"
+        :aria-label="t('log.source')"
       />
       <span class="toggle">
         <UiSwitch id="log-failed" v-model="failedOnly" />
-        <label for="log-failed">仅失败任务</label>
+        <label for="log-failed">{{ t('log.failedOnly') }}</label>
       </span>
       <div class="search" @keydown="onSearchKey">
-        <UiTextInput v-model="query" placeholder="搜索日志" aria-label="搜索日志" />
+        <UiTextInput v-model="query" :placeholder="t('log.search')" :aria-label="t('log.search')" />
         <span v-if="needle" class="search-count num">
           {{ matches.length ? `${current + 1}/${matches.length}` : '0/0' }}
         </span>
         <UiIconButton
           :icon="ChevronUp"
-          label="上一个"
-          :disabled-reason="matches.length ? null : '没有匹配'"
+          :label="t('log.prev')"
+          :disabled-reason="matches.length ? null : t('log.noMatch')"
           @click="step(-1)"
         />
         <UiIconButton
           :icon="ChevronDown"
-          label="下一个"
-          :disabled-reason="matches.length ? null : '没有匹配'"
+          :label="t('log.next')"
+          :disabled-reason="matches.length ? null : t('log.noMatch')"
           @click="step(1)"
         />
       </div>
-      <UiIconButton :icon="WrapText" label="自动换行" :pressed="wrap" @click="wrap = !wrap" />
+      <UiIconButton :icon="WrapText" :label="t('log.wrap')" :pressed="wrap" @click="wrap = !wrap" />
     </div>
     <p class="count">
-      <template v-if="filtering">
-        显示 <span class="num">{{ lines.length }}</span> / <span class="num">{{ total }}</span> 行 ·
-        已筛选
-      </template>
-      <template v-else
-        >共 <span class="num">{{ total }}</span> 行</template
-      >
+      <i18n-t :keypath="filtering ? 'log.countFiltered' : 'log.count'">
+        <template #shown>
+          <span class="num">{{ lines.length }}</span>
+        </template>
+        <template #total>
+          <span class="num">{{ total }}</span>
+        </template>
+      </i18n-t>
       <template v-if="trimmed">
-        · 超过日志上限的输出只显示最近 <span class="num">{{ LIVE_LINES }}</span> 行
+        ·
+        <i18n-t keypath="log.trimmed">
+          <template #n>
+            <span class="num">{{ LIVE_LINES }}</span>
+          </template>
+        </i18n-t>
       </template>
       <template v-if="detail.damagedLines">
-        · {{ detail.damagedLines }} 行日志损坏，未显示
+        · {{ t('log.damaged', { n: detail.damagedLines }) }}
       </template>
     </p>
     <div class="body">
       <div ref="scroller" class="scroller" :class="{ wrap }" tabindex="0" @scroll="onScroll">
         <p v-if="!lines.length" class="empty">
-          {{ total ? '没有符合筛选条件的日志' : '还没有输出' }}
+          {{ total ? t('log.noMatches') : t('log.noOutput') }}
         </p>
         <div class="space" :style="{ height: `${virtualizer.getTotalSize()}px` }">
           <div
@@ -291,7 +299,7 @@ const showTask = computed(() => taskFilter.value === 'all')
             :style="{ transform: `translateY(${row.start}px)` }"
           >
             <span class="time num">{{ clockTime(lines[row.index]?.atMs ?? 0) }}</span>
-            <span class="source">{{ SOURCE[lines[row.index]?.source ?? 'stdout'] }}</span>
+            <span class="source">{{ sourceLabel(lines[row.index]?.source ?? 'stdout') }}</span>
             <span v-if="showTask" class="task num">#{{ (lines[row.index]?.task ?? 0) + 1 }}</span>
             <span class="text"
               ><template
@@ -306,8 +314,8 @@ const showTask = computed(() => taskFilter.value === 'all')
       </div>
       <button v-if="!following" type="button" class="latest" @click="follow">
         <ArrowDown :size="16" :stroke-width="1.75" aria-hidden="true" />
-        <span>回到最新</span>
-        <span v-if="newLines" class="num">（{{ newLines }} 行新输出）</span>
+        <span>{{ t('log.latest') }}</span>
+        <span v-if="newLines" class="num">{{ t('log.newLines', { n: newLines }) }}</span>
       </button>
     </div>
   </section>

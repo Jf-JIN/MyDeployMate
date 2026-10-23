@@ -1,4 +1,5 @@
 import { shellLabel } from '@/composables/shellPrograms'
+import { translate } from '@/i18n'
 import type { Issue, PlannedTask, PrivilegePolicy, ResolvedCommand, Shell, TaskAction } from '@/ipc'
 
 /** Where clicking a preflight issue leads (IXD-24). */
@@ -54,7 +55,7 @@ export function groupTasks(tasks: PlannedTask[], serverFirst: boolean): TaskGrou
         key,
         title: byServer
           ? (task.server?.name ?? '')
-          : `步骤 ${task.stepIndex + 1} · ${task.stepName}`,
+          : translate('preview.task.stepTitle', { n: task.stepIndex + 1, name: task.stepName }),
         server: !!byServer,
         tasks: [task],
       })
@@ -66,11 +67,11 @@ export function groupTasks(tasks: PlannedTask[], serverFirst: boolean): TaskGrou
 export function privilegeLabel(policy: PrivilegePolicy): string {
   switch (policy.mode) {
     case 'none':
-      return '不提权'
+      return translate('preview.task.privNone')
     case 'sudoNonInteractive':
-      return `sudo 免交互 → ${policy.runAs}`
+      return translate('preview.task.privSudo', { user: policy.runAs })
     case 'sudoPassword':
-      return `sudo 输入密码 → ${policy.runAs}`
+      return translate('preview.task.privPassword', { user: policy.runAs })
   }
 }
 
@@ -104,7 +105,6 @@ export function taskCommand(action: TaskAction): { text: string; sensitive: bool
 }
 
 const ENCODING = { utf8: 'UTF-8', gbk: 'GBK' }
-const POLICY = { stop: '失败停止', continue: '失败继续', skipServer: '跳过该服务器' }
 
 /**
  * Directory, shell, conflict policy, privilege, timeout and failure policy of a task, as short
@@ -116,17 +116,29 @@ export function taskDetails(
 ): string[] {
   const out: string[] = []
   const a = task.action
-  if ((a.type === 'local' || a.type === 'remote') && a.cwd) out.push(`目录 ${a.cwd.display}`)
+  if ((a.type === 'local' || a.type === 'remote') && a.cwd)
+    out.push(translate('preview.task.cwd', { cwd: a.cwd.display }))
   if (a.type === 'local') {
     const shell = a.shell === 'wsl' ? `WSL ${a.wslDistro ?? ''}` : shellLabel(a.shell)
     const path = programPath?.(a.shell)
-    out.push(path === null ? `${shell}（本机未找到）` : path ? `${shell} · ${path}` : shell)
-    if (a.outputEncoding !== 'auto') out.push(`输出编码 ${ENCODING[a.outputEncoding]}`)
+    out.push(
+      path === null
+        ? translate('preview.task.shellMissing', { shell })
+        : path
+          ? `${shell} · ${path}`
+          : shell,
+    )
+    if (a.outputEncoding !== 'auto')
+      out.push(translate('preview.task.encoding', { encoding: ENCODING[a.outputEncoding] }))
   }
   if (a.type === 'upload')
-    out.push(a.conflict === 'overwrite' ? '覆盖已有目标' : '目标已存在时报错')
+    out.push(
+      a.conflict === 'overwrite'
+        ? translate('preview.task.overwrite')
+        : translate('preview.task.conflictError'),
+    )
   if (a.type === 'remote') out.push(privilegeLabel(a.privilege))
-  if (task.timeoutSec !== null) out.push(`超时 ${task.timeoutSec} 秒`)
-  if (a.type !== 'confirm') out.push(POLICY[task.failurePolicy])
+  if (task.timeoutSec !== null) out.push(translate('preview.task.timeout', { n: task.timeoutSec }))
+  if (a.type !== 'confirm') out.push(translate(`pipelines.settings.${task.failurePolicy}`))
   return out
 }

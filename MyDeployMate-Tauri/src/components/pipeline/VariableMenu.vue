@@ -4,9 +4,12 @@ import { computed, nextTick } from 'vue'
 
 import UiMenu from '@/components/ui/UiMenu.vue'
 import type { MenuEntry } from '@/components/ui/types'
+import { useT } from '@/i18n'
 
 import { insertExpression } from './pipeline'
 import { useVariableMenu } from './variableMenu'
+
+const t = useT()
 
 // IXD-11: insert a template expression at the cursor of the field `fieldId`. Variables are
 // grouped by origin; sensitive ones show only their name. Server built-ins are not offered
@@ -16,30 +19,37 @@ const props = defineProps<{ fieldId: string; local?: boolean; fieldLabel: string
 
 const source = useVariableMenu()
 
-const ORIGIN = { global: '全局', project: '项目', environmentOverride: '环境覆盖', run: '运行时' }
-
 const entries = computed<MenuEntry[]>(() => {
   if (!source) return []
   const vars = source.variables.value
   const out: MenuEntry[] = [
-    { key: 'h-vars', label: `变量（${source.environmentName.value}）`, kind: 'heading' },
+    {
+      key: 'h-vars',
+      label: t('variableMenu.heading', { environment: source.environmentName.value }),
+      kind: 'heading',
+    },
   ]
   if (!vars.length)
-    out.push({ key: 'none', label: '尚无变量', disabledReason: '在“变量与环境”中添加' })
+    out.push({
+      key: 'none',
+      label: t('variableMenu.none'),
+      disabledReason: t('variableMenu.addHint'),
+    })
   for (const v of vars) {
+    const origin = t(`variableMenu.origin.${v.origin}`)
     out.push({
       key: `\${${v.name}}`,
       label: v.name,
-      detail: v.sensitive ? `${ORIGIN[v.origin]} · 敏感` : ORIGIN[v.origin],
+      detail: v.sensitive ? t('variableMenu.sensitive', { origin }) : origin,
     })
   }
-  out.push({ key: 'h-builtin', label: '内建变量', kind: 'heading' })
+  out.push({ key: 'h-builtin', label: t('variableMenu.builtin'), kind: 'heading' })
   for (const b of source.builtins.value) {
     out.push({
       key: b.expression,
       label: b.expression,
       detail: b.label,
-      disabledReason: props.local && b.needsServer ? '本地命令没有目标服务器' : null,
+      disabledReason: props.local && b.needsServer ? t('variableMenu.noServer') : null,
     })
   }
   return out
@@ -60,7 +70,7 @@ async function insert(expression: string) {
 
 <template>
   <UiMenu
-    :label="`在${fieldLabel}中插入变量`"
+    :label="t('variableMenu.insert', { field: fieldLabel })"
     :entries="entries"
     :icon="Braces"
     icon-only

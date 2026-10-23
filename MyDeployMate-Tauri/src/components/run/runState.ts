@@ -1,31 +1,49 @@
+import { translate, type MessageKey } from '@/i18n'
 import type { PlannedTask, ResolvedPlan, RunStatus, Task, TaskStatus } from '@/ipc'
 import type { Tone } from '@/components/ui/types'
 
 import { groupTasks } from '@/components/preview/preview'
 
-export const RUN_STATUS: Record<RunStatus, { label: string; tone: Tone }> = {
-  queued: { label: '排队中', tone: 'neutral' },
-  running: { label: '运行中', tone: 'running' },
-  waitingConfirmation: { label: '等待确认', tone: 'warning' },
-  waitingCredential: { label: '等待凭据', tone: 'warning' },
-  cancelling: { label: '正在取消', tone: 'warning' },
-  succeeded: { label: '成功', tone: 'success' },
-  failed: { label: '失败', tone: 'failure' },
-  cancelled: { label: '已取消', tone: 'neutral' },
-  interrupted: { label: '已中断', tone: 'unknown' },
+/** Status tones, with labels read in the current language each time. */
+function statusMap<S extends RunStatus | TaskStatus>(
+  prefix: 'run.status' | 'run.taskStatus',
+  tones: Record<S, Tone>,
+): Record<S, { label: string; tone: Tone }> {
+  const out = {} as Record<S, { label: string; tone: Tone }>
+  for (const status of Object.keys(tones) as S[]) {
+    out[status] = {
+      get label() {
+        return translate(`${prefix}.${status}` as MessageKey)
+      },
+      tone: tones[status],
+    }
+  }
+  return out
 }
 
-export const TASK_STATUS: Record<TaskStatus, { label: string; tone: Tone }> = {
-  queued: { label: '待执行', tone: 'neutral' },
-  running: { label: '运行中', tone: 'running' },
-  waitingConfirmation: { label: '等待确认', tone: 'warning' },
-  waitingCredential: { label: '等待凭据', tone: 'warning' },
-  succeeded: { label: '成功', tone: 'success' },
-  failed: { label: '失败', tone: 'failure' },
-  cancelled: { label: '已取消', tone: 'neutral' },
-  skipped: { label: '已跳过', tone: 'neutral' },
-  unknown: { label: '结果未知', tone: 'unknown' },
-}
+export const RUN_STATUS = statusMap<RunStatus>('run.status', {
+  queued: 'neutral',
+  running: 'running',
+  waitingConfirmation: 'warning',
+  waitingCredential: 'warning',
+  cancelling: 'warning',
+  succeeded: 'success',
+  failed: 'failure',
+  cancelled: 'neutral',
+  interrupted: 'unknown',
+})
+
+export const TASK_STATUS = statusMap<TaskStatus>('run.taskStatus', {
+  queued: 'neutral',
+  running: 'running',
+  waitingConfirmation: 'warning',
+  waitingCredential: 'warning',
+  succeeded: 'success',
+  failed: 'failure',
+  cancelled: 'neutral',
+  skipped: 'neutral',
+  unknown: 'unknown',
+})
 
 const TERMINAL_RUN: RunStatus[] = ['succeeded', 'failed', 'cancelled', 'interrupted']
 const TERMINAL_TASK: TaskStatus[] = ['succeeded', 'failed', 'cancelled', 'skipped', 'unknown']
@@ -48,6 +66,7 @@ export interface RunTaskGroup {
   tasks: RunTask[]
 }
 
+// Matches the backend's Chinese reason until it becomes a message code (5b.3).
 const SKIPPED_SERVER = /^服务器 .+ 已跳过（(任务 \d+ 失败)）$/
 
 /** The task list grouped as in the preview (IXD-23, IXD-26). */
@@ -61,7 +80,11 @@ export function groupRunTasks(plan: ResolvedPlan, tasks: Task[]): RunTaskGroup[]
     const hit = g.server
       ? items.map((t) => SKIPPED_SERVER.exec(t.task.reason ?? '')).find((m) => m)
       : undefined
-    return { ...g, skipped: hit ? `已跳过（${hit[1]}）` : null, tasks: items }
+    return {
+      ...g,
+      skipped: hit ? translate('run.skippedGroup', { reason: hit[1] ?? '' }) : null,
+      tasks: items,
+    }
   })
 }
 
@@ -74,10 +97,13 @@ export function skippedServerCount(tasks: Task[]): number {
 }
 
 export function taskLabel(task: Task): string {
-  const target = task.serverName ? ` · ${task.serverName}` : ''
-  return `任务 ${task.seq + 1}（${task.stepName}${target}）`
+  const n = task.seq + 1
+  return task.serverName
+    ? translate('run.taskLabelServer', { n, name: task.stepName, server: task.serverName })
+    : translate('run.taskLabel', { n, name: task.stepName })
 }
 
+// The backend's Chinese reason, until it becomes a message code (5b.3).
 const APP_EXITED_REASON = '应用在运行过程中退出，运行未自动继续'
 
 /** The line under the summary once the run has ended (IXD-26). */
@@ -85,24 +111,30 @@ export function outcomeText(status: RunStatus, tasks: Task[], cancelReason: stri
   const count = (s: TaskStatus) => tasks.filter((t) => t.status === s).length
   switch (status) {
     case 'succeeded':
-      return `全部 ${tasks.length} 个任务成功`
+      return translate('run.outcome.succeeded', { n: tasks.length })
     case 'failed': {
       const first = tasks.find((t) => t.status === 'failed' || t.status === 'unknown')
-      const why = first?.reason ? `：${first.reason}` : ''
-      const others = `成功 ${count('succeeded')} 个，跳过 ${count('skipped')} 个`
-      const what = first?.status === 'unknown' ? '结果未知' : '失败'
-      return first ? `${taskLabel(first)}${what}${why}。${others}` : others
+      const counts = translate('run.outcome.counts', {
+        succeeded: count('succeeded'),
+        skipped: count('skipped'),
+      })
+      if (!first) return counts
+      const why = first.reason ? translate('run.outcome.why', { reason: first.reason }) : ''
+      const key = first.status === 'unknown' ? 'run.outcome.unknown' : 'run.outcome.failed'
+      return translate(key, { task: taskLabel(first), why, counts })
     }
     case 'cancelled': {
       const ran = tasks.filter((t) => t.startedAtMs !== null).length
-      return `${cancelReason ?? '已取消'}。已执行 ${ran} 个任务，未执行 ${tasks.length - ran} 个；已完成的操作不会自动撤销`
+      return translate('run.outcome.cancelled', {
+        reason: cancelReason ?? translate('run.status.cancelled'),
+        ran,
+        rest: tasks.length - ran,
+      })
     }
     case 'interrupted': {
       // Set by history recovery (mdm-store INTERRUPTED_REASON) when the app quit mid-run.
       const appExited = tasks.some((t) => t.reason === APP_EXITED_REASON)
-      return appExited
-        ? '应用在运行过程中退出，运行没有继续。结果未知的任务需要人工核验'
-        : '运行已中断，后续任务不再执行。结果未知的任务需要人工核验'
+      return translate(appExited ? 'run.outcome.appExited' : 'run.outcome.interrupted')
     }
     default:
       return null
@@ -112,11 +144,16 @@ export function outcomeText(status: RunStatus, tasks: Task[], cancelReason: stri
 /** 860 ms → "0.9 秒"; 65 s → "1 分 05 秒"; 2 h → "2 小时 00 分". */
 export function duration(ms: number): string {
   const s = Math.max(0, ms) / 1000
-  if (s < 60) return `${s < 10 ? s.toFixed(1) : Math.floor(s)} 秒`
+  if (s < 60) return translate('common.seconds', { n: s < 10 ? s.toFixed(1) : Math.floor(s) })
   const two = (n: number) => String(n).padStart(2, '0')
   const total = Math.floor(s)
-  if (total < 3600) return `${Math.floor(total / 60)} 分 ${two(total % 60)} 秒`
-  return `${Math.floor(total / 3600)} 小时 ${two(Math.floor((total % 3600) / 60))} 分`
+  if (total < 3600) {
+    return translate('run.duration.minutes', { m: Math.floor(total / 60), s: two(total % 60) })
+  }
+  return translate('run.duration.hours', {
+    h: Math.floor(total / 3600),
+    m: two(Math.floor((total % 3600) / 60)),
+  })
 }
 
 /** Elapsed time of something started at `start`, still running when `end` is null. */

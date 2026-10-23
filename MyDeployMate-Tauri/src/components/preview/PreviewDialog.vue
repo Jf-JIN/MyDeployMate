@@ -13,6 +13,7 @@ import UiSegmented from '@/components/ui/UiSegmented.vue'
 import UiSwitch from '@/components/ui/UiSwitch.vue'
 import UiTag from '@/components/ui/UiTag.vue'
 import UiTextInput from '@/components/ui/UiTextInput.vue'
+import { useT } from '@/i18n'
 import {
   call,
   toAppError,
@@ -28,6 +29,8 @@ import { useRunStore } from '@/stores/run'
 import { useToastStore } from '@/stores/toast'
 
 import { groupTasks, issueTarget, taskCommand, taskDetails, type IssueTarget } from './preview'
+
+const t = useT()
 
 // D03 publish preview (IXD-21 – IXD-25). Everything is resolved locally by Rust: no network,
 // no password prompt. Start sends the same request; Rust rebuilds the plan from the saved
@@ -61,10 +64,10 @@ const version = ref<string | null>(null)
 const typed = ref('')
 const showDetails = ref(true)
 
-const scopeOptions = [
-  { value: 'full' as RunScope, label: '完整流程' },
-  { value: 'localOnly' as RunScope, label: '仅本地命令' },
-]
+const scopeOptions = computed(() => [
+  { value: 'full' as RunScope, label: t('preview.scopeFull') },
+  { value: 'localOnly' as RunScope, label: t('preview.scopeLocal') },
+])
 
 watch(
   () => props.open,
@@ -106,7 +109,13 @@ async function refresh() {
     const err = toAppError(e)
     const issue = err.validation?.issues[0]
     if (mine === ticket)
-      error.value = issue ? `${err.message}：${issue.path} ${issue.message}` : err.message
+      error.value = issue
+        ? t('preview.fieldError', {
+            message: err.message,
+            path: issue.path,
+            detail: issue.message,
+          })
+        : err.message
   } finally {
     if (mine === ticket) loading.value = false
   }
@@ -145,16 +154,14 @@ const issueSteps = computed(
 
 const { programPath } = useShellPrograms()
 
-const ORDER = { stepFirst: '步骤优先', serverFirst: '服务器优先' }
-
 const details = (task: PlannedTask) => taskDetails(task, programPath)
 
 async function copy(text: string) {
   try {
     await navigator.clipboard.writeText(text)
-    toast.show('已复制')
+    toast.show(t('common.copied'))
   } catch {
-    toast.show('复制失败')
+    toast.show(t('common.copyFailed'))
   }
 }
 
@@ -175,14 +182,14 @@ async function onIssue(issue: Issue) {
 }
 
 const startReason = computed(() => {
-  if (!plan.value || loading.value) return '正在生成预览'
-  if (props.unsaved) return '未保存预览不能开始，请先保存'
-  if (plan.value.issues.length) return `还有 ${plan.value.issues.length} 个问题需要处理`
-  if (!plan.value.tasks.length) return '没有可执行的任务'
+  if (!plan.value || loading.value) return t('preview.reason.loading')
+  if (props.unsaved) return t('preview.reason.unsaved')
+  if (plan.value.issues.length) return t('preview.reason.issues', { n: plan.value.issues.length })
+  if (!plan.value.tasks.length) return t('preview.reason.noTasks')
   if (plan.value.protected && typed.value !== plan.value.environmentName) {
-    return `请键入“${plan.value.environmentName}”以确认`
+    return t('preview.reason.typeName', { name: plan.value.environmentName })
   }
-  if (run.activeId) return '已有运行正在进行，同一时间只能有一个运行'
+  if (run.activeId) return t('preview.reason.active')
   return null
 })
 
@@ -208,12 +215,12 @@ async function start() {
       // The outcome is unknown: look for the run instead of starting again.
       const id = await run.checkActive().catch(() => null)
       if (id) {
-        toast.show('运行已创建')
+        toast.show(t('preview.runCreated'))
         emit('started', id)
         return
       }
     }
-    startError.value = `运行未创建：${err.message}`
+    startError.value = t('preview.runNotCreated', { message: err.message })
   } finally {
     starting.value = false
   }
@@ -223,7 +230,7 @@ async function start() {
 <template>
   <UiDialog
     :open="open"
-    title="发布预览"
+    :title="t('preview.title')"
     width="preview"
     :cancellable="!starting"
     @cancel="emit('cancel')"
@@ -231,36 +238,38 @@ async function start() {
     <div ref="body" class="preview">
       <UiNotice v-if="error" tone="failure">{{ error }}</UiNotice>
       <UiNotice v-if="run.activeId" tone="warning">
-        已有运行正在进行。
+        {{ t('preview.activeRun') }}
         <RouterLink :to="{ name: 'run', params: { runId: run.activeId } }" @click="emit('cancel')">
-          查看运行
+          {{ t('preview.viewRun') }}
         </RouterLink>
       </UiNotice>
       <template v-if="plan">
         <header class="summary">
-          <UiTag v-if="unsaved" tone="warning">未保存预览</UiTag>
+          <UiTag v-if="unsaved" tone="warning">{{ t('preview.unsaved') }}</UiTag>
           <dl class="facts">
             <div>
-              <dt>项目</dt>
+              <dt>{{ t('common.project') }}</dt>
               <dd>{{ plan.projectName }}</dd>
             </div>
             <div>
-              <dt>流程</dt>
+              <dt>{{ t('common.pipeline') }}</dt>
               <dd>{{ plan.pipelineName }}</dd>
             </div>
             <div>
-              <dt>环境</dt>
+              <dt>{{ t('common.environment') }}</dt>
               <dd>
                 {{ plan.environmentName }}
-                <UiTag v-if="plan.protected" tone="warning" :icon="Shield">保护环境</UiTag>
+                <UiTag v-if="plan.protected" tone="warning" :icon="Shield">{{
+                  t('common.protectedEnv')
+                }}</UiTag>
               </dd>
             </div>
             <div>
-              <dt>执行顺序</dt>
-              <dd>{{ ORDER[plan.executionOrder] }}</dd>
+              <dt>{{ t('preview.order') }}</dt>
+              <dd>{{ t(`pipelines.settings.${plan.executionOrder}`) }}</dd>
             </div>
             <div>
-              <dt>配置版本</dt>
+              <dt>{{ t('preview.revision') }}</dt>
               <dd class="num">{{ plan.revision }}</dd>
             </div>
           </dl>
@@ -268,14 +277,14 @@ async function start() {
 
         <div class="params">
           <div class="scope">
-            <span class="label">范围</span>
-            <UiSegmented v-model="scope" :options="scopeOptions" label="范围" />
+            <span class="label">{{ t('preview.scope') }}</span>
+            <UiSegmented v-model="scope" :options="scopeOptions" :label="t('preview.scope')" />
           </div>
           <UiField
             v-slot="{ id, describedBy, invalid }"
             class="version"
-            label="版本"
-            hint="默认取 version 变量；修改只影响本次运行"
+            :label="t('preview.version')"
+            :hint="t('preview.versionHint')"
             :error="fieldIssue('version')"
             required
           >
@@ -291,25 +300,30 @@ async function start() {
 
         <fieldset v-if="scope === 'full'" class="targets">
           <legend class="label">
-            目标服务器（{{ plan.targets.filter((t) => t.selected).length }}）
+            {{ t('preview.targets', { n: plan.targets.filter((s) => s.selected).length }) }}
           </legend>
-          <p v-if="!plan.targets.length" class="muted">当前环境没有绑定目标服务器。</p>
+          <p v-if="!plan.targets.length" class="muted">{{ t('preview.noTargets') }}</p>
           <UiCheckbox
-            v-for="t in plan.targets"
-            :key="t.serverId"
-            :model-value="t.selected"
-            :label="`${t.name}（${t.user}@${hostPort(t.host, t.port)}）`"
-            @update:model-value="toggleServer(t.serverId, $event)"
+            v-for="s in plan.targets"
+            :key="s.serverId"
+            :model-value="s.selected"
+            :label="
+              t('preview.targetLabel', {
+                name: s.name,
+                address: `${s.user}@${hostPort(s.host, s.port)}`,
+              })
+            "
+            @update:model-value="toggleServer(s.serverId, $event)"
           />
-          <p class="muted">只能取消已绑定的服务器，修改只影响本次运行。</p>
+          <p class="muted">{{ t('preview.targetsHint') }}</p>
           <p v-if="fieldIssue('serverIds')" class="field-error">{{ fieldIssue('serverIds') }}</p>
         </fieldset>
-        <p v-else class="muted">仅执行本地命令，不连接服务器。</p>
+        <p v-else class="muted">{{ t('preview.localOnly') }}</p>
 
-        <section v-if="issues.length" class="issues" aria-label="预检问题">
+        <section v-if="issues.length" class="issues" :aria-label="t('preview.issuesLabel')">
           <h3 class="section-title">
             <CircleAlert :size="16" :stroke-width="1.75" aria-hidden="true" />
-            {{ issues.length }} 个问题，修复后才能开始
+            {{ t('preview.issuesTitle', { n: issues.length }) }}
           </h3>
           <ul>
             <li v-for="issue in issues" :key="issue.path + issue.message">
@@ -320,12 +334,12 @@ async function start() {
           </ul>
         </section>
 
-        <section class="tasks" aria-label="任务">
+        <section class="tasks" :aria-label="t('preview.tasksLabel')">
           <div class="tasks-head">
-            <h3 class="section-title">任务（{{ plan.tasks.length }}）</h3>
+            <h3 class="section-title">{{ t('preview.tasksTitle', { n: plan.tasks.length }) }}</h3>
             <span class="toggle">
               <UiSwitch id="preview-details" v-model="showDetails" />
-              <label for="preview-details">显示命令</label>
+              <label for="preview-details">{{ t('preview.showCommands') }}</label>
             </span>
           </div>
           <div v-for="group in groups" :key="group.key" class="group">
@@ -343,13 +357,15 @@ async function start() {
                 <div class="task-main">
                   <div class="task-head">
                     <strong>{{ task.stepName }}</strong>
-                    <span class="target">{{ task.server ? `→ ${task.server.name}` : '本地' }}</span>
+                    <span class="target">{{
+                      task.server ? `→ ${task.server.name}` : t('common.local')
+                    }}</span>
                     <CircleAlert
                       v-if="issueSteps.has(task.stepId)"
                       class="task-issue"
                       :size="14"
                       :stroke-width="1.75"
-                      aria-label="有问题"
+                      :aria-label="t('preview.hasIssue')"
                     />
                   </div>
                   <div v-if="showDetails" class="task-command">
@@ -359,7 +375,7 @@ async function start() {
                       class="copy"
                       tonal
                       :icon="Copy"
-                      label="复制"
+                      :label="t('common.copy')"
                       @click="copy(taskCommand(task.action).text)"
                     />
                   </div>
@@ -372,19 +388,23 @@ async function start() {
 
         <div v-if="plan.protected" class="confirm">
           <label :for="confirmId">
-            键入 <strong class="env-name">{{ plan.environmentName }}</strong> 以确认发布到保护环境
+            <i18n-t keypath="preview.confirm">
+              <template #name>
+                <strong class="env-name">{{ plan.environmentName }}</strong>
+              </template>
+            </i18n-t>
           </label>
           <UiTextInput :id="confirmId" v-model="typed" mono />
         </div>
       </template>
-      <p v-else-if="!error" class="muted">正在生成预览…</p>
+      <p v-else-if="!error" class="muted">{{ t('preview.loadingLong') }}</p>
     </div>
 
     <template #footer>
       <p v-if="startError" class="start-error" role="alert">{{ startError }}</p>
-      <UiButton :disabled="starting" @click="emit('cancel')">取消</UiButton>
+      <UiButton :disabled="starting" @click="emit('cancel')">{{ t('common.cancel') }}</UiButton>
       <UiButton variant="primary" :busy="starting" :disabled-reason="startReason" @click="start">
-        开始
+        {{ t('common.start') }}
       </UiButton>
     </template>
   </UiDialog>

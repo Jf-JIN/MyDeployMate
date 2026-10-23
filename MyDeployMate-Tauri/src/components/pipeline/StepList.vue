@@ -20,9 +20,12 @@ import UiMenu from '@/components/ui/UiMenu.vue'
 import UiSwitch from '@/components/ui/UiSwitch.vue'
 import UiTag from '@/components/ui/UiTag.vue'
 import type { MenuEntry } from '@/components/ui/types'
+import { useT } from '@/i18n'
 import { call, type Step, type StepKind } from '@/ipc'
 
 import { moveStep, nextSelection } from './pipeline'
+
+const t = useT()
 
 // IXD-09: the step list. Selecting a row only changes the parameter panel; the toolbar acts on
 // the selected step. The list edits the page draft in place.
@@ -39,18 +42,14 @@ const KIND_ICON: Record<StepKind, LucideIcon> = {
   remote: Terminal,
   confirm: Hand,
 }
-const KIND_LABEL: Record<StepKind, string> = {
-  local: '本地命令',
-  upload: '上传文件',
-  remote: '远程命令',
-  confirm: '人工确认',
-}
 
-const addEntries: MenuEntry[] = (['local', 'upload', 'remote', 'confirm'] as const).map((k) => ({
-  key: k,
-  label: KIND_LABEL[k],
-  icon: KIND_ICON[k],
-}))
+const addEntries = computed<MenuEntry[]>(() =>
+  (['local', 'upload', 'remote', 'confirm'] as const).map((k) => ({
+    key: k,
+    label: t(`steps.kind.${k}`),
+    icon: KIND_ICON[k],
+  })),
+)
 
 const index = computed(() => steps.value.findIndex((s) => s.id === selectedId.value))
 const selected = computed(() => steps.value[index.value] ?? null)
@@ -90,35 +89,45 @@ function remove() {
   void focusSelected()
 }
 
-const noSelection = computed(() => (selected.value ? null : '先选择一个步骤'))
-const upReason = computed(() => noSelection.value ?? (index.value === 0 ? '已经是第一步' : null))
+const noSelection = computed(() => (selected.value ? null : t('steps.selectFirst')))
+const upReason = computed(() => noSelection.value ?? (index.value === 0 ? t('steps.first') : null))
 const downReason = computed(
-  () => noSelection.value ?? (index.value === steps.value.length - 1 ? '已经是最后一步' : null),
+  () => noSelection.value ?? (index.value === steps.value.length - 1 ? t('steps.last') : null),
 )
 </script>
 
 <template>
-  <section class="step-list" aria-label="步骤">
+  <section class="step-list" :aria-label="t('steps.title')">
     <div class="toolbar">
-      <h2 class="title">步骤</h2>
+      <h2 class="title">{{ t('steps.title') }}</h2>
       <span class="actions">
-        <UiIconButton :icon="ArrowUp" label="上移" :disabled-reason="upReason" @click="move(-1)" />
+        <UiIconButton
+          :icon="ArrowUp"
+          :label="t('steps.moveUp')"
+          :disabled-reason="upReason"
+          @click="move(-1)"
+        />
         <UiIconButton
           :icon="ArrowDown"
-          label="下移"
+          :label="t('steps.moveDown')"
           :disabled-reason="downReason"
           @click="move(1)"
         />
-        <UiIconButton :icon="Copy" label="复制步骤" :disabled-reason="noSelection" @click="copy" />
+        <UiIconButton
+          :icon="Copy"
+          :label="t('steps.copy')"
+          :disabled-reason="noSelection"
+          @click="copy"
+        />
         <UiIconButton
           :icon="Trash2"
-          label="删除步骤"
+          :label="t('steps.delete')"
           :disabled-reason="noSelection"
           @click="deleting = true"
         />
       </span>
       <UiMenu
-        label="添加步骤"
+        :label="t('steps.add')"
         :icon="Plus"
         :entries="addEntries"
         compact
@@ -146,32 +155,32 @@ const downReason = computed(
             class="row-icon"
             :size="16"
             :stroke-width="1.75"
-            :aria-label="KIND_LABEL[step.spec.type]"
+            :aria-label="t(`steps.kind.${step.spec.type}`)"
           />
-          <span class="row-name" :title="step.name">{{ step.name || '（未命名）' }}</span>
-          <UiTag v-if="!step.enabled">已禁用</UiTag>
+          <span class="row-name" :title="step.name">{{ step.name || t('steps.unnamed') }}</span>
+          <UiTag v-if="!step.enabled">{{ t('steps.disabled') }}</UiTag>
           <CircleAlert
             v-if="props.hasIssue(i)"
             class="row-issue"
             :size="16"
             :stroke-width="1.75"
-            aria-label="有问题需要修正"
+            :aria-label="t('steps.hasIssue')"
           />
         </button>
-        <UiSwitch v-model="step.enabled" :label="`启用 ${step.name}`" />
+        <UiSwitch v-model="step.enabled" :label="t('steps.enable', { name: step.name })" />
       </li>
     </ol>
-    <p v-else class="empty">尚无步骤。用“添加步骤”加入本地命令、上传文件、远程命令或人工确认。</p>
+    <p v-else class="empty">{{ t('steps.empty') }}</p>
 
     <UiConfirm
       :open="deleting"
-      :title="`删除步骤 ${selected?.name ?? ''}`"
-      confirm-label="删除"
+      :title="t('steps.deleteTitle', { name: selected?.name ?? '' })"
+      :confirm-label="t('common.delete')"
       danger
       @confirm="remove"
       @cancel="deleting = false"
     >
-      <p class="confirm-text">步骤及其参数会从草稿中移除，保存后生效。</p>
+      <p class="confirm-text">{{ t('steps.deleteBody') }}</p>
     </UiConfirm>
   </section>
 </template>

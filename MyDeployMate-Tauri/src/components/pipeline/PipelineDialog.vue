@@ -7,8 +7,11 @@ import UiField from '@/components/ui/UiField.vue'
 import UiNotice from '@/components/ui/UiNotice.vue'
 import UiTextInput from '@/components/ui/UiTextInput.vue'
 import { cloneWorkspace, useIssues } from '@/composables/workspaceDraft'
+import { useT } from '@/i18n'
 import { call, toAppError, type Pipeline, type Project } from '@/ipc'
 import { useWorkspaceStore } from '@/stores/workspace'
+
+const t = useT()
 
 export type PipelineDialogMode = 'create' | 'rename' | 'copy'
 
@@ -36,22 +39,29 @@ watch(
       mode === 'rename'
         ? (props.source?.name ?? '')
         : mode === 'copy'
-          ? `${props.source?.name ?? ''} 副本`
+          ? t('pipelines.dialog.copyName', { name: props.source?.name ?? '' })
           : ''
   },
   { immediate: true },
 )
 
-const title = computed(
-  () =>
-    ({
-      create: '新建流程',
-      rename: `重命名流程 ${props.source?.name ?? ''}`,
-      copy: `复制流程 ${props.source?.name ?? ''}`,
-    })[props.mode ?? 'create'],
+const title = computed(() =>
+  ({
+    create: () => t('pipelines.dialog.createTitle'),
+    rename: () => t('pipelines.dialog.renameTitle', { name: props.source?.name ?? '' }),
+    copy: () => t('pipelines.dialog.copyTitle', { name: props.source?.name ?? '' }),
+  })[props.mode ?? 'create'](),
 )
-const confirmLabel = computed(
-  () => ({ create: '创建流程', rename: '重命名', copy: '复制流程' })[props.mode ?? 'create'],
+const confirmLabel = computed(() =>
+  t(
+    (
+      {
+        create: 'pipelines.dialog.create',
+        rename: 'pipelines.dialog.rename',
+        copy: 'pipelines.dialog.copy',
+      } as const
+    )[props.mode ?? 'create'],
+  ),
 )
 
 const location = ref<string | null>(null)
@@ -108,16 +118,16 @@ async function onSave() {
     <div v-if="mode" class="pipeline-form">
       <UiNotice v-if="error" tone="failure">{{ error }}</UiNotice>
       <UiNotice v-if="otherIssues.length" tone="warning">
-        配置的其他位置还有问题，需要先修正才能保存：
+        {{ t('common.issuesElsewhereShort') }}
         <ul class="issues">
           <li v-for="issue in otherIssues" :key="issue.path">{{ issue.message }}</li>
         </ul>
       </UiNotice>
-      <p v-if="mode === 'copy'" class="note">复制全部步骤及其参数，步骤获得新的 ID。</p>
+      <p v-if="mode === 'copy'" class="note">{{ t('pipelines.dialog.copyNote') }}</p>
       <UiField
         v-slot="{ id, describedBy, invalid }"
-        label="名称"
-        hint="1–64 个字符，同一项目内不重复"
+        :label="t('common.name')"
+        :hint="t('pipelines.dialog.nameHint')"
         :error="nameError"
         required
       >
@@ -132,7 +142,7 @@ async function onSave() {
       </UiField>
     </div>
     <template #footer>
-      <UiButton :disabled="saving" @click="emit('cancel')">取消</UiButton>
+      <UiButton :disabled="saving" @click="emit('cancel')">{{ t('common.cancel') }}</UiButton>
       <UiButton variant="primary" :busy="saving" @click="onSave">{{ confirmLabel }}</UiButton>
     </template>
   </UiDialog>
