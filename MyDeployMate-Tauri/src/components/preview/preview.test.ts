@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { Issue, PlannedTask } from '@/ipc'
 
-import { editorField, groupTasks, issueTarget, taskCommand } from './preview'
+import { editorField, groupTasks, issueTarget, taskCommand, taskDetails } from './preview'
 
 const text = (display: string, sensitive = false) => ({ display, sensitive })
 
@@ -83,5 +83,12 @@ describe('preview', () => {
       t.action.command.script = text('echo ******', true)
     }
     expect(taskCommand(t.action)).toEqual({ text: 'echo ******', sensitive: true })
+  })
+
+  it('names a fixed output encoding but not the automatic one', () => {
+    const t = task(0, 0, null)
+    expect(taskDetails(t).join(' · ')).not.toContain('输出编码')
+    if (t.action.type === 'local') t.action.outputEncoding = 'gbk'
+    expect(taskDetails(t)).toContain('输出编码 GBK')
   })
 })
