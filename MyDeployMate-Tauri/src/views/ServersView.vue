@@ -13,6 +13,7 @@ import {
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
+import CredentialDialog from '@/components/credentials/CredentialDialog.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import PageLayout from '@/components/PageLayout.vue'
 import { describeReference } from '@/components/references'
@@ -36,7 +37,15 @@ import UiSelect from '@/components/ui/UiSelect.vue'
 import UiTag from '@/components/ui/UiTag.vue'
 import UiTextInput from '@/components/ui/UiTextInput.vue'
 import { cloneWorkspace } from '@/composables/workspaceDraft'
-import { call, toAppError, type ConnectionTest, type Reference, type Server } from '@/ipc'
+import { purposeLabel } from '@/components/credentials/credentialLabels'
+import {
+  call,
+  toAppError,
+  type ConnectionTest,
+  type Reference,
+  type SavedCredential,
+  type Server,
+} from '@/ipc'
 import { useConnectionTestStore } from '@/stores/connectionTests'
 import { useToastStore } from '@/stores/toast'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -173,6 +182,16 @@ function openTrustManagement() {
   void router.push({ name: 'settings', hash: '#trust' })
 }
 
+const credentialBusy = ref(false)
+async function answerCredential(secret: string | null, remember = false) {
+  credentialBusy.value = true
+  try {
+    await tests.answerCredential(secret, remember)
+  } finally {
+    credentialBusy.value = false
+  }
+}
+
 const trustBusy = ref(false)
 async function answerTrust(trust: boolean) {
   trustBusy.value = true
@@ -222,6 +241,7 @@ async function onSaved(server: Server) {
 
 const deleting = ref<Server | null>(null)
 const deleteRefs = ref<Reference[]>([])
+const deleteCredentials = ref<SavedCredential[]>([])
 const deleteBusy = ref(false)
 
 async function requestDelete(server: Server) {
@@ -231,6 +251,12 @@ async function requestDelete(server: Server) {
     draft: cloneWorkspace(store.workspace),
     serverId: server.id,
   })
+  try {
+    const saved = await call('saved_credentials')
+    deleteCredentials.value = saved.filter((c) => c.serverId === server.id)
+  } catch {
+    deleteCredentials.value = []
+  }
   deleting.value = server
 }
 
@@ -453,6 +479,12 @@ async function applyDelete() {
       @trust="answerTrust(true)"
       @cancel="answerTrust(false)"
     />
+    <CredentialDialog
+      :prompt="tests.pendingTrust ? null : tests.pendingCredential"
+      :busy="credentialBusy"
+      @submit="answerCredential"
+      @cancel="answerCredential(null)"
+    />
     <HostTrustDialog
       :open="!tests.pendingTrust && !!tests.keyChange"
       mode="changed"
@@ -526,6 +558,14 @@ async function applyDelete() {
         </ul>
       </template>
       <p v-else>没有项目绑定该服务器。</p>
+      <template v-if="deleteCredentials.length">
+        <p>该服务器的已保存凭据会一并删除：</p>
+        <ul class="refs">
+          <li v-for="c in deleteCredentials" :key="purposeLabel(c.purpose) + c.user">
+            {{ c.user }} · {{ purposeLabel(c.purpose) }}
+          </li>
+        </ul>
+      </template>
       <p class="muted">运行历史会保留；不会删除服务器上的任何数据。</p>
     </UiConfirm>
   </PageLayout>

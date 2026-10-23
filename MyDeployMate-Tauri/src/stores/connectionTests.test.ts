@@ -105,4 +105,54 @@ describe('connection test store', () => {
     expect(call).toHaveBeenCalledWith('cancel_connection_test', expect.anything())
     expect(store.batch).toBeNull()
   })
+
+  it('queues D04 requests per server and drops them when the test ends', async () => {
+    const store = useConnectionTestStore()
+    let finish: (t: ConnectionTest) => void = () => {}
+    call.mockImplementation((cmd: string) =>
+      cmd === 'test_connection' ? new Promise((r) => (finish = r)) : Promise.resolve(null),
+    )
+    const pending = store.test('s1', { name: 'web-1', user: 'deploy' })
+    channel!.onmessage({
+      type: 'credential',
+      requestId: 3,
+      purpose: 'sshPassword',
+      serverName: 'web-1',
+      address: '10.0.0.5:22',
+      user: 'deploy',
+      keyPath: null,
+      context: '连接测试',
+      attempt: 1,
+      maxAttempts: 3,
+      rejected: false,
+      savedRejected: false,
+      rememberDefault: false,
+    })
+    expect(store.pendingCredential?.requestId).toBe(3)
+    await store.answerCredential('pw', true)
+    expect(call).toHaveBeenCalledWith('submit_secret', {
+      requestId: 3,
+      secret: 'pw',
+      remember: true,
+    })
+    expect(store.pendingCredential).toBeNull()
+    channel!.onmessage({
+      type: 'credential',
+      requestId: 4,
+      purpose: 'sshPassword',
+      serverName: 'web-1',
+      address: '10.0.0.5:22',
+      user: 'deploy',
+      keyPath: null,
+      context: '连接测试',
+      attempt: 2,
+      maxAttempts: 3,
+      rejected: true,
+      savedRejected: false,
+      rememberDefault: false,
+    })
+    finish(ok('s1'))
+    await pending
+    expect(store.pendingCredential).toBeNull()
+  })
 })

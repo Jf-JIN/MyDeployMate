@@ -4,6 +4,8 @@ import { computed, nextTick, onMounted, ref } from 'vue'
 
 import PageLayout from '@/components/PageLayout.vue'
 import { describeReference } from '@/components/references'
+import SavedCredentialsSection from '@/components/settings/SavedCredentialsSection.vue'
+import SecretValueField from '@/components/variables/SecretValueField.vue'
 import TrustedHostsSection from '@/components/settings/TrustedHostsSection.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCheckbox from '@/components/ui/UiCheckbox.vue'
@@ -28,8 +30,8 @@ import {
 } from '@/ipc'
 import { useThemeStore, type ThemePreference } from '@/stores/theme'
 
-// P10 configuration center: environments, global variables, host trust, appearance and the
-// data directory (IXD-14, IXD-19, IXD-36, UI-02). Saved credentials, import/export and updates
+// P10 configuration center: environments, global variables, host trust, saved credentials,
+// appearance and the data directory (IXD-14, IXD-19, IXD-36, UI-02). Import/export and updates
 // join in later phases.
 const page = ref<HTMLElement | null>(null)
 const { draft, dirty, at, issues, error, save, discard } = useWorkspaceDraft('配置中心', page)
@@ -291,7 +293,7 @@ async function openDataDir() {
                   :invalid="!!at(`globalVariables[${i}].value.name`)"
                   :aria-label="`${v.name || '变量'} 读取的环境变量名`"
                 />
-                <UiTag v-else tone="warning">需填写 · 凭据管理器将在阶段 5 接入</UiTag>
+                <SecretValueField v-else :variable-id="v.id" :label="`${v.name || '变量'} 的值`" />
                 <p
                   v-if="at(`globalVariables[${i}].value`) || at(`globalVariables[${i}].value.name`)"
                   class="cell-error"
@@ -321,6 +323,8 @@ async function openDataDir() {
       </section>
 
       <TrustedHostsSection />
+
+      <SavedCredentialsSection />
 
       <section class="section" aria-labelledby="look-title">
         <header class="section-head">

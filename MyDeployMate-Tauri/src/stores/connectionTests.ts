@@ -6,6 +6,7 @@ import {
   call,
   toAppError,
   type ConnectionTest,
+  type CredentialPrompt,
   type HostEndpoint,
   type HostKey,
   type TestEvent,
@@ -22,6 +23,12 @@ export interface KeyChange {
   endpoint: HostEndpoint
   known: HostKey[]
   presented: HostKey
+}
+
+/** A D04 request from a running test, with the server it belongs to. */
+export interface CredentialRequest {
+  serverId: string
+  prompt: CredentialPrompt
 }
 
 export interface Running {
@@ -47,6 +54,7 @@ export const useConnectionTestStore = defineStore('connectionTests', () => {
   const running = ref<Record<string, Running>>({})
   const batch = ref<Batch | null>(null)
   const trustRequests = ref<TrustRequest[]>([])
+  const credentialRequests = ref<CredentialRequest[]>([])
   const keyChange = ref<KeyChange | null>(null)
   const error = ref<string | null>(null)
 
@@ -66,6 +74,7 @@ export const useConnectionTestStore = defineStore('connectionTests', () => {
     const channel = new Channel<TestEvent>()
     channel.onmessage = (event) => {
       if (event.type === 'hostTrust') trustRequests.value = [...trustRequests.value, event]
+      else credentialRequests.value = [...credentialRequests.value, { serverId, prompt: event }]
     }
     try {
       const result = await call('test_connection', { serverId, operationId, onEvent: channel })
@@ -90,6 +99,7 @@ export const useConnectionTestStore = defineStore('connectionTests', () => {
       delete rest[serverId]
       running.value = rest
       trustRequests.value = trustRequests.value.filter((r) => r.serverId !== serverId)
+      credentialRequests.value = credentialRequests.value.filter((r) => r.serverId !== serverId)
     }
   }
 
@@ -131,7 +141,23 @@ export const useConnectionTestStore = defineStore('connectionTests', () => {
     }
   }
 
+  /**
+   * Answer the D04 request at the head of the queue. `null` cancels that test only; a batch
+   * goes on with the next server (IXD-18, IXD-32).
+   */
+  async function answerCredential(secret: string | null, remember: boolean) {
+    const request = credentialRequests.value[0]
+    if (!request) return
+    credentialRequests.value = credentialRequests.value.slice(1)
+    try {
+      await call('submit_secret', { requestId: request.prompt.requestId, secret, remember })
+    } catch (e) {
+      error.value = toAppError(e).message
+    }
+  }
+
   const pendingTrust = computed(() => trustRequests.value[0] ?? null)
+  const pendingCredential = computed(() => credentialRequests.value[0]?.prompt ?? null)
 
   return {
     results,
@@ -140,11 +166,13 @@ export const useConnectionTestStore = defineStore('connectionTests', () => {
     keyChange,
     error,
     pendingTrust,
+    pendingCredential,
     load,
     test,
     cancel,
     testAll,
     cancelBatch,
     answerTrust,
+    answerCredential,
   }
 })

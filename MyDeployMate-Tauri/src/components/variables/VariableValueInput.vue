@@ -2,14 +2,23 @@
 import { computed } from 'vue'
 
 import UiSelect from '@/components/ui/UiSelect.vue'
-import UiTag from '@/components/ui/UiTag.vue'
 import UiTextInput from '@/components/ui/UiTextInput.vue'
 import type { VariableValue } from '@/ipc'
+
+import SecretValueField from './SecretValueField.vue'
 
 // A variable value with its source (VAR-01, IXD-13): typed in, read from an environment
 // variable, or kept in Windows Credential Manager. Sensitive values cannot be typed in.
 const model = defineModel<VariableValue>({ required: true })
-const props = defineProps<{ label: string; sensitive: boolean; error?: string | null }>()
+const props = defineProps<{
+  label: string
+  sensitive: boolean
+  error?: string | null
+  /** Where a Credential Manager value is kept: the variable, and the environment for an override. */
+  variableId: string
+  environmentId?: string | null
+}>()
+const emit = defineEmits<{ 'secret-saved': [] }>()
 
 type Kind = VariableValue['kind']
 
@@ -62,7 +71,13 @@ const text = computed({
       :invalid="!!error"
       :aria-label="kind === 'envRef' ? `${label}读取的环境变量名` : label"
     />
-    <UiTag v-else tone="warning" class="text">需填写 · 凭据管理器将在阶段 5 接入</UiTag>
+    <SecretValueField
+      v-else
+      :variable-id="variableId"
+      :environment-id="environmentId"
+      :label="label"
+      @saved="emit('secret-saved')"
+    />
   </div>
   <p v-if="error" class="error">{{ error }}</p>
 </template>
