@@ -23,6 +23,7 @@ use mdm_core::{
 use mdm_exec::resolve_shell;
 use mdm_store::LoadOutcome;
 
+use crate::connection::signature;
 use crate::error::{AppError, AppErrorKind};
 use crate::state::AppState;
 use crate::values::ProcessValues;
@@ -120,12 +121,38 @@ pub fn save_workspace(
     draft: serde_json::Value,
 ) -> Result<Workspace, AppError> {
     let ws = check_workspace_json(draft).map_err(AppError::validation)?;
+    check_active_run_servers(&state, &ws)?;
     let mut store = state.store()?;
     let (before, _) = store.load()?;
     let saved = store.save(ws)?;
     drop(store);
     state.drop_orphan_secrets(&before, &saved);
     Ok(saved)
+}
+
+/// While a run is active, its servers cannot be deleted, moved to another environment, or have
+/// their connection fields changed (AC-05, IXD-20). Name, tags and notes stay editable.
+fn check_active_run_servers(state: &AppState, ws: &Workspace) -> Result<(), AppError> {
+    let active = state.active.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(run) = active.as_ref() else {
+        return Ok(());
+    };
+    for frozen in &run.servers {
+        let message = match ws.servers.iter().find(|s| s.id == frozen.id) {
+            None => "删除",
+            Some(s) if s.environment_id != frozen.environment_id => "更换环境",
+            Some(s) if signature(s) != signature(frozen) => "修改连接设置",
+            Some(_) => continue,
+        };
+        return Err(AppError::new(
+            AppErrorKind::RunActive,
+            format!(
+                "服务器 {} 正被当前运行使用，运行结束后才能{message}",
+                frozen.name
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// Open the data directory in Explorer (IXD-36).

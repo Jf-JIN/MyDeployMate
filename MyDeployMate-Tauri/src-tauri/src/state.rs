@@ -9,7 +9,7 @@ use mdm_store::{
 };
 
 use crate::connection::ConnectionTests;
-use crate::credentials::CredentialBroker;
+use crate::credentials::PromptBroker;
 use crate::run::ActiveRun;
 
 use crate::error::{AppError, AppErrorKind};
@@ -27,8 +27,8 @@ pub struct AppState {
     pub trust: Mutex<Result<TrustStore, String>>,
     /// Remembered credentials and sensitive variable values (SEC-03, ARC-10, ARC-26).
     pub secrets: Mutex<Result<SecretStore, String>>,
-    /// Open D04 prompts.
-    pub broker: CredentialBroker,
+    /// Open D02 and D04 prompts of connection tests.
+    pub broker: PromptBroker,
     /// Connection test results and running tests (IXD-18).
     pub tests: ConnectionTests,
     /// Set by "cancel and quit": the app exits once the active run has stopped (IXD-29).
@@ -72,7 +72,7 @@ impl AppState {
         Self {
             trust: Mutex::new(trust),
             secrets: Mutex::new(secrets),
-            broker: CredentialBroker::default(),
+            broker: PromptBroker::default(),
             tests: ConnectionTests::default(),
             store: Mutex::new(WorkspaceStore::new(data_dir.clone())),
             history,

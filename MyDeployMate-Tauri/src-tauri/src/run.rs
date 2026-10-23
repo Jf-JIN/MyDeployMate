@@ -7,16 +7,18 @@
 //! which returns everything recorded so far and, for the active run, sends later updates
 //! through the Tauri channel passed in.
 
+use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 use mdm_core::log::LogBudget;
 use mdm_core::{
-    Clock, LogEntry, PlanRequest, ResolvedPlan, Run, RunId, RunMachine, StorageError, Task,
-    build_plan,
+    Clock, LogEntry, OperatorPrompt, PlanRequest, ResolvedPlan, Run, RunId, RunMachine, Server,
+    ServerId, StorageError, Task, build_plan,
 };
 use mdm_exec::{
-    AppExecutor, Control, Coordinator, CredentialRequest, LogPipeline, RunView, SystemClock,
+    AppExecutor, ConnectFuture, Control, Coordinator, LogPipeline, OperatorAnswer, OperatorRequest,
+    RemoteConnector, RunView, SystemClock, TaskContext, TaskOutcome,
 };
 use mdm_store::{RunLogFile, SharedHistory, read_run_log};
 use serde::{Deserialize, Serialize};
@@ -26,6 +28,8 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use ts_rs::TS;
 
+use crate::connection::{SessionError, open_session};
+use crate::credentials::{AskFuture, Operator, secret_answer};
 use crate::error::{AppError, AppErrorKind};
 use crate::state::AppState;
 
@@ -36,6 +40,9 @@ pub struct ActiveRun {
     key: String,
     control: mpsc::UnboundedSender<Control>,
     view: Arc<ChannelView>,
+    /// The servers as the run froze them; their connection settings stay locked until the run
+    /// ends (AC-05, IXD-20).
+    pub servers: Vec<Server>,
 }
 
 /// What the preview dialog sends when the operator clicks start.
@@ -72,15 +79,32 @@ pub enum RunUpdate {
     Logs {
         entries: Vec<LogEntry>,
     },
-    Credential {
-        #[ts(type = "number")]
-        request_id: u64,
-        task: u32,
-        prompt: String,
-    },
+    /// A task waits for the operator: show D02 or D04 and answer with `answer_run_trust` or
+    /// `answer_run_secret`.
+    Request(RunRequest),
     StorageFailed {
         message: String,
     },
+}
+
+#[derive(Clone, Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct RunRequest {
+    #[ts(type = "number")]
+    pub request_id: u64,
+    pub task: u32,
+    pub prompt: OperatorPrompt,
+}
+
+impl From<&OperatorRequest> for RunRequest {
+    fn from(r: &OperatorRequest) -> Self {
+        Self {
+            request_id: r.id,
+            task: r.seq,
+            prompt: r.prompt.clone(),
+        }
+    }
 }
 
 /// Everything recorded about a run, for the run page (IXD-26).
@@ -98,15 +122,21 @@ pub struct RunSnapshot {
     pub damaged_lines: usize,
     /// Later updates arrive through the channel.
     pub active: bool,
+    /// The open D02 or D04 request of the active run.
+    pub request: Option<RunRequest>,
 }
 
 /// Sends run updates to the page that opened the run last; none until a page opens it.
 #[derive(Default)]
-struct ChannelView(Mutex<Option<Channel<RunUpdate>>>);
+struct ChannelView {
+    channel: Mutex<Option<Channel<RunUpdate>>>,
+    /// The open request, for a page that opens the run while it waits.
+    request: Mutex<Option<RunRequest>>,
+}
 
 impl ChannelView {
     fn lock(&self) -> std::sync::MutexGuard<'_, Option<Channel<RunUpdate>>> {
-        self.0.lock().unwrap_or_else(|e| e.into_inner())
+        self.channel.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     fn send(&self, update: RunUpdate) {
@@ -119,6 +149,9 @@ impl ChannelView {
 
 impl RunView for ChannelView {
     fn state(&self, machine: &RunMachine) {
+        if machine.run().status != mdm_core::RunStatus::WaitingCredential {
+            *self.request.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        }
         self.send(RunUpdate::State {
             run: Box::new(machine.run().clone()),
             tasks: machine.tasks().to_vec(),
@@ -130,12 +163,10 @@ impl RunView for ChannelView {
         self.send(RunUpdate::Logs { entries });
     }
 
-    fn credential_requested(&self, request: &CredentialRequest) {
-        self.send(RunUpdate::Credential {
-            request_id: request.id,
-            task: request.seq,
-            prompt: request.prompt.clone(),
-        });
+    fn requested(&self, request: &OperatorRequest) {
+        let request = RunRequest::from(request);
+        *self.request.lock().unwrap_or_else(|e| e.into_inner()) = Some(request.clone());
+        self.send(RunUpdate::Request(request));
     }
 
     fn storage_failed(&self, error: &StorageError) {
@@ -199,6 +230,19 @@ pub fn start_run(
         ));
     }
 
+    let servers: Vec<Server> = workspace
+        .servers
+        .iter()
+        .filter(|s| plan.targets.iter().any(|t| t.server_id == s.id))
+        .cloned()
+        .collect();
+    let plan = Arc::new(plan);
+    let executor = Arc::new(AppExecutor::new(Arc::new(RunConnector {
+        app: app.clone(),
+        servers: servers.iter().map(|s| (s.id, s.clone())).collect(),
+        plan: Arc::clone(&plan),
+    })));
+
     let run_id = RunId::new();
     let log = RunLogFile::open(&state.data_dir, run_id)?;
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
@@ -213,11 +257,11 @@ pub fn start_run(
         control.clone(),
     ));
     let coordinator = Coordinator::create(
-        Arc::new(plan),
+        plan,
         run_id,
         history,
         clock,
-        Arc::new(AppExecutor),
+        executor.clone(),
         pipeline.clone(),
         control_rx,
     )
@@ -228,6 +272,7 @@ pub fn start_run(
         key: start.key,
         control,
         view,
+        servers,
     });
     drop(active);
 
@@ -235,6 +280,7 @@ pub fn start_run(
         let stop = CancellationToken::new();
         let flusher = tauri::async_runtime::spawn(pipeline.flush_every(stop.clone()));
         let _ = coordinator.run().await;
+        executor.close().await;
         stop.cancel();
         let _ = flusher.await;
         let state = app.state::<AppState>();
@@ -274,7 +320,12 @@ pub fn open_run(
     // everything already sent, and everything sent later is newer or a repeat (which the page
     // drops by log number).
     let mut channel = view.lock();
-    let snapshot = read_snapshot(&state, &history, run_id, true)?;
+    let mut snapshot = read_snapshot(&state, &history, run_id, true)?;
+    snapshot.request = view
+        .request
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
     *channel = Some(on_update);
     Ok(snapshot)
 }
@@ -301,6 +352,7 @@ fn read_snapshot(
         logs: log.entries,
         damaged_lines: log.damaged_lines,
         active,
+        request: None,
     })
 }
 
@@ -321,6 +373,16 @@ fn history(state: &AppState) -> Result<SharedHistory, AppError> {
 pub fn active_run(state: State<'_, AppState>) -> Option<RunId> {
     let active = state.active.lock().unwrap_or_else(|e| e.into_inner());
     active.as_ref().map(|a| a.run_id)
+}
+
+/// Servers the active run uses; their deletion and connection changes wait for it (IXD-20).
+#[tauri::command]
+pub fn active_run_servers(state: State<'_, AppState>) -> Vec<ServerId> {
+    let active = state.active.lock().unwrap_or_else(|e| e.into_inner());
+    active
+        .as_ref()
+        .map(|a| a.servers.iter().map(|s| s.id).collect())
+        .unwrap_or_default()
 }
 
 /// Cancel the active run (IXD-29). Unknown or finished runs are an error.
@@ -344,6 +406,86 @@ pub fn answer_confirmation(
     proceed: bool,
 ) -> Result<(), AppError> {
     send_control(&state, run_id, Control::Confirm { seq, proceed })
+}
+
+/// D04 answer during a run. `secret: None` cancels the run (IXD-32).
+#[tauri::command]
+pub fn answer_run_secret(
+    state: State<'_, AppState>,
+    run_id: RunId,
+    request_id: u64,
+    secret: Option<String>,
+    remember: bool,
+) -> Result<(), AppError> {
+    let answer = secret_answer(secret, remember);
+    send_control(
+        &state,
+        run_id,
+        Control::Answer {
+            request: request_id,
+            answer,
+        },
+    )
+}
+
+/// D02 answer during a run: `trust` after the operator checked the fingerprint; otherwise the
+/// run is cancelled.
+#[tauri::command]
+pub fn answer_run_trust(
+    state: State<'_, AppState>,
+    run_id: RunId,
+    request_id: u64,
+    trust: bool,
+) -> Result<(), AppError> {
+    send_control(
+        &state,
+        run_id,
+        Control::Answer {
+            request: request_id,
+            answer: trust.then_some(OperatorAnswer::Trust),
+        },
+    )
+}
+
+/// Connects remote tasks with the server settings frozen at the start; D02 and D04 go to the
+/// run page through the coordinator, so the wait is recorded and cancel reaches it.
+struct RunConnector {
+    app: AppHandle,
+    servers: HashMap<ServerId, Server>,
+    plan: Arc<ResolvedPlan>,
+}
+
+impl RemoteConnector for RunConnector {
+    fn connect<'a>(&'a self, server: ServerId, ctx: &'a TaskContext) -> ConnectFuture<'a> {
+        Box::pin(async move {
+            let Some(server) = self.servers.get(&server) else {
+                return Err(TaskOutcome::Failed {
+                    exit_code: None,
+                    exit_signal: None,
+                    reason: "运行开始时找不到该服务器的配置".into(),
+                });
+            };
+            let task = &self.plan.tasks[ctx.seq as usize];
+            let context = format!("任务 {}：{}", ctx.seq + 1, task.step_name);
+            match open_session(&self.app, server, &context, &TaskAsker(ctx), &ctx.cancel).await {
+                Ok(session) => Ok(session),
+                Err(SessionError::Cancelled) => Err(TaskOutcome::Cancelled),
+                Err(SessionError::Failed(e)) => Err(TaskOutcome::Failed {
+                    exit_code: None,
+                    exit_signal: None,
+                    reason: format!("连接 {} 失败：{}", server.name, e.message),
+                }),
+            }
+        })
+    }
+}
+
+struct TaskAsker<'a>(&'a TaskContext);
+
+impl Operator for TaskAsker<'_> {
+    fn ask(&self, prompt: OperatorPrompt) -> AskFuture<'_> {
+        Box::pin(self.0.ask(prompt))
+    }
 }
 
 /// Closing the window while a run is active (IXD-29): cancel the run and quit once it has

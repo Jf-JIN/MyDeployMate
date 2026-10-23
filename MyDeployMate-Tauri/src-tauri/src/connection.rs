@@ -8,22 +8,21 @@
 
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use mdm_core::{
-    Clock, ConnectError, ConnectErrorKind, HostEndpoint, HostKey, Server, ServerId, Workspace,
+    Clock, ConnectError, ConnectErrorKind, HostTrustPrompt, OperatorPrompt, Server, ServerId,
+    Workspace,
 };
-use mdm_exec::SystemClock;
-use mdm_exec::ssh::{SshTarget, connect};
+use mdm_exec::ssh::{SshSession, SshTarget, connect};
+use mdm_exec::{OperatorAnswer, SystemClock};
 use serde::Serialize;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager};
-use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use ts_rs::TS;
 
-use crate::credentials::{CredentialPrompt, PromptingSecrets, SecretContext};
+use crate::credentials::{AskFuture, Operator, PromptingSecrets, SecretContext, lock};
 use crate::error::{AppError, AppErrorKind};
 use crate::state::AppState;
 
@@ -58,27 +57,15 @@ pub enum TestOutcome {
     Cancelled,
 }
 
-/// Pushed to the page while a test runs.
+/// Pushed to the page while a test runs: show D02 or D04, and answer with
+/// `answer_host_trust` or `submit_secret` under `request_id`.
 #[derive(Clone, Debug, Serialize, TS)]
-#[serde(
-    tag = "type",
-    rename_all = "camelCase",
-    rename_all_fields = "camelCase"
-)]
+#[serde(rename_all = "camelCase")]
 #[ts(export)]
-pub enum TestEvent {
-    /// First connection: show D02 and answer with `answer_host_trust`.
-    HostTrust {
-        #[ts(type = "number")]
-        request_id: u64,
-        server_id: ServerId,
-        server_name: String,
-        user: String,
-        endpoint: HostEndpoint,
-        presented: HostKey,
-    },
-    /// A password or passphrase is needed: show D04 and answer with `submit_secret`.
-    Credential(CredentialPrompt),
+pub struct TestEvent {
+    #[ts(type = "number")]
+    pub request_id: u64,
+    pub prompt: OperatorPrompt,
 }
 
 #[derive(Default)]
@@ -87,13 +74,10 @@ pub struct ConnectionTests {
     results: Mutex<HashMap<ServerId, (String, ConnectionTest)>>,
     /// Running tests by the operation ID the page chose.
     running: Mutex<HashMap<String, CancellationToken>>,
-    /// Open D02 prompts.
-    trust_prompts: Mutex<HashMap<u64, oneshot::Sender<bool>>>,
-    next_request: AtomicU64,
 }
 
 /// The fields whose change invalidates a test result (SRV-05).
-fn signature(server: &Server) -> String {
+pub(crate) fn signature(server: &Server) -> String {
     serde_json::to_string(&(
         server.host.trim(),
         server.port,
@@ -102,10 +86,6 @@ fn signature(server: &Server) -> String {
         server.allow_legacy_rsa,
     ))
     .expect("server fields serialize")
-}
-
-fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 impl ConnectionTests {
@@ -178,32 +158,83 @@ async fn run_test(
     on_event: &Channel<TestEvent>,
     cancel: &CancellationToken,
 ) -> TestOutcome {
+    let operator = TestOperator {
+        app,
+        on_event,
+        cancel,
+    };
+    let session = match open_session(app, server, "连接测试", &operator, cancel).await {
+        Ok(s) => s,
+        Err(SessionError::Cancelled) => return TestOutcome::Cancelled,
+        Err(SessionError::Failed(error)) => return TestOutcome::Failed { error: *error },
+    };
+    let timeout = SshTarget::from_server(server).connect_timeout;
+    let outcome = tokio::select! {
+        _ = cancel.cancelled() => TestOutcome::Cancelled,
+        r = session.probe(timeout) => match r {
+            Ok(system) => TestOutcome::Succeeded { system },
+            Err(error) => TestOutcome::Failed { error },
+        },
+    };
+    session.close().await;
+    outcome
+}
+
+/// Asks through the test page's channel.
+struct TestOperator<'a> {
+    app: &'a AppHandle,
+    on_event: &'a Channel<TestEvent>,
+    cancel: &'a CancellationToken,
+}
+
+impl Operator for TestOperator<'_> {
+    fn ask(&self, prompt: OperatorPrompt) -> AskFuture<'_> {
+        Box::pin(async move {
+            let broker = &self.app.state::<AppState>().broker;
+            broker
+                .ask(prompt, self.cancel, |request_id, prompt| {
+                    self.on_event.send(TestEvent { request_id, prompt }).is_ok()
+                })
+                .await
+        })
+    }
+}
+
+pub enum SessionError {
+    /// The operator cancelled or declined a prompt, or `cancel` fired.
+    Cancelled,
+    Failed(Box<ConnectError>),
+}
+
+/// Connect and log in to `server`: a first-seen host key is shown in D02 and, once trusted,
+/// recorded before connecting again; secrets come from [`PromptingSecrets`]. `context` says
+/// what the connection is for in D04.
+pub async fn open_session(
+    app: &AppHandle,
+    server: &Server,
+    context: &str,
+    operator: &dyn Operator,
+    cancel: &CancellationToken,
+) -> Result<SshSession, SessionError> {
     let target = SshTarget::from_server(server);
     let state = app.state::<AppState>();
-    let secrets = PromptingSecrets::new(
-        app,
-        SecretContext {
-            server_id: server.id,
-            server_name: server.name.clone(),
-            address: target.endpoint.to_string(),
-            user: server.user.clone(),
-            context: "连接测试".into(),
-        },
-        cancel.clone(),
-        |prompt| on_event.send(TestEvent::Credential(prompt)).is_ok(),
-    );
+    let who = SecretContext {
+        server_id: server.id,
+        server_name: server.name.clone(),
+        address: target.endpoint.to_string(),
+        user: server.user.clone(),
+        context: context.to_owned(),
+    };
+    let secrets = PromptingSecrets::new(app, &who, operator);
     // At most two rounds: the second follows a first trust the operator just confirmed.
     for _ in 0..2 {
-        let known = match crate::trust::known_keys(&state, &target.endpoint) {
-            Ok(k) => k,
-            Err(e) => return failed_storage(e),
-        };
-        let session = match connect(&target, &known, &secrets, cancel).await {
-            Ok(s) => s,
+        let known = crate::trust::known_keys(&state, &target.endpoint).map_err(storage_error)?;
+        match connect(&target, &known, &secrets, cancel).await {
+            Ok(s) => return Ok(s),
             Err(ConnectError {
                 kind: ConnectErrorKind::Cancelled,
                 ..
-            }) => return TestOutcome::Cancelled,
+            }) => return Err(SessionError::Cancelled),
             Err(ConnectError {
                 kind:
                     ConnectErrorKind::HostKeyUnknown {
@@ -211,82 +242,43 @@ async fn run_test(
                         presented,
                     },
                 ..
-            }) => match ask_trust(app, server, &endpoint, &presented, on_event, cancel).await {
-                Some(true) => {
-                    if let Err(e) = crate::trust::trust_new(&state, &endpoint, &presented) {
-                        return failed_storage(e);
+            }) => {
+                let prompt = OperatorPrompt::HostTrust(HostTrustPrompt {
+                    server_id: server.id,
+                    server_name: server.name.clone(),
+                    user: server.user.clone(),
+                    endpoint: endpoint.clone(),
+                    presented: presented.clone(),
+                });
+                match operator.ask(prompt).await {
+                    Some(OperatorAnswer::Trust) => {
+                        crate::trust::trust_new(&state, &endpoint, &presented)
+                            .map_err(storage_error)?;
                     }
-                    continue;
+                    _ => return Err(SessionError::Cancelled),
                 }
-                _ => return TestOutcome::Cancelled,
-            },
-            Err(error) => return TestOutcome::Failed { error },
-        };
-        let outcome = tokio::select! {
-            _ = cancel.cancelled() => TestOutcome::Cancelled,
-            r = session.probe(target.connect_timeout) => match r {
-                Ok(system) => TestOutcome::Succeeded { system },
-                Err(error) => TestOutcome::Failed { error },
-            },
-        };
-        session.close().await;
-        return outcome;
+            }
+            Err(error) => return Err(SessionError::Failed(Box::new(error))),
+        }
     }
     unreachable!("a trusted key is accepted on the second round")
 }
 
-fn failed_storage(e: AppError) -> TestOutcome {
-    TestOutcome::Failed {
-        error: ConnectError::at(mdm_core::ConnectStage::HostKey, ConnectErrorKind::Protocol)
+fn storage_error(e: AppError) -> SessionError {
+    SessionError::Failed(Box::new(
+        ConnectError::at(mdm_core::ConnectStage::HostKey, ConnectErrorKind::Protocol)
             .with_detail(e.message),
-    }
+    ))
 }
 
-/// Show D02 and wait. `None` when the test was cancelled meanwhile.
-async fn ask_trust(
-    app: &AppHandle,
-    server: &Server,
-    endpoint: &HostEndpoint,
-    presented: &HostKey,
-    on_event: &Channel<TestEvent>,
-    cancel: &CancellationToken,
-) -> Option<bool> {
-    let tests = &app.state::<AppState>().tests;
-    let request_id = tests.next_request.fetch_add(1, Ordering::Relaxed) + 1;
-    let (tx, rx) = oneshot::channel();
-    lock(&tests.trust_prompts).insert(request_id, tx);
-    let sent = on_event.send(TestEvent::HostTrust {
-        request_id,
-        server_id: server.id,
-        server_name: server.name.clone(),
-        user: server.user.clone(),
-        endpoint: endpoint.clone(),
-        presented: presented.clone(),
-    });
-    let answer = if sent.is_err() {
-        None
-    } else {
-        tokio::select! {
-            _ = cancel.cancelled() => None,
-            r = rx => r.ok(),
-        }
-    };
-    lock(&tests.trust_prompts).remove(&request_id);
-    answer
-}
-
-/// D02 answer: `trust` after the operator checked the fingerprint, otherwise cancel the test.
+/// D02 answer of a connection test: `trust` after the operator checked the fingerprint,
+/// otherwise cancel the test.
 #[tauri::command]
 pub fn answer_host_trust(app: AppHandle, request_id: u64, trust: bool) -> Result<(), AppError> {
     let state = app.state::<AppState>();
-    let sender = lock(&state.tests.trust_prompts).remove(&request_id);
-    match sender {
-        Some(tx) => {
-            let _ = tx.send(trust);
-            Ok(())
-        }
-        None => Err(AppError::new(AppErrorKind::Validation, "该确认已失效")),
-    }
+    state
+        .broker
+        .answer(request_id, trust.then_some(OperatorAnswer::Trust))
 }
 
 /// Cancel one running test; a batch cancels its current test this way and starts no more.

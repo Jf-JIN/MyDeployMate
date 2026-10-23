@@ -2,83 +2,85 @@
 //! IXD-32; architecture ARC-26).
 //!
 //! A connection asks [`PromptingSecrets`] for a secret. A remembered value is tried first
-//! without a dialog; otherwise, or when the remembered value was rejected, the page receives a
-//! [`CredentialPrompt`] and answers with `submit_secret`. A value is remembered only after the
-//! server or key accepted it, and only when the operator ticked "remember".
+//! without a dialog; otherwise, or when the remembered value was rejected, the operator is
+//! asked through an [`Operator`]: the connection test page answers with `submit_secret`, the
+//! run page through the run's control channel. A value is remembered only after the server or
+//! key accepted it, and only when the operator ticked "remember".
 
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use mdm_core::{Clock, CredentialPurpose, CredentialRef, EnvironmentId, ServerId, VariableId};
-use mdm_exec::SystemClock;
+use mdm_core::{
+    Clock, CredentialPrompt, CredentialPurpose, CredentialRef, EnvironmentId, OperatorPrompt,
+    ServerId, VariableId,
+};
 use mdm_exec::ssh::{MAX_ATTEMPTS, SecretFuture, SecretPrompt, SecretSource};
+use mdm_exec::{OperatorAnswer, SystemClock};
 use mdm_store::{SavedCredential, SecretStore};
 use secrecy::SecretString;
-use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
-use ts_rs::TS;
 
 use crate::error::{AppError, AppErrorKind};
 use crate::state::AppState;
 
-/// What D04 shows. Never contains a secret.
-#[derive(Clone, Debug, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export)]
-pub struct CredentialPrompt {
-    #[ts(type = "number")]
-    pub request_id: u64,
-    #[serde(flatten)]
-    pub purpose: CredentialPurpose,
-    pub server_name: String,
-    /// `host:port` as shown elsewhere.
-    pub address: String,
-    pub user: String,
-    /// The key file being unlocked, for a passphrase.
-    pub key_path: Option<String>,
-    /// What needs it, e.g. "连接测试" or a task name.
-    pub context: String,
-    pub attempt: u8,
-    pub max_attempts: u8,
-    /// The previous value was rejected.
-    pub rejected: bool,
-    /// The rejected value was the remembered one (IXD-31 notice).
-    pub saved_rejected: bool,
-    /// Initial state of "remember": ticked only to replace a remembered value that failed.
-    pub remember_default: bool,
+pub type AskFuture<'a> = Pin<Box<dyn Future<Output = Option<OperatorAnswer>> + Send + 'a>>;
+
+/// Shows D02 or D04 and waits. `None`: declined, cancelled, or nobody to ask.
+pub trait Operator: Send + Sync {
+    fn ask(&self, prompt: OperatorPrompt) -> AskFuture<'_>;
 }
 
-type Answer = Option<(SecretString, bool)>;
-
-/// Open D04 prompts, answered by `submit_secret`.
+/// Open prompts of connection tests, answered by `submit_secret` and `answer_host_trust`.
 #[derive(Default)]
-pub struct CredentialBroker {
-    pending: Mutex<HashMap<u64, oneshot::Sender<Answer>>>,
+pub struct PromptBroker {
+    pending: Mutex<HashMap<u64, oneshot::Sender<Option<OperatorAnswer>>>>,
     next: AtomicU64,
 }
 
-fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+pub(crate) fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-impl CredentialBroker {
-    fn open(&self) -> (u64, oneshot::Receiver<Answer>) {
+impl PromptBroker {
+    /// Send `prompt` with `send` under a new request ID and wait for the answer.
+    pub async fn ask(
+        &self,
+        prompt: OperatorPrompt,
+        cancel: &CancellationToken,
+        send: impl FnOnce(u64, OperatorPrompt) -> bool,
+    ) -> Option<OperatorAnswer> {
         let id = self.next.fetch_add(1, Ordering::Relaxed) + 1;
         let (tx, rx) = oneshot::channel();
         lock(&self.pending).insert(id, tx);
-        (id, rx)
+        let answer = if send(id, prompt) {
+            tokio::select! {
+                _ = cancel.cancelled() => None,
+                r = rx => r.ok().flatten(),
+            }
+        } else {
+            None
+        };
+        lock(&self.pending).remove(&id);
+        answer
     }
 
-    fn close(&self, id: u64) {
-        lock(&self.pending).remove(&id);
+    pub fn answer(&self, request_id: u64, answer: Option<OperatorAnswer>) -> Result<(), AppError> {
+        match lock(&self.pending).remove(&request_id) {
+            Some(tx) => {
+                let _ = tx.send(answer);
+                Ok(())
+            }
+            None => Err(AppError::new(AppErrorKind::Validation, "该请求已失效")),
+        }
     }
 }
 
-/// The D04 answer. `secret: None` cancels the prompt: a connection test stops, a run is
-/// cancelled (IXD-32).
+/// The D04 answer of a connection test. `secret: None` cancels that test (IXD-32).
 #[tauri::command]
 pub fn submit_secret(
     state: State<'_, AppState>,
@@ -86,14 +88,16 @@ pub fn submit_secret(
     secret: Option<String>,
     remember: bool,
 ) -> Result<(), AppError> {
-    let sender = lock(&state.broker.pending).remove(&request_id);
-    match sender {
-        Some(tx) => {
-            let _ = tx.send(secret.map(|s| (SecretString::from(s), remember)));
-            Ok(())
-        }
-        None => Err(AppError::new(AppErrorKind::Validation, "该凭据请求已失效")),
-    }
+    state
+        .broker
+        .answer(request_id, secret_answer(secret, remember))
+}
+
+pub fn secret_answer(secret: Option<String>, remember: bool) -> Option<OperatorAnswer> {
+    secret.map(|s| OperatorAnswer::Secret {
+        value: SecretString::from(s),
+        remember,
+    })
 }
 
 /// Who the secrets are for.
@@ -114,21 +118,19 @@ struct Given {
 }
 
 /// D04 plus remembered credentials, for one connection attempt.
-pub struct PromptingSecrets<'a, F: Fn(CredentialPrompt) -> bool + Send + Sync> {
+pub struct PromptingSecrets<'a> {
     app: &'a AppHandle,
-    who: SecretContext,
-    send: F,
-    cancel: CancellationToken,
+    who: &'a SecretContext,
+    operator: &'a dyn Operator,
     given: Mutex<Option<Given>>,
 }
 
-impl<'a, F: Fn(CredentialPrompt) -> bool + Send + Sync> PromptingSecrets<'a, F> {
-    pub fn new(app: &'a AppHandle, who: SecretContext, cancel: CancellationToken, send: F) -> Self {
+impl<'a> PromptingSecrets<'a> {
+    pub fn new(app: &'a AppHandle, who: &'a SecretContext, operator: &'a dyn Operator) -> Self {
         Self {
             app,
             who,
-            send,
-            cancel,
+            operator,
             given: Mutex::new(None),
         }
     }
@@ -167,32 +169,25 @@ impl<'a, F: Fn(CredentialPrompt) -> bool + Send + Sync> PromptingSecrets<'a, F> 
             return Some(value);
         }
 
-        let broker = &self.app.state::<AppState>().broker;
-        let (request_id, rx) = broker.open();
-        let sent = (self.send)(CredentialPrompt {
-            request_id,
-            purpose: prompt.purpose.clone(),
-            server_name: self.who.server_name.clone(),
-            address: self.who.address.clone(),
-            user: self.who.user.clone(),
-            key_path: prompt.key_path.clone(),
-            context: self.who.context.clone(),
-            attempt: prompt.attempt,
-            max_attempts: MAX_ATTEMPTS,
-            rejected: prompt.rejected,
-            saved_rejected,
-            remember_default: saved_rejected,
-        });
-        let answer = if sent {
-            tokio::select! {
-                _ = self.cancel.cancelled() => None,
-                r = rx => r.ok().flatten(),
-            }
-        } else {
-            None
+        let answer = self
+            .operator
+            .ask(OperatorPrompt::Credential(CredentialPrompt {
+                purpose: prompt.purpose.clone(),
+                server_name: self.who.server_name.clone(),
+                address: self.who.address.clone(),
+                user: self.who.user.clone(),
+                key_path: prompt.key_path.clone(),
+                context: self.who.context.clone(),
+                attempt: prompt.attempt,
+                max_attempts: MAX_ATTEMPTS,
+                rejected: prompt.rejected,
+                saved_rejected,
+                remember_default: saved_rejected,
+            }))
+            .await;
+        let Some(OperatorAnswer::Secret { value, remember }) = answer else {
+            return None;
         };
-        broker.close(request_id);
-        let (value, remember) = answer?;
         *lock(&self.given) = Some(Given {
             purpose: prompt.purpose.clone(),
             value: value.clone(),
@@ -214,7 +209,7 @@ impl<'a, F: Fn(CredentialPrompt) -> bool + Send + Sync> PromptingSecrets<'a, F> 
     }
 }
 
-impl<F: Fn(CredentialPrompt) -> bool + Send + Sync> SecretSource for PromptingSecrets<'_, F> {
+impl SecretSource for PromptingSecrets<'_> {
     fn secret<'b>(&'b self, prompt: &'b SecretPrompt) -> SecretFuture<'b> {
         Box::pin(self.ask(prompt))
     }
