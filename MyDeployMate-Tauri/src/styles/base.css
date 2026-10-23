@@ -4,6 +4,12 @@
   box-sizing: border-box;
 }
 
+/* Thin scrollbars everywhere (UI-09 v0.4); the thumb follows the theme. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
 html,
 body,
 #app {
