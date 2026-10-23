@@ -308,6 +308,8 @@ async function deletePipeline() {
   min-height: 0;
 }
 
+/* Both columns scroll; 4 px of padding, taken back with a negative margin, keeps the focus halo
+   of edge fields from being clipped (UI-17). */
 .left,
 .right {
   display: flex;
@@ -315,10 +317,13 @@ async function deletePipeline() {
   gap: var(--space-4);
   min-width: 0;
   min-height: 0;
+  margin: -4px;
+  padding: 4px;
   overflow-y: auto;
 }
 
 .right {
+  margin-left: 0;
   padding-left: var(--space-4);
   border-left: 1px solid var(--border-subtle);
 }
