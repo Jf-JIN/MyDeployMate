@@ -2,7 +2,10 @@
 import { KeyRound, LoaderCircle, PauseCircle } from '@lucide/vue'
 import { computed } from 'vue'
 
+import { useT } from '@/i18n'
 import { useRunStore } from '@/stores/run'
+
+const t = useT()
 
 // IXD-02: while a run is active the top bar keeps its state and a way back to it on every page;
 // leaving a page never cancels the run.
@@ -11,11 +14,14 @@ const run = useRunStore()
 const view = computed(() => {
   const active = run.active
   if (!active) return null
-  if (active.waiting === 'confirm') return { icon: PauseCircle, text: '等待确认', tone: 'warning' }
-  if (active.waiting === 'credential') return { icon: KeyRound, text: '等待凭据', tone: 'warning' }
-  if (active.waiting === 'trust') return { icon: KeyRound, text: '等待确认身份', tone: 'warning' }
-  if (active.stopping) return { icon: LoaderCircle, text: '正在取消', tone: 'warning' }
-  return { icon: LoaderCircle, text: '运行中', tone: 'running' }
+  if (active.waiting === 'confirm')
+    return { icon: PauseCircle, text: t('runChip.waitingConfirm'), tone: 'warning' }
+  if (active.waiting === 'credential')
+    return { icon: KeyRound, text: t('runChip.waitingCredential'), tone: 'warning' }
+  if (active.waiting === 'trust')
+    return { icon: KeyRound, text: t('runChip.waitingTrust'), tone: 'warning' }
+  if (active.stopping) return { icon: LoaderCircle, text: t('runChip.stopping'), tone: 'warning' }
+  return { icon: LoaderCircle, text: t('runChip.running'), tone: 'running' }
 })
 </script>
 

@@ -2,6 +2,10 @@
 import { Eye, EyeOff } from '@lucide/vue'
 import { computed, ref } from 'vue'
 
+import { useT } from '@/i18n'
+
+const t = useT()
+
 // UI-16 / UI-17: 36 px input; readonly stays readable and copyable; password masking with a
 // fixed-position reveal toggle (UI-27).
 const model = defineModel<string>({ required: true })
@@ -57,8 +61,8 @@ const inputType = computed(() =>
       v-if="type === 'password'"
       type="button"
       class="reveal"
-      :aria-label="revealed ? '隐藏内容' : '显示内容'"
-      :title="revealed ? '隐藏内容' : '显示内容'"
+      :aria-label="revealed ? t('ui.textInput.hide') : t('ui.textInput.show')"
+      :title="revealed ? t('ui.textInput.hide') : t('ui.textInput.show')"
       :aria-pressed="revealed"
       :disabled="disabled"
       @click="revealed = !revealed"

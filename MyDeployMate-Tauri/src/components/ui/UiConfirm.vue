@@ -1,9 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, useId, watch } from 'vue'
 
+import { useT } from '@/i18n'
+
 import UiButton from './UiButton.vue'
 import UiDialog from './UiDialog.vue'
 import UiTextInput from './UiTextInput.vue'
+
+const t = useT()
 
 // Confirmation layer (UI-14, UI-28, IXD-03). The confirm button is never the default for Enter;
 // with `requireText` the user must type the name shown next to the field (protected
@@ -13,14 +17,14 @@ const props = withDefaults(
     open: boolean
     title: string
     confirmLabel: string
-    cancelLabel?: string
+    cancelLabel?: string | null
     danger?: boolean
     requireText?: string | null
     /** Why the action cannot be confirmed now; the confirm button stays disabled. */
     blockedReason?: string | null
     busy?: boolean
   }>(),
-  { cancelLabel: '取消', requireText: null, blockedReason: null },
+  { cancelLabel: null, requireText: null, blockedReason: null },
 )
 
 const emit = defineEmits<{ confirm: []; cancel: [] }>()
@@ -36,7 +40,7 @@ const reason = computed(
   () =>
     props.blockedReason ??
     (props.requireText && typed.value !== props.requireText
-      ? `请键入“${props.requireText}”后继续`
+      ? t('ui.confirm.typeToContinue', { text: props.requireText })
       : null),
 )
 </script>
@@ -52,14 +56,23 @@ const reason = computed(
     <div class="confirm-body">
       <slot />
       <div v-if="requireText" class="confirm-type">
-        <label :for="inputId" class="confirm-type-label">
-          键入 <strong class="confirm-type-name">{{ requireText }}</strong> 以确认
-        </label>
+        <i18n-t
+          keypath="ui.confirm.typeLabel"
+          tag="label"
+          :for="inputId"
+          class="confirm-type-label"
+        >
+          <template #text>
+            <strong class="confirm-type-name">{{ requireText }}</strong>
+          </template>
+        </i18n-t>
         <UiTextInput :id="inputId" v-model="typed" mono autofocus />
       </div>
     </div>
     <template #footer>
-      <UiButton :disabled="busy" @click="emit('cancel')">{{ cancelLabel }}</UiButton>
+      <UiButton :disabled="busy" @click="emit('cancel')">
+        {{ cancelLabel ?? t('common.cancel') }}
+      </UiButton>
       <UiButton
         :variant="danger ? 'danger' : 'primary'"
         :busy="busy"

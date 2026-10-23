@@ -3,9 +3,12 @@ import { computed } from 'vue'
 
 import UiSelect from '@/components/ui/UiSelect.vue'
 import UiTextInput from '@/components/ui/UiTextInput.vue'
+import { useT } from '@/i18n'
 import type { VariableValue } from '@/ipc'
 
 import SecretValueField from './SecretValueField.vue'
+
+const t = useT()
 
 // A variable value with its source (VAR-01, IXD-13): typed in, read from an environment
 // variable, or kept in Windows Credential Manager. Sensitive values cannot be typed in.
@@ -25,11 +28,11 @@ type Kind = VariableValue['kind']
 const options = computed(() => [
   {
     value: 'literal' as Kind,
-    label: '直接填写',
-    disabledReason: props.sensitive ? '敏感变量不能以明文保存' : undefined,
+    label: t('variables.value.literal'),
+    disabledReason: props.sensitive ? t('variables.value.sensitiveNoLiteral') : undefined,
   },
-  { value: 'envRef' as Kind, label: '环境变量' },
-  { value: 'secretRef' as Kind, label: '凭据管理器' },
+  { value: 'envRef' as Kind, label: t('variables.value.envRef') },
+  { value: 'secretRef' as Kind, label: t('variables.value.secretRef') },
 ])
 
 const kind = computed<Kind>({
@@ -61,15 +64,20 @@ const text = computed({
 
 <template>
   <div class="value-input">
-    <UiSelect v-model="kind" class="kind" :options="options" :aria-label="`${label}的来源`" />
+    <UiSelect
+      v-model="kind"
+      class="kind"
+      :options="options"
+      :aria-label="t('variables.value.sourceOf', { name: label })"
+    />
     <UiTextInput
       v-if="kind !== 'secretRef'"
       v-model="text"
       class="text"
       mono
-      :placeholder="kind === 'envRef' ? '环境变量名' : undefined"
+      :placeholder="kind === 'envRef' ? t('variables.value.envName') : undefined"
       :invalid="!!error"
-      :aria-label="kind === 'envRef' ? `${label}读取的环境变量名` : label"
+      :aria-label="kind === 'envRef' ? t('variables.value.envNameOf', { name: label }) : label"
     />
     <SecretValueField
       v-else

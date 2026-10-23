@@ -1,15 +1,23 @@
+import { translate } from '@/i18n'
 import type { Reference } from '@/ipc'
 
 /** One line per reference for confirmation and blocking dialogs (IXD-14, IXD-20). */
 export function describeReference(ref: Reference): string {
   switch (ref.kind) {
     case 'server':
-      return `服务器 ${ref.serverName} 属于该环境`
+      return translate('references.serverInEnv', { server: ref.serverName })
     case 'projectDefault':
-      return `项目 ${ref.projectName} 以它为默认环境`
+      return translate('references.projectDefaultEnv', { project: ref.projectName })
     case 'targetBinding':
-      return `项目 ${ref.projectName} 在 ${ref.environmentName} 中绑定了 ${ref.serverName}`
+      return translate('references.projectBinding', {
+        project: ref.projectName,
+        environment: ref.environmentName,
+        server: ref.serverName,
+      })
     case 'variableOverride':
-      return `项目 ${ref.projectName} 在该环境中覆盖了变量 ${ref.variableName}`
+      return translate('references.projectOverride', {
+        project: ref.projectName,
+        variable: ref.variableName,
+      })
   }
 }

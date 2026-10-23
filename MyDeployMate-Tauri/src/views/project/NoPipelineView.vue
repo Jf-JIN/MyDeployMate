@@ -6,7 +6,10 @@ import { useRouter } from 'vue-router'
 import EmptyState from '@/components/EmptyState.vue'
 import PipelineDialog from '@/components/pipeline/PipelineDialog.vue'
 import UiButton from '@/components/ui/UiButton.vue'
+import { useT } from '@/i18n'
 import type { Pipeline, Project } from '@/ipc'
+
+const t = useT()
 
 // A project without pipelines (validation normally prevents this, e.g. after an import).
 const props = defineProps<{ project: Project; pipeline: Pipeline | null }>()
@@ -21,8 +24,14 @@ function onSaved(pipelineId: string) {
 </script>
 
 <template>
-  <EmptyState title="尚无流程" detail="流程是一组按顺序执行的步骤。" :icon="Workflow">
-    <UiButton :icon="Plus" variant="primary" @click="creating = true">新建流程</UiButton>
+  <EmptyState
+    :title="t('pipelines.empty.title')"
+    :detail="t('pipelines.empty.detail')"
+    :icon="Workflow"
+  >
+    <UiButton :icon="Plus" variant="primary" @click="creating = true">
+      {{ t('tree.newPipeline') }}
+    </UiButton>
   </EmptyState>
   <PipelineDialog
     :mode="creating ? 'create' : null"

@@ -5,10 +5,13 @@ import { useRoute, useRouter } from 'vue-router'
 
 import PipelineDialog from '@/components/pipeline/PipelineDialog.vue'
 import UiIconButton from '@/components/ui/UiIconButton.vue'
+import { useT } from '@/i18n'
 import type { Project } from '@/ipc'
 import { useDraftStore } from '@/stores/drafts'
 import { useSessionStore } from '@/stores/session'
 import { useWorkspaceStore } from '@/stores/workspace'
+
+const t = useT()
 
 // IXD-02 (v0.3): project → pipeline tree beside the rail; a pipeline opens P02 in one click.
 const workspace = useWorkspaceStore()
@@ -76,13 +79,13 @@ function environmentLabel(project: Project) {
 </script>
 
 <template>
-  <aside class="tree" aria-label="项目与流程">
+  <aside class="tree" :aria-label="t('tree.title')">
     <header class="tree-header">
-      <h2 class="tree-title">项目与流程</h2>
+      <h2 class="tree-title">{{ t('tree.title') }}</h2>
       <slot name="actions" />
       <UiIconButton
         :icon="PanelLeftClose"
-        label="收起项目树"
+        :label="t('tree.collapse')"
         @click="session.treeCollapsed = true"
       />
     </header>
@@ -92,11 +95,11 @@ function environmentLabel(project: Project) {
         v-model="query"
         class="control tree-search-input"
         type="search"
-        placeholder="搜索项目或流程"
-        aria-label="搜索项目或流程"
+        :placeholder="t('tree.search')"
+        :aria-label="t('tree.search')"
       />
     </div>
-    <ul v-if="visible.length" class="tree-list" role="tree" aria-label="项目">
+    <ul v-if="visible.length" class="tree-list" role="tree" :aria-label="t('tree.projects')">
       <li
         v-for="{ project, pipelines } in visible"
         :key="project.id"
@@ -111,7 +114,9 @@ function environmentLabel(project: Project) {
           <button
             type="button"
             class="tree-toggle"
-            :aria-label="`${isOpen(project) ? '收起' : '展开'} ${project.name}`"
+            :aria-label="
+              t(isOpen(project) ? 'tree.collapseItem' : 'tree.expandItem', { name: project.name })
+            "
             @click="toggle(project)"
           >
             <component
@@ -146,7 +151,7 @@ function environmentLabel(project: Project) {
               <span class="tree-name">{{ pipeline.name }}</span>
             </RouterLink>
           </li>
-          <li v-if="pipelines.length === 0" class="tree-empty">尚无流程</li>
+          <li v-if="pipelines.length === 0" class="tree-empty">{{ t('tree.noPipelines') }}</li>
           <li v-if="!query.trim()" role="none">
             <button
               type="button"
@@ -154,17 +159,19 @@ function environmentLabel(project: Project) {
               @click="createPipeline(project)"
             >
               <Plus :size="14" :stroke-width="1.75" aria-hidden="true" />
-              <span class="tree-name">新建流程</span>
+              <span class="tree-name">{{ t('tree.newPipeline') }}</span>
             </button>
           </li>
         </ul>
       </li>
     </ul>
     <p v-else-if="workspace.projects.length" class="tree-empty tree-empty--block">
-      没有匹配“{{ query }}”的项目或流程
-      <button type="button" class="tree-clear" @click="query = ''">清除搜索</button>
+      {{ t('tree.noMatch', { query }) }}
+      <button type="button" class="tree-clear" @click="query = ''">
+        {{ t('tree.clearSearch') }}
+      </button>
     </p>
-    <p v-else class="tree-empty tree-empty--block">尚无项目</p>
+    <p v-else class="tree-empty tree-empty--block">{{ t('tree.noProjects') }}</p>
     <div v-if="$slots.footer" class="tree-footer"><slot name="footer" /></div>
     <PipelineDialog
       v-if="creatingFor"

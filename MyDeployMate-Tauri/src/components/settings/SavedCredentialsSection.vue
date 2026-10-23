@@ -7,9 +7,12 @@ import { formatTime } from '@/components/servers/testStatus'
 import UiConfirm from '@/components/ui/UiConfirm.vue'
 import UiIconButton from '@/components/ui/UiIconButton.vue'
 import UiNotice from '@/components/ui/UiNotice.vue'
+import { useT } from '@/i18n'
 import { call, toAppError, type SavedCredential } from '@/ipc'
 import { useToastStore } from '@/stores/toast'
 import { useWorkspaceStore } from '@/stores/workspace'
+
+const t = useT()
 
 // P10 › 已保存凭据 (SEC-03, IXD-36). Lists what is remembered in Windows Credential Manager,
 // never the secrets, and clears entries one by one. A cleared credential is asked for again
@@ -48,7 +51,7 @@ async function applyClear() {
     await call('forget_credential', {
       credential: { serverId: c.serverId, user: c.user, purpose: c.purpose },
     })
-    toast.show('已清除保存的凭据')
+    toast.show(t('settings.credentials.cleared'))
     await load()
   } catch (e) {
     error.value = toAppError(e).message
@@ -62,9 +65,9 @@ async function applyClear() {
 <template>
   <section class="section" aria-labelledby="cred-title">
     <header class="section-head">
-      <h2 id="cred-title">已保存凭据</h2>
+      <h2 id="cred-title">{{ t('settings.credentials.title') }}</h2>
       <p class="section-hint">
-        在凭据弹窗中勾选“记住”后保存到 Windows 凭据管理器的密码和口令。这里只显示用途，不显示内容。
+        {{ t('settings.credentials.hint') }}
       </p>
     </header>
     <UiNotice v-if="error" tone="failure" dismissible @dismiss="error = null">{{ error }}</UiNotice>
@@ -72,18 +75,20 @@ async function applyClear() {
       <table class="table">
         <thead>
           <tr>
-            <th scope="col">服务器</th>
-            <th scope="col">登录账号</th>
-            <th scope="col">用途</th>
-            <th scope="col" class="col-time">保存时间</th>
-            <th scope="col" class="col-actions"><span class="sr-only">操作</span></th>
+            <th scope="col">{{ t('common.server') }}</th>
+            <th scope="col">{{ t('common.user') }}</th>
+            <th scope="col">{{ t('settings.credentials.purpose') }}</th>
+            <th scope="col" class="col-time">{{ t('settings.credentials.savedAt') }}</th>
+            <th scope="col" class="col-actions">
+              <span class="sr-only">{{ t('common.actions') }}</span>
+            </th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="c in saved" :key="key(c)">
             <td>
               <span v-if="serverName(c.serverId)">{{ serverName(c.serverId) }}</span>
-              <span v-else class="muted">已删除的服务器</span>
+              <span v-else class="muted">{{ t('common.deletedServer') }}</span>
             </td>
             <td>{{ c.user }}</td>
             <td>{{ purposeLabel(c.purpose) }}</td>
@@ -91,7 +96,12 @@ async function applyClear() {
             <td class="col-actions">
               <UiIconButton
                 :icon="Trash2"
-                :label="`清除 ${serverName(c.serverId) ?? ''} ${purposeLabel(c.purpose)}`"
+                :label="
+                  t('settings.credentials.clearItem', {
+                    server: serverName(c.serverId) ?? '',
+                    purpose: purposeLabel(c.purpose),
+                  })
+                "
                 @click="clearing = c"
               />
             </td>
@@ -99,21 +109,25 @@ async function applyClear() {
         </tbody>
       </table>
     </div>
-    <p v-else class="muted">尚无保存的凭据。</p>
+    <p v-else class="muted">{{ t('settings.credentials.empty') }}</p>
 
     <UiConfirm
       :open="!!clearing"
-      title="清除保存的凭据"
-      confirm-label="清除"
+      :title="t('settings.credentials.clearTitle')"
+      :confirm-label="t('settings.credentials.clear')"
       danger
       :busy="busy"
       @cancel="clearing = null"
       @confirm="applyClear"
     >
       <p v-if="clearing">
-        清除 {{ serverName(clearing.serverId) ?? '已删除的服务器' }}（{{ clearing.user }}）的{{
-          purposeLabel(clearing.purpose)
-        }}。之后连接时会重新询问。
+        {{
+          t('settings.credentials.clearBody', {
+            server: serverName(clearing.serverId) ?? t('common.deletedServer'),
+            user: clearing.user,
+            purpose: purposeLabel(clearing.purpose),
+          })
+        }}
       </p>
     </UiConfirm>
   </section>

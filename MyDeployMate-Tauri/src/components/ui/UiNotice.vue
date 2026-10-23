@@ -2,7 +2,11 @@
 import { CircleAlert, CircleCheck, CircleHelp, Info, TriangleAlert, X } from '@lucide/vue'
 import { computed } from 'vue'
 
+import { useT } from '@/i18n'
+
 import type { Tone } from './types'
+
+const t = useT()
 
 // Inline notice bar (UI-19). Failures, permission denials, identity changes and unknown results
 // stay on the page until handled, so only non-critical notices offer a close button.
@@ -35,8 +39,8 @@ const role = computed(() => (props.tone === 'failure' ? 'alert' : 'status'))
       v-if="dismissible"
       type="button"
       class="notice-close"
-      aria-label="关闭提示"
-      title="关闭提示"
+      :aria-label="t('ui.notice.dismiss')"
+      :title="t('ui.notice.dismiss')"
       @click="$emit('dismiss')"
     >
       <X :size="16" :stroke-width="1.75" aria-hidden="true" />

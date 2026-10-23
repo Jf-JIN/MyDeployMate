@@ -17,6 +17,7 @@ import UiTag from '@/components/ui/UiTag.vue'
 import UiTextarea from '@/components/ui/UiTextarea.vue'
 import UiTextInput from '@/components/ui/UiTextInput.vue'
 import { cloneWorkspace, focusFirstInvalid, useIssues } from '@/composables/workspaceDraft'
+import { useT } from '@/i18n'
 import {
   call,
   toAppError,
@@ -30,6 +31,8 @@ import {
 import { useWorkspaceStore } from '@/stores/workspace'
 
 import { describeKeyFormat, parseTags } from './serverForm'
+
+const t = useT()
 
 // D01 server form (IXD-16, IXD-17, IXD-20). Edits a copy; cancel leaves the saved server as it
 // was. Save runs the Rust edit (bindings an environment change removes) and the normal
@@ -76,29 +79,31 @@ watch(
 )
 
 const title = computed(() =>
-  props.isNew ? '新增服务器' : `编辑服务器 ${props.server?.name ?? ''}`,
+  props.isNew
+    ? t('servers.dialog.createTitle')
+    : t('servers.dialog.editTitle', { name: props.server?.name ?? '' }),
 )
 
 const environmentOptions = computed(() =>
   store.environments.map((e) => ({
     value: e.id,
-    label: e.protected ? `${e.name}（保护环境）` : e.name,
+    label: e.protected ? t('common.withProtected', { name: e.name }) : e.name,
   })),
 )
 
 // ---- Authentication ------------------------------------------------------------------------
 
 type AuthChoice = 'keyFile' | 'agent' | 'passwordPrompt' | 'passwordEnv'
-const authOptions = [
-  { value: 'keyFile' as const, label: '私钥文件' },
-  { value: 'agent' as const, label: 'SSH Agent' },
-  { value: 'passwordPrompt' as const, label: '运行时输入密码' },
-  { value: 'passwordEnv' as const, label: '密码环境变量' },
-]
-const agentOptions = [
+const authOptions = computed(() =>
+  (['keyFile', 'agent', 'passwordPrompt', 'passwordEnv'] as const).map((value) => ({
+    value,
+    label: t(`servers.dialog.auth.${value}`),
+  })),
+)
+const agentOptions = computed(() => [
   { value: 'openssh' as const, label: 'Windows OpenSSH Agent' },
-  { value: 'pageant' as const, label: 'Pageant（PuTTY）' },
-]
+  { value: 'pageant' as const, label: t('servers.dialog.pageant') },
+])
 
 const authChoice = computed<AuthChoice>({
   get() {
@@ -134,13 +139,13 @@ watch(passwordEnv, (name) => {
 
 async function browseKey() {
   const picked = await openFileDialog({
-    title: '选择私钥文件',
+    title: t('servers.dialog.pickKey'),
     multiple: false,
     directory: false,
     defaultPath: keyPath.value || undefined,
     filters: [
-      { name: '私钥文件', extensions: ['*'] },
-      { name: 'PuTTY 私钥', extensions: ['ppk'] },
+      { name: t('servers.dialog.keyFilter'), extensions: ['*'] },
+      { name: t('servers.dialog.puttyFilter'), extensions: ['ppk'] },
     ],
   })
   if (typeof picked === 'string') keyPath.value = picked
@@ -168,7 +173,7 @@ watch([keyPath, authChoice], inspectKey, { immediate: true })
 const keyHint = computed(() => {
   if (keyError.value) return keyError.value
   if (keyFormat.value) return describeKeyFormat(keyFormat.value)
-  return '支持 OpenSSH 私钥和 PuTTY .ppk；只保存路径，不保存私钥内容。'
+  return t('servers.dialog.keyHint')
 })
 
 // IXD-17: whether the variable exists, never its value.
@@ -187,11 +192,12 @@ watch([passwordEnv, authChoice], checkEnv, { immediate: true })
 // ---- Privilege -----------------------------------------------------------------------------
 
 type PrivilegeMode = PrivilegePolicy['mode']
-const privilegeOptions = [
-  { value: 'none' as const, label: '不提权' },
-  { value: 'sudoNonInteractive' as const, label: 'sudo 免交互（sudo -n）' },
-  { value: 'sudoPassword' as const, label: 'sudo 运行时输入密码' },
-]
+const privilegeOptions = computed(() =>
+  (['none', 'sudoNonInteractive', 'sudoPassword'] as const).map((value) => ({
+    value,
+    label: t(`servers.dialog.privilege.${value}`),
+  })),
+)
 
 const privilegeMode = computed<PrivilegeMode>({
   get: () => form.value?.privilege.mode ?? 'none',
@@ -317,18 +323,18 @@ const pendingEnvironment = computed(() =>
     <div v-if="form" ref="body" class="server-form">
       <UiNotice v-if="error" tone="failure">{{ error }}</UiNotice>
       <UiNotice v-if="elsewhere.length" tone="warning">
-        配置的其他位置还有问题，需要先修正才能保存：
+        {{ t('common.issuesElsewhereShort') }}
         <ul class="issues">
           <li v-for="issue in elsewhere" :key="issue.path">{{ issue.message }}</li>
         </ul>
       </UiNotice>
 
       <section class="group" aria-labelledby="srv-basic">
-        <h3 id="srv-basic">基本连接</h3>
+        <h3 id="srv-basic">{{ t('servers.dialog.basic') }}</h3>
         <div class="grid">
           <UiField
             v-slot="{ id, describedBy, invalid }"
-            label="名称"
+            :label="t('common.name')"
             :error="fieldError('name')"
             required
           >
@@ -342,7 +348,7 @@ const pendingEnvironment = computed(() =>
           </UiField>
           <UiField
             v-slot="{ id, describedBy, invalid }"
-            label="环境"
+            :label="t('common.environment')"
             :error="fieldError('environmentId')"
             required
           >
@@ -356,8 +362,8 @@ const pendingEnvironment = computed(() =>
           </UiField>
           <UiField
             v-slot="{ id, describedBy, invalid }"
-            label="地址"
-            hint="域名、IPv4 或 IPv6，不含端口"
+            :label="t('common.address')"
+            :hint="t('servers.dialog.hostHint')"
             :error="fieldError('host')"
             required
           >
@@ -372,7 +378,7 @@ const pendingEnvironment = computed(() =>
           <div class="grid grid--pair">
             <UiField
               v-slot="{ id, describedBy, invalid }"
-              label="端口"
+              :label="t('common.port')"
               :error="fieldError('port')"
               required
             >
@@ -387,7 +393,7 @@ const pendingEnvironment = computed(() =>
             </UiField>
             <UiField
               v-slot="{ id, describedBy, invalid }"
-              label="登录用户"
+              :label="t('servers.user')"
               :error="fieldError('user')"
               required
             >
@@ -404,16 +410,16 @@ const pendingEnvironment = computed(() =>
       </section>
 
       <section class="group" aria-labelledby="srv-auth">
-        <h3 id="srv-auth">认证</h3>
+        <h3 id="srv-auth">{{ t('servers.dialog.authTitle') }}</h3>
         <div class="grid">
-          <UiField v-slot="{ id }" label="认证方式">
+          <UiField v-slot="{ id }" :label="t('servers.dialog.authMethod')">
             <UiSelect :id="id" v-model="authChoice" :options="authOptions" />
           </UiField>
 
           <UiField
             v-if="authChoice === 'keyFile'"
             v-slot="{ id, describedBy, invalid }"
-            label="私钥文件"
+            :label="t('servers.dialog.auth.keyFile')"
             :hint="keyHint"
             :error="fieldError('auth.path')"
             required
@@ -427,7 +433,12 @@ const pendingEnvironment = computed(() =>
                 :invalid="invalid"
                 :described-by="describedBy"
               />
-              <UiIconButton tonal :icon="FolderOpen" label="浏览私钥文件" @click="browseKey" />
+              <UiIconButton
+                tonal
+                :icon="FolderOpen"
+                :label="t('servers.dialog.browseKey')"
+                @click="browseKey"
+              />
             </div>
           </UiField>
 
@@ -437,22 +448,22 @@ const pendingEnvironment = computed(() =>
             label="Agent"
             :hint="
               agent === 'openssh'
-                ? '使用 Windows 的 OpenSSH Authentication Agent 服务中的密钥。'
-                : '使用 PuTTY Pageant 中已加载的密钥。'
+                ? t('servers.dialog.opensshHint')
+                : t('servers.dialog.pageantHint')
             "
           >
             <UiSelect :id="id" v-model="agent" :options="agentOptions" />
           </UiField>
 
           <p v-else-if="authChoice === 'passwordPrompt'" class="note">
-            每次连接时询问登录密码，不写入配置。
+            {{ t('servers.dialog.promptNote') }}
           </p>
 
           <UiField
             v-else
             v-slot="{ id, describedBy, invalid }"
-            label="环境变量名"
-            hint="从本机进程环境读取密码；修改环境变量后需重启应用。"
+            :label="t('servers.dialog.envName')"
+            :hint="t('servers.dialog.envHint')"
             :error="fieldError('auth.source.name')"
             required
           >
@@ -465,27 +476,31 @@ const pendingEnvironment = computed(() =>
                 :invalid="invalid"
                 :described-by="describedBy"
               />
-              <UiTag v-if="envPresent === true" tone="success">已设置</UiTag>
-              <UiTag v-else-if="envPresent === false" tone="warning">当前未设置</UiTag>
+              <UiTag v-if="envPresent === true" tone="success">
+                {{ t('servers.dialog.envSet') }}
+              </UiTag>
+              <UiTag v-else-if="envPresent === false" tone="warning">
+                {{ t('servers.dialog.envUnset') }}
+              </UiTag>
             </div>
           </UiField>
         </div>
       </section>
 
       <section class="group" aria-labelledby="srv-priv">
-        <h3 id="srv-priv">默认提权</h3>
+        <h3 id="srv-priv">{{ t('servers.dialog.privTitle') }}</h3>
         <div class="grid">
           <UiField
             v-slot="{ id }"
-            label="提权方式"
-            hint="步骤可单独覆盖；运行时密码只在执行时询问。"
+            :label="t('servers.dialog.privMode')"
+            :hint="t('servers.dialog.privHint')"
           >
             <UiSelect :id="id" v-model="privilegeMode" :options="privilegeOptions" />
           </UiField>
           <UiField
             v-if="privilegeMode !== 'none'"
             v-slot="{ id, describedBy, invalid }"
-            label="目标用户"
+            :label="t('servers.dialog.runAs')"
             :error="fieldError('privilege.runAs')"
             required
           >
@@ -501,21 +516,21 @@ const pendingEnvironment = computed(() =>
       </section>
 
       <section class="group" aria-labelledby="srv-compat">
-        <h3 id="srv-compat">兼容性</h3>
+        <h3 id="srv-compat">{{ t('servers.dialog.compat') }}</h3>
         <div class="switch-row">
           <UiSwitch :id="legacyId" v-model="form.allowLegacyRsa" />
-          <label :for="legacyId">允许旧算法（ssh-rsa / SHA-1）</label>
+          <label :for="legacyId">{{ t('servers.dialog.legacy') }}</label>
         </div>
-        <p class="note">仅用于无法升级的旧服务器，安全性较低。</p>
+        <p class="note">{{ t('servers.dialog.legacyNote') }}</p>
       </section>
 
       <section class="group" aria-labelledby="srv-other">
-        <h3 id="srv-other">其他</h3>
+        <h3 id="srv-other">{{ t('servers.dialog.other') }}</h3>
         <div class="grid">
           <UiField
             v-slot="{ id, describedBy, invalid }"
-            label="标签"
-            hint="用空格或逗号分隔"
+            :label="t('servers.tags')"
+            :hint="t('servers.dialog.tagsHint')"
             :error="tagsError"
           >
             <UiTextInput
@@ -527,7 +542,7 @@ const pendingEnvironment = computed(() =>
           </UiField>
           <UiField
             v-slot="{ id, describedBy, invalid }"
-            label="连接超时（秒）"
+            :label="t('servers.dialog.timeout')"
             :error="fieldError('connectTimeoutSec')"
           >
             <UiNumberInput
@@ -539,7 +554,11 @@ const pendingEnvironment = computed(() =>
             />
           </UiField>
         </div>
-        <UiField v-slot="{ id, describedBy, invalid }" label="备注" :error="fieldError('notes')">
+        <UiField
+          v-slot="{ id, describedBy, invalid }"
+          :label="t('servers.dialog.notes')"
+          :error="fieldError('notes')"
+        >
           <UiTextarea
             :id="id"
             v-model="form.notes"
@@ -552,27 +571,31 @@ const pendingEnvironment = computed(() =>
     </div>
 
     <template #footer>
-      <UiButton :disabled="saving" @click="emit('cancel')">取消</UiButton>
-      <UiButton variant="primary" :busy="saving" @click="onSave">保存</UiButton>
+      <UiButton :disabled="saving" @click="emit('cancel')">{{ t('common.cancel') }}</UiButton>
+      <UiButton variant="primary" :busy="saving" @click="onSave">{{ t('common.save') }}</UiButton>
     </template>
   </UiDialog>
 
   <UiConfirm
     :open="!!pending"
-    title="更改服务器环境"
-    confirm-label="更改环境并解除绑定"
+    :title="t('servers.dialog.moveTitle')"
+    :confirm-label="t('servers.dialog.moveConfirm')"
     danger
     :busy="saving"
     @cancel="pending = null"
     @confirm="pending && commit(pending)"
   >
-    <p>{{ form?.name }} 将移到 {{ pendingEnvironment }}，以下旧环境中的目标绑定会被移除：</p>
+    <p>
+      {{
+        t('servers.dialog.moveBody', { name: form?.name ?? '', environment: pendingEnvironment })
+      }}
+    </p>
     <ul class="issues">
       <li v-for="(r, i) in pending?.removedBindings ?? []" :key="i">
         {{ describeReference(r) }}
       </li>
     </ul>
-    <p class="note">取消则不修改环境和绑定。</p>
+    <p class="note">{{ t('servers.dialog.moveCancel') }}</p>
   </UiConfirm>
 </template>
 

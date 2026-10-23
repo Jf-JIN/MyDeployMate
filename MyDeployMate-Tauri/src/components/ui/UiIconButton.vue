@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { computed, useId, type Component } from 'vue'
 
+import { useT } from '@/i18n'
+
+const t = useT()
+
 // UI-08: icon-only actions always carry an accessible name and a tooltip.
 const props = withDefaults(
   defineProps<{
@@ -20,7 +24,9 @@ const emit = defineEmits<{ click: [MouseEvent] }>()
 
 const reasonId = useId()
 const tooltip = computed(() =>
-  props.disabledReason ? `${props.label}（${props.disabledReason}）` : props.label,
+  props.disabledReason
+    ? t('common.withReason', { label: props.label, reason: props.disabledReason })
+    : props.label,
 )
 
 function onClick(event: MouseEvent) {

@@ -1,12 +1,13 @@
 import { defineStore } from 'pinia'
 import { computed, ref, shallowRef } from 'vue'
 
+import type { MessageKey } from '@/i18n'
 import type { Workspace } from '@/ipc'
 
 /** An editor that holds unsaved changes, such as the pipeline editor or the server form. */
 export interface DraftSource {
-  /** What the guard dialog names, for example "流程 发布流程". */
-  label: string
+  /** What the guard dialog names, for example "流程编辑". */
+  label: MessageKey
   /** Read reactive state here so the guard updates as the draft changes. */
   isDirty: () => boolean
   /** Resolve true when saved; false when validation failed and the user must fix fields. */
@@ -25,7 +26,7 @@ export type LeaveChoice = 'save' | 'discard' | 'cancel'
 export const useDraftStore = defineStore('drafts', () => {
   const sources = shallowRef<DraftSource[]>([])
   const pending = ref<{
-    labels: string[]
+    labels: MessageKey[]
     /** False before a run: unsaved changes must be saved or the action dropped (IXD-21). */
     discardable: boolean
     resolve: (choice: LeaveChoice) => void

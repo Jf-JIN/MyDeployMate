@@ -20,9 +20,12 @@ import {
   setOverride,
 } from '@/components/variables/variables'
 import { useProjectDraft } from '@/composables/projectDraft'
+import { useT } from '@/i18n'
 import { call, type Pipeline, type Project, type Variable, type VariableView } from '@/ipc'
 import { useSessionStore } from '@/stores/session'
 import { useWorkspaceStore } from '@/stores/workspace'
+
+const t = useT()
 
 // P04 variables and environment overrides (IXD-13). Project variables are edited here; global
 // ones are shown read-only and can be overridden per environment. Effective values follow the
@@ -33,7 +36,7 @@ const store = useWorkspaceStore()
 const session = useSessionStore()
 const page = ref<HTMLElement | null>(null)
 const { draft, project, fieldError, outside, error } = useProjectDraft(
-  '变量与环境',
+  'drafts.labels.variables',
   page,
   () => props.project.id,
 )
@@ -162,23 +165,30 @@ function confirmUnmark() {
     <DraftNotices :error="error" :issues="elsewhere" />
 
     <header class="head">
-      <p class="hint">
-        当前环境 <strong>{{ environmentName }}</strong>
-        。覆盖值只作用于当前环境；“未设置”继承默认值，空文本也是一个已设置的值。
-      </p>
-      <UiButton :icon="Plus" compact @click="addVariable">新增变量</UiButton>
+      <i18n-t keypath="projectVars.hint" tag="p" class="hint">
+        <template #environment>
+          <strong>{{ environmentName }}</strong>
+        </template>
+      </i18n-t>
+      <UiButton :icon="Plus" compact @click="addVariable">
+        {{ t('settings.vars.add') }}
+      </UiButton>
     </header>
 
     <div class="table-wrap">
       <table class="table">
         <thead>
           <tr>
-            <th scope="col" class="col-name">变量名</th>
-            <th scope="col" class="col-value">默认值</th>
-            <th scope="col" class="col-value">{{ environmentName }} 覆盖</th>
-            <th scope="col" class="col-effective">生效值</th>
-            <th scope="col" class="col-sensitive">敏感</th>
-            <th scope="col" class="col-actions"><span class="sr-only">操作</span></th>
+            <th scope="col" class="col-name">{{ t('common.variableName') }}</th>
+            <th scope="col" class="col-value">{{ t('projectVars.default') }}</th>
+            <th scope="col" class="col-value">
+              {{ t('projectVars.override', { environment: environmentName }) }}
+            </th>
+            <th scope="col" class="col-effective">{{ t('projectVars.effective') }}</th>
+            <th scope="col" class="col-sensitive">{{ t('common.sensitive') }}</th>
+            <th scope="col" class="col-actions">
+              <span class="sr-only">{{ t('common.actions') }}</span>
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -188,7 +198,7 @@ function confirmUnmark() {
                 :model-value="v.name"
                 mono
                 :invalid="!!variableError(i, 'name')"
-                :aria-label="`变量 ${i + 1} 名称`"
+                :aria-label="t('settings.vars.nameOf', { n: i + 1 })"
                 @update:model-value="rename(v, $event)"
               />
               <p v-if="variableError(i, 'name')" class="cell-error">
@@ -198,7 +208,7 @@ function confirmUnmark() {
             <td class="col-value">
               <VariableValueInput
                 v-model="v.value"
-                :label="`${v.name || '变量'} 的默认值`"
+                :label="t('projectVars.defaultOf', { name: v.name || t('common.variable') })"
                 :sensitive="v.sensitive"
                 :error="variableError(i, 'value')"
                 :variable-id="v.id"
@@ -210,7 +220,12 @@ function confirmUnmark() {
                 <div class="override">
                   <VariableValueInput
                     v-model="overrideOf(v)!.value"
-                    :label="`${v.name || '变量'} 在 ${environmentName} 的覆盖值`"
+                    :label="
+                      t('projectVars.overrideOf', {
+                        name: v.name || t('common.variable'),
+                        environment: environmentName,
+                      })
+                    "
                     :sensitive="v.sensitive"
                     :error="overrideError(v.name)"
                     :variable-id="v.id"
@@ -219,20 +234,20 @@ function confirmUnmark() {
                   />
                   <UiIconButton
                     :icon="RotateCcw"
-                    :label="`删除 ${v.name} 的 ${environmentName} 覆盖，恢复继承`"
+                    :label="t('projectVars.reset', { name: v.name, environment: environmentName })"
                     @click="resetOverride(v)"
                   />
                 </div>
               </template>
               <span v-else class="unset">
-                <span class="muted">未设置</span>
+                <span class="muted">{{ t('projectVars.unset') }}</span>
                 <UiButton
                   compact
                   variant="ghost"
-                  :disabled-reason="v.name ? null : '先填写变量名'"
+                  :disabled-reason="v.name ? null : t('projectVars.nameFirst')"
                   @click="addOverride(v)"
                 >
-                  设置覆盖
+                  {{ t('projectVars.setOverride') }}
                 </UiButton>
               </span>
             </td>
@@ -241,9 +256,9 @@ function confirmUnmark() {
                 <code v-if="views.get(v.name)!.display" class="effective">{{
                   views.get(v.name)!.display
                 }}</code>
-                <span v-else-if="views.get(v.name)!.display === ''" class="effective muted"
-                  >（空文本）</span
-                >
+                <span v-else-if="views.get(v.name)!.display === ''" class="effective muted">{{
+                  t('projectVars.emptyText')
+                }}</span>
                 <span v-else class="cell-error">{{ views.get(v.name)!.error }}</span>
                 <span class="source">{{ sourceOf(v) }}</span>
               </template>
@@ -251,13 +266,17 @@ function confirmUnmark() {
             <td class="col-sensitive">
               <UiCheckbox
                 :model-value="v.sensitive"
-                :label="`${v.name || '变量'} 为敏感变量`"
+                :label="t('settings.vars.sensitiveOf', { name: v.name || t('common.variable') })"
                 hide-label
                 @update:model-value="setSensitive(v, $event)"
               />
             </td>
             <td class="col-actions">
-              <UiIconButton :icon="Trash2" :label="`删除变量 ${v.name}`" @click="remove(v)" />
+              <UiIconButton
+                :icon="Trash2"
+                :label="t('settings.vars.delete', { name: v.name })"
+                @click="remove(v)"
+              />
             </td>
           </tr>
 
@@ -265,16 +284,18 @@ function confirmUnmark() {
             <td class="col-name">
               <span class="global-name">
                 <code>{{ g.name }}</code>
-                <UiTag>全局</UiTag>
+                <UiTag>{{ t('projectVars.global') }}</UiTag>
               </span>
             </td>
-            <td class="col-value muted">在配置中心修改</td>
+            <td class="col-value muted">{{ t('projectVars.editInSettings') }}</td>
             <td class="col-value">
               <template v-if="overrideOf(g)">
                 <div class="override">
                   <VariableValueInput
                     v-model="overrideOf(g)!.value"
-                    :label="`${g.name} 在 ${environmentName} 的覆盖值`"
+                    :label="
+                      t('projectVars.overrideOf', { name: g.name, environment: environmentName })
+                    "
                     :sensitive="g.sensitive"
                     :error="overrideError(g.name)"
                     :variable-id="g.id"
@@ -283,14 +304,16 @@ function confirmUnmark() {
                   />
                   <UiIconButton
                     :icon="RotateCcw"
-                    :label="`删除 ${g.name} 的 ${environmentName} 覆盖，恢复继承`"
+                    :label="t('projectVars.reset', { name: g.name, environment: environmentName })"
                     @click="resetOverride(g)"
                   />
                 </div>
               </template>
               <span v-else class="unset">
-                <span class="muted">未设置</span>
-                <UiButton compact variant="ghost" @click="addOverride(g)">设置覆盖</UiButton>
+                <span class="muted">{{ t('projectVars.unset') }}</span>
+                <UiButton compact variant="ghost" @click="addOverride(g)">
+                  {{ t('projectVars.setOverride') }}
+                </UiButton>
               </span>
             </td>
             <td class="col-effective">
@@ -298,21 +321,21 @@ function confirmUnmark() {
                 <code v-if="views.get(g.name)!.display" class="effective">{{
                   views.get(g.name)!.display
                 }}</code>
-                <span v-else-if="views.get(g.name)!.display === ''" class="effective muted"
-                  >（空文本）</span
-                >
+                <span v-else-if="views.get(g.name)!.display === ''" class="effective muted">{{
+                  t('projectVars.emptyText')
+                }}</span>
                 <span v-else class="cell-error">{{ views.get(g.name)!.error }}</span>
                 <span class="source">{{ sourceOf(g) }}</span>
               </template>
             </td>
             <td class="col-sensitive">
-              <UiTag v-if="g.sensitive" tone="warning">敏感</UiTag>
+              <UiTag v-if="g.sensitive" tone="warning">{{ t('common.sensitive') }}</UiTag>
             </td>
             <td class="col-actions" />
           </tr>
 
           <tr v-if="!project.variables.length && !inherited.length">
-            <td colspan="6" class="muted">尚无变量</td>
+            <td colspan="6" class="muted">{{ t('projectVars.empty') }}</td>
           </tr>
         </tbody>
       </table>
@@ -320,15 +343,12 @@ function confirmUnmark() {
 
     <UiConfirm
       :open="!!unmarking"
-      title="取消敏感标记"
-      confirm-label="取消敏感标记"
+      :title="t('projectVars.unmarkTitle')"
+      :confirm-label="t('projectVars.unmarkTitle')"
       @cancel="unmarking = null"
       @confirm="confirmUnmark"
     >
-      <p>
-        取消后，{{ unmarking?.name }}
-        的值可以直接写进配置文件，日志和预览也不再遮蔽它。保存配置后生效。
-      </p>
+      <p>{{ t('projectVars.unmarkBody', { name: unmarking?.name ?? '' }) }}</p>
     </UiConfirm>
   </div>
 </template>

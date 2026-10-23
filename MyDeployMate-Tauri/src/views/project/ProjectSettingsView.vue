@@ -14,10 +14,13 @@ import UiTextarea from '@/components/ui/UiTextarea.vue'
 import UiTextInput from '@/components/ui/UiTextInput.vue'
 import { useProjectDraft } from '@/composables/projectDraft'
 import { cloneWorkspace } from '@/composables/workspaceDraft'
+import { useT } from '@/i18n'
 import { toAppError, type Pipeline, type Project } from '@/ipc'
 import { useRunStore } from '@/stores/run'
 import { useToastStore } from '@/stores/toast'
 import { useWorkspaceStore } from '@/stores/workspace'
+
+const t = useT()
 
 // P05 project settings (IXD-14): name, description, root and default environment. Saved with
 // the context bar's Save. Changing the default environment does not move target bindings.
@@ -29,7 +32,7 @@ const toast = useToastStore()
 const router = useRouter()
 const page = ref<HTMLElement | null>(null)
 const { project, fieldError, outside, error, discard } = useProjectDraft(
-  '项目设置',
+  'drafts.labels.projectSettings',
   page,
   () => props.project.id,
 )
@@ -51,7 +54,7 @@ const root = computed({
 const confirming = ref(false)
 const deleting = ref(false)
 const deleteError = ref<string | null>(null)
-const deleteReason = computed(() => (run.active ? '有运行进行中，结束后才能删除项目' : null))
+const deleteReason = computed(() => (run.active ? t('projects.deleteBlocked') : null))
 
 async function applyDelete() {
   if (!store.workspace) return
@@ -64,7 +67,7 @@ async function applyDelete() {
     // Unsaved settings of a project being deleted are dropped with it.
     discard()
     await store.save(draft)
-    toast.show(`已删除 ${name}`)
+    toast.show(t('projects.deleted', { name }))
     await router.replace({ name: 'projects' })
   } catch (e) {
     deleteError.value = toAppError(e).message
@@ -79,11 +82,11 @@ async function applyDelete() {
   <div v-if="project" ref="page" class="settings">
     <DraftNotices :error="error" :issues="elsewhere" />
 
-    <section class="form" aria-label="基本信息">
+    <section class="form" :aria-label="t('projects.settings.basic')">
       <UiField
         v-slot="{ id, describedBy, invalid }"
-        label="名称"
-        hint="1–64 个字符"
+        :label="t('common.name')"
+        :hint="t('common.nameHint')"
         :error="fieldError('name')"
         required
       >
@@ -96,7 +99,7 @@ async function applyDelete() {
       </UiField>
       <UiField
         v-slot="{ id, describedBy, invalid }"
-        label="说明"
+        :label="t('common.description')"
         class="description"
         :error="fieldError('description')"
       >
@@ -111,8 +114,8 @@ async function applyDelete() {
       <RootField v-model="root" :error="fieldError('root')" />
       <UiField
         v-slot="{ id, describedBy, invalid }"
-        label="默认环境"
-        hint="打开项目时选中的环境。修改它不会迁移已有的目标绑定。"
+        :label="t('projects.dialog.defaultEnvironment')"
+        :hint="t('projects.settings.defaultEnvHint')"
         :error="fieldError('defaultEnvironmentId')"
       >
         <UiSelect
@@ -127,12 +130,8 @@ async function applyDelete() {
     </section>
 
     <section class="danger" aria-labelledby="danger-title">
-      <h2 id="danger-title">删除项目</h2>
-      <p>
-        删除
-        {{ props.project.name }}
-        的全部流程、变量和目标绑定。只删除本地配置，不会删除服务器上的目录或服务；运行历史会保留。
-      </p>
+      <h2 id="danger-title">{{ t('projects.delete.confirm') }}</h2>
+      <p>{{ t('projects.delete.section', { name: props.project.name }) }}</p>
       <p v-if="deleteError" class="error">{{ deleteError }}</p>
       <UiButton
         variant="danger"
@@ -140,22 +139,26 @@ async function applyDelete() {
         :disabled-reason="deleteReason"
         @click="confirming = true"
       >
-        删除项目
+        {{ t('projects.delete.confirm') }}
       </UiButton>
     </section>
 
     <UiConfirm
       :open="confirming"
-      :title="`删除项目 ${props.project.name}`"
-      confirm-label="删除项目"
+      :title="t('projects.delete.title', { name: props.project.name })"
+      :confirm-label="t('projects.delete.confirm')"
       danger
       :busy="deleting"
       @cancel="confirming = false"
       @confirm="applyDelete"
     >
       <p>
-        将删除 {{ props.project.pipelines.length }} 个流程和
-        {{ boundTargetCount(props.project) }} 个目标绑定，未保存的设置也会丢弃。
+        {{
+          t('projects.delete.countsDiscard', {
+            pipelines: props.project.pipelines.length,
+            targets: boundTargetCount(props.project),
+          })
+        }}
       </p>
     </UiConfirm>
   </div>

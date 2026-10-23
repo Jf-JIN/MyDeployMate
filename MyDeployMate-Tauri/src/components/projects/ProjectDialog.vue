@@ -9,10 +9,13 @@ import UiSelect from '@/components/ui/UiSelect.vue'
 import UiTextarea from '@/components/ui/UiTextarea.vue'
 import UiTextInput from '@/components/ui/UiTextInput.vue'
 import { cloneWorkspace, focusFirstInvalid, useIssues } from '@/composables/workspaceDraft'
+import { useT } from '@/i18n'
 import { call, toAppError, type Project } from '@/ipc'
 import { useWorkspaceStore } from '@/stores/workspace'
 
 import RootField from './RootField.vue'
+
+const t = useT()
 
 // IXD-07: create a project (with its first, empty pipeline) or copy one. A copy keeps
 // pipelines and variables but not target bindings or credentials, and starts with no name.
@@ -48,12 +51,16 @@ watch(
 )
 
 const title = computed(() =>
-  props.mode === 'copy' ? `复制项目 ${props.source?.name ?? ''}` : '新建项目',
+  props.mode === 'copy'
+    ? t('projects.dialog.copyTitle', { name: props.source?.name ?? '' })
+    : t('projects.dialog.createTitle'),
 )
 const environmentOptions = computed(() =>
   store.environments.map((e) => ({ value: e.id, label: e.name })),
 )
-const templateOptions = [{ value: 'blank' as const, label: '空白流程' }]
+const templateOptions = computed(() => [
+  { value: 'blank' as const, label: t('projects.dialog.blankTemplate') },
+])
 
 const index = ref(-1)
 function fieldError(field: string) {
@@ -127,19 +134,19 @@ async function onSave() {
     <div v-if="mode" ref="body" class="project-form">
       <UiNotice v-if="error" tone="failure">{{ error }}</UiNotice>
       <UiNotice v-if="otherIssues.length" tone="warning">
-        配置的其他位置还有问题，需要先修正才能保存：
+        {{ t('common.issuesElsewhereShort') }}
         <ul class="issues">
           <li v-for="issue in otherIssues" :key="issue.path">{{ issue.message }}</li>
         </ul>
       </UiNotice>
       <p v-if="mode === 'copy'" class="note">
-        复制流程和变量，不复制目标服务器绑定和已保存的凭据。
+        {{ t('projects.dialog.copyNote') }}
       </p>
 
       <UiField
         v-slot="{ id, describedBy, invalid }"
-        label="名称"
-        hint="1–64 个字符"
+        :label="t('common.name')"
+        :hint="t('common.nameHint')"
         :error="fieldError('name')"
         required
       >
@@ -153,7 +160,7 @@ async function onSave() {
       </UiField>
       <UiField
         v-slot="{ id, describedBy, invalid }"
-        label="说明"
+        :label="t('common.description')"
         class="description"
         :error="fieldError('description')"
       >
@@ -169,7 +176,7 @@ async function onSave() {
       <div class="grid">
         <UiField
           v-slot="{ id, describedBy, invalid }"
-          label="默认环境"
+          :label="t('projects.dialog.defaultEnvironment')"
           :error="fieldError('defaultEnvironmentId')"
         >
           <UiSelect
@@ -183,8 +190,8 @@ async function onSave() {
         <UiField
           v-if="mode === 'create'"
           v-slot="{ id }"
-          label="初始模板"
-          hint="更多模板将随模板库提供"
+          :label="t('projects.dialog.template')"
+          :hint="t('projects.dialog.templateHint')"
         >
           <UiSelect :id="id" v-model="template" :options="templateOptions" />
         </UiField>
@@ -192,9 +199,9 @@ async function onSave() {
     </div>
 
     <template #footer>
-      <UiButton :disabled="saving" @click="emit('cancel')">取消</UiButton>
+      <UiButton :disabled="saving" @click="emit('cancel')">{{ t('common.cancel') }}</UiButton>
       <UiButton variant="primary" :busy="saving" @click="onSave">
-        {{ mode === 'copy' ? '复制项目' : '创建项目' }}
+        {{ mode === 'copy' ? t('projects.dialog.copy') : t('projects.dialog.create') }}
       </UiButton>
     </template>
   </UiDialog>

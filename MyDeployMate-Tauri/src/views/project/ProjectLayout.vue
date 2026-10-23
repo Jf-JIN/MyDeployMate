@@ -3,8 +3,11 @@ import { computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import ProjectContextBar from '@/components/ProjectContextBar.vue'
+import { useT } from '@/i18n'
 import { useSessionStore } from '@/stores/session'
 import { useWorkspaceStore } from '@/stores/workspace'
+
+const t = useT()
 
 // A project's pages: context bar, second-level tabs (IXD-02) and the routed tab.
 const route = useRoute()
@@ -34,17 +37,32 @@ const tabs = computed(() => {
   const p = project.value
   if (!p || !pipelineTabTarget.value) return []
   const environmentId = session.environment[p.id] ?? p.defaultEnvironmentId
-  const targets = p.targets.find((t) => t.environmentId === environmentId)?.serverIds.length ?? 0
+  const targets = p.targets.find((b) => b.environmentId === environmentId)?.serverIds.length ?? 0
   return [
-    { key: 'pipeline', label: '执行流程', count: p.pipelines.length, to: pipelineTabTarget.value },
-    { key: 'targets', label: '目标服务器', count: targets, to: { name: 'project-targets' } },
+    {
+      key: 'pipeline',
+      label: t('projects.tabs.pipeline'),
+      count: p.pipelines.length,
+      to: pipelineTabTarget.value,
+    },
+    {
+      key: 'targets',
+      label: t('projects.tabs.targets'),
+      count: targets,
+      to: { name: 'project-targets' },
+    },
     {
       key: 'variables',
-      label: '变量与环境',
+      label: t('projects.tabs.variables'),
       count: p.variables.length,
       to: { name: 'project-variables' },
     },
-    { key: 'settings', label: '项目设置', count: null, to: { name: 'project-settings' } },
+    {
+      key: 'settings',
+      label: t('projects.tabs.settings'),
+      count: null,
+      to: { name: 'project-settings' },
+    },
   ]
 })
 
@@ -76,7 +94,7 @@ watch(
 <template>
   <template v-if="project">
     <ProjectContextBar :project="project" :pipeline="pipeline" />
-    <nav class="tabs" aria-label="项目视图">
+    <nav class="tabs" :aria-label="t('projects.tabs.label')">
       <RouterLink
         v-for="tab in tabs"
         :key="tab.key"

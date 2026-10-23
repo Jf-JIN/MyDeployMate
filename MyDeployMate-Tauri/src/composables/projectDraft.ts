@@ -1,5 +1,7 @@
 import { computed, type Ref } from 'vue'
 
+import type { MessageKey } from '@/i18n'
+
 import { useWorkspaceDraft } from './workspaceDraft'
 
 /**
@@ -7,7 +9,7 @@ import { useWorkspaceDraft } from './workspaceDraft'
  * project in context, and issues are looked up relative to `projects[i]`.
  */
 export function useProjectDraft(
-  label: string,
+  label: MessageKey,
   root: Ref<HTMLElement | null>,
   projectId: () => string,
 ) {

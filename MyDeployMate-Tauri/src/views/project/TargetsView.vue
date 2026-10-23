@@ -14,10 +14,13 @@ import UiSwitch from '@/components/ui/UiSwitch.vue'
 import UiTag from '@/components/ui/UiTag.vue'
 import UiTextInput from '@/components/ui/UiTextInput.vue'
 import { useProjectDraft } from '@/composables/projectDraft'
+import { useT } from '@/i18n'
 import type { Pipeline, Project, Server } from '@/ipc'
 import { useConnectionTestStore } from '@/stores/connectionTests'
 import { useSessionStore } from '@/stores/session'
 import { useWorkspaceStore } from '@/stores/workspace'
+
+const t = useT()
 
 // P03 target binding (IXD-12): servers of the current environment, checked ones in execution
 // order. Checking is a draft until saved; switching environment goes through the leave guard.
@@ -33,7 +36,7 @@ function statusOf(server: Server) {
 
 const page = ref<HTMLElement | null>(null)
 const { project, fieldError, outside, error } = useProjectDraft(
-  '目标服务器',
+  'drafts.labels.targets',
   page,
   () => props.project.id,
 )
@@ -128,13 +131,21 @@ const targetIndex = computed(
 
     <header class="summary">
       <span class="env">
-        当前环境 <strong>{{ environment?.name }}</strong>
-        <UiTag v-if="environment?.protected" tone="warning" :icon="Shield">保护环境</UiTag>
+        <i18n-t keypath="targets.currentEnv">
+          <template #environment>
+            <strong>{{ environment?.name }}</strong>
+          </template>
+        </i18n-t>
+        <UiTag v-if="environment?.protected" tone="warning" :icon="Shield">
+          {{ t('common.protectedEnv') }}
+        </UiTag>
       </span>
-      <span class="count">
-        已选择 <strong class="num">{{ selectedIds.length }}</strong> 台
-      </span>
-      <p class="hint">列表顺序即执行顺序。新增的服务器不会自动勾选。</p>
+      <i18n-t keypath="targets.selected" tag="span" class="count">
+        <template #count>
+          <strong class="num">{{ selectedIds.length }}</strong>
+        </template>
+      </i18n-t>
+      <p class="hint">{{ t('targets.hint') }}</p>
     </header>
 
     <ul v-if="bindingErrors.length" class="binding-errors">
@@ -147,13 +158,13 @@ const targetIndex = computed(
           <Search class="search-icon" :size="16" :stroke-width="1.75" aria-hidden="true" />
           <UiTextInput
             v-model="query"
-            placeholder="搜索名称、地址、账号或标签"
-            aria-label="搜索服务器"
+            :placeholder="t('targets.search')"
+            :aria-label="t('servers.searchLabel')"
           />
         </div>
         <span class="only-selected">
           <UiSwitch id="only-selected" v-model="onlySelected" />
-          <label for="only-selected">仅已选</label>
+          <label for="only-selected">{{ t('targets.onlySelected') }}</label>
         </span>
       </div>
 
@@ -165,18 +176,20 @@ const targetIndex = computed(
                 <UiCheckbox
                   :model-value="allVisibleSelected"
                   :indeterminate="!allVisibleSelected && visibleSelected.length > 0"
-                  label="选择当前列出的全部服务器"
+                  :label="t('targets.selectVisible')"
                   hide-label
                   @update:model-value="toggleVisible"
                 />
               </th>
-              <th scope="col" class="col-order num">顺序</th>
-              <th scope="col" class="col-name">名称</th>
-              <th scope="col">地址</th>
-              <th scope="col">账号</th>
-              <th scope="col">标签</th>
-              <th scope="col">最近测试</th>
-              <th scope="col" class="col-move"><span class="sr-only">调整顺序</span></th>
+              <th scope="col" class="col-order num">{{ t('targets.order') }}</th>
+              <th scope="col" class="col-name">{{ t('common.name') }}</th>
+              <th scope="col">{{ t('common.address') }}</th>
+              <th scope="col">{{ t('targets.account') }}</th>
+              <th scope="col">{{ t('servers.tags') }}</th>
+              <th scope="col">{{ t('servers.lastTest') }}</th>
+              <th scope="col" class="col-move">
+                <span class="sr-only">{{ t('targets.reorder') }}</span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -184,7 +197,7 @@ const targetIndex = computed(
               <td class="col-check">
                 <UiCheckbox
                   :model-value="selected.has(server.id)"
-                  :label="`选择 ${server.name}`"
+                  :label="t('servers.select', { name: server.name })"
                   hide-label
                   @update:model-value="toggle(server.id, $event)"
                 />
@@ -213,15 +226,15 @@ const targetIndex = computed(
                 <span v-if="selected.has(server.id)" class="move">
                   <UiIconButton
                     :icon="ArrowUp"
-                    :label="`${server.name} 提前执行`"
-                    :disabled-reason="order(server.id) === 1 ? '已经是第一台' : null"
+                    :label="t('targets.moveUp', { name: server.name })"
+                    :disabled-reason="order(server.id) === 1 ? t('targets.first') : null"
                     @click="move(server.id, -1)"
                   />
                   <UiIconButton
                     :icon="ArrowDown"
-                    :label="`${server.name} 推后执行`"
+                    :label="t('targets.moveDown', { name: server.name })"
                     :disabled-reason="
-                      order(server.id) === selectedIds.length ? '已经是最后一台' : null
+                      order(server.id) === selectedIds.length ? t('targets.last') : null
                     "
                     @click="move(server.id, 1)"
                   />
@@ -230,19 +243,21 @@ const targetIndex = computed(
             </tr>
           </tbody>
         </table>
-        <EmptyState v-else title="没有符合条件的服务器" :icon="SearchX" compact>
-          <UiButton compact @click="clearFilters">清除筛选</UiButton>
+        <EmptyState v-else :title="t('servers.noMatch')" :icon="SearchX" compact>
+          <UiButton compact @click="clearFilters">{{ t('common.clearFilters') }}</UiButton>
         </EmptyState>
       </div>
     </template>
 
     <EmptyState
       v-else
-      title="当前环境没有服务器"
-      detail="先在服务器管理里添加属于这个环境的服务器，再回来勾选。"
+      :title="t('targets.emptyTitle')"
+      :detail="t('targets.emptyDetail')"
       :icon="ServerOff"
     >
-      <RouterLink :to="{ name: 'servers' }" class="empty-link">前往服务器管理</RouterLink>
+      <RouterLink :to="{ name: 'servers' }" class="empty-link">
+        {{ t('targets.manageServers') }}
+      </RouterLink>
     </EmptyState>
   </div>
 </template>

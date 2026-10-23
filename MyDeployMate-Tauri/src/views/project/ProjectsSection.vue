@@ -3,7 +3,10 @@ import { PanelLeftOpen } from '@lucide/vue'
 
 import ProjectTree from '@/components/ProjectTree.vue'
 import UiIconButton from '@/components/ui/UiIconButton.vue'
+import { useT } from '@/i18n'
 import { useSessionStore } from '@/stores/session'
+
+const t = useT()
 
 // "项目与流程" section: the project tree (collapsible) beside the routed page.
 const session = useSessionStore()
@@ -15,7 +18,7 @@ const session = useSessionStore()
     <div v-else class="tree-collapsed">
       <UiIconButton
         :icon="PanelLeftOpen"
-        label="展开项目树"
+        :label="t('tree.expand')"
         @click="session.treeCollapsed = false"
       />
     </div>

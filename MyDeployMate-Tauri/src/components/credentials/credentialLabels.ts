@@ -1,14 +1,15 @@
+import { translate } from '@/i18n'
 import type { CredentialPurpose } from '@/ipc'
 
 /** IXD-31: the title says which secret this is. */
 export function credentialTitle(purpose: CredentialPurpose): string {
   switch (purpose.purpose) {
     case 'sshPassword':
-      return 'SSH 登录密码'
+      return translate('credential.title.sshPassword')
     case 'keyPassphrase':
-      return '解锁私钥'
+      return translate('credential.title.keyPassphrase')
     case 'sudoPassword':
-      return 'sudo 授权'
+      return translate('credential.title.sudoPassword')
   }
 }
 
@@ -16,10 +17,10 @@ export function credentialTitle(purpose: CredentialPurpose): string {
 export function purposeLabel(purpose: CredentialPurpose): string {
   switch (purpose.purpose) {
     case 'sshPassword':
-      return 'SSH 登录密码'
+      return translate('credential.purpose.sshPassword')
     case 'keyPassphrase':
-      return '私钥口令'
+      return translate('credential.purpose.keyPassphrase')
     case 'sudoPassword':
-      return `sudo 密码（提权为 ${purpose.runAs}）`
+      return translate('credential.purpose.sudoPassword', { runAs: purpose.runAs })
   }
 }

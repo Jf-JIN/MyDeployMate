@@ -1,5 +1,6 @@
 import { computed, nextTick, ref, shallowRef, toRaw, watch, type Ref } from 'vue'
 
+import { translate, type MessageKey } from '@/i18n'
 import { call, toAppError, type AppError, type Issue, type Workspace } from '@/ipc'
 import { useToastStore } from '@/stores/toast'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -40,7 +41,7 @@ export function useIssues() {
  * leave guard, Rust validation on save, and live re-validation after a failed save so fixed
  * fields clear their errors.
  */
-export function useWorkspaceDraft(label: string, root: Ref<HTMLElement | null>) {
+export function useWorkspaceDraft(label: MessageKey, root: Ref<HTMLElement | null>) {
   const store = useWorkspaceStore()
   const toast = useToastStore()
   const draft = ref<Workspace | null>(store.workspace ? cloneWorkspace(store.workspace) : null)
@@ -86,7 +87,7 @@ export function useWorkspaceDraft(label: string, root: Ref<HTMLElement | null>) 
       draft.value = cloneWorkspace(saved)
       issues.value = []
       attempted.value = false
-      toast.show('已保存')
+      toast.show(translate('common.saved'))
       return true
     } catch (e) {
       const err = toAppError(e)

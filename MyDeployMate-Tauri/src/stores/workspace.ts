@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref, shallowRef } from 'vue'
 
+import { translate } from '@/i18n'
 import { call, toAppError, type AppError, type LoadedWorkspace, type Workspace } from '@/ipc'
 
 /** The saved workspace as last loaded or saved by the backend. Drafts live in the editing views. */
@@ -15,7 +16,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const projects = computed(() => workspace.value?.projects ?? [])
 
   function environmentName(id: string): string {
-    return environments.value.find((e) => e.id === id)?.name ?? '（已删除的环境）'
+    return (
+      environments.value.find((e) => e.id === id)?.name ??
+      translate('app.workspace.deletedEnvironment')
+    )
   }
 
   async function load() {

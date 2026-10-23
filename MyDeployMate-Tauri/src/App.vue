@@ -8,12 +8,15 @@ import CloseRunDialog from './components/run/CloseRunDialog.vue'
 import UiNotice from './components/ui/UiNotice.vue'
 import UiToasts from './components/ui/UiToasts.vue'
 import { openLayerCount } from './composables/focus'
+import { useT } from './i18n'
 import { useDraftStore } from './stores/drafts'
 import { useLocaleStore } from './stores/locale'
 import { useRunStore } from './stores/run'
 import { useSessionStore } from './stores/session'
 import { useThemeStore } from './stores/theme'
 import { useWorkspaceStore } from './stores/workspace'
+
+const t = useT()
 
 const workspace = useWorkspaceStore()
 const session = useSessionStore()
@@ -53,21 +56,21 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
     <main class="main">
       <div v-if="workspace.error || workspace.notice" class="banners">
         <UiNotice v-if="workspace.error" tone="failure">
-          无法加载工作区：{{ workspace.error.message }}
+          {{ t('app.workspace.loadFailed', { error: workspace.error.message }) }}
         </UiNotice>
         <UiNotice
           v-else-if="workspace.notice?.kind === 'created'"
           dismissible
           @dismiss="workspace.notice = null"
         >
-          已创建新的工作区，预置了 development、staging、production 三个环境。
+          {{ t('app.workspace.created') }}
         </UiNotice>
         <UiNotice
           v-else-if="workspace.notice?.kind === 'migrated'"
           dismissible
           @dismiss="workspace.notice = null"
         >
-          工作区已从版本 {{ workspace.notice.from }} 升级，原文件已备份到数据目录的 backups 文件夹。
+          {{ t('app.workspace.migrated', { from: workspace.notice.from }) }}
         </UiNotice>
       </div>
       <RouterView />
