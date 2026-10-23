@@ -290,6 +290,16 @@ async function applyDelete() {
   font-weight: 600;
 }
 
+/* The name opens the project, but reads as a bold label rather than a link. */
+.col-name a {
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+.col-name a:hover {
+  color: var(--action-primary);
+}
+
 .col-desc {
   max-width: 280px;
   overflow: hidden;
