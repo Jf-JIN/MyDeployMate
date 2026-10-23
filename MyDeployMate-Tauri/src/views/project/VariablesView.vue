@@ -53,10 +53,12 @@ const inherited = computed(() => {
 // ---- Effective values (resolved by Rust from the draft) ------------------------------------
 
 const views = ref(new Map<string, VariableView>())
+/** Bumped when a Credential Manager value changes, so effective values are read again. */
+const secretsChanged = ref(0)
 let ticket = 0
 let timer: ReturnType<typeof setTimeout> | undefined
 watch(
-  [draft, environmentId],
+  [draft, environmentId, secretsChanged],
   () => {
     clearTimeout(timer)
     timer = setTimeout(async () => {
@@ -199,6 +201,8 @@ function confirmUnmark() {
                 :label="`${v.name || '变量'} 的默认值`"
                 :sensitive="v.sensitive"
                 :error="variableError(i, 'value')"
+                :variable-id="v.id"
+                @secret-saved="secretsChanged++"
               />
             </td>
             <td class="col-value">
@@ -209,6 +213,9 @@ function confirmUnmark() {
                     :label="`${v.name || '变量'} 在 ${environmentName} 的覆盖值`"
                     :sensitive="v.sensitive"
                     :error="overrideError(v.name)"
+                    :variable-id="v.id"
+                    :environment-id="environmentId"
+                    @secret-saved="secretsChanged++"
                   />
                   <UiIconButton
                     :icon="RotateCcw"
@@ -270,6 +277,9 @@ function confirmUnmark() {
                     :label="`${g.name} 在 ${environmentName} 的覆盖值`"
                     :sensitive="g.sensitive"
                     :error="overrideError(g.name)"
+                    :variable-id="g.id"
+                    :environment-id="environmentId"
+                    @secret-saved="secretsChanged++"
                   />
                   <UiIconButton
                     :icon="RotateCcw"

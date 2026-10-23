@@ -64,12 +64,73 @@ async fn connect_inner(
     secrets: &dyn SecretSource,
 ) -> Result<SshSession, ConnectError> {
     let prepared = prepare(&target.auth).await?;
+    let mut handle = handshake(
+        &target.endpoint,
+        target.allow_legacy_rsa,
+        target.connect_timeout,
+        known,
+    )
+    .await?;
     let timeout = target.connect_timeout;
+    if let Err(e) = authenticate(
+        &mut handle,
+        &target.user,
+        prepared,
+        target.allow_legacy_rsa,
+        secrets,
+        timeout,
+    )
+    .await
+    {
+        let _ = handle.disconnect(Disconnect::ByApplication, "", "").await;
+        return Err(e);
+    }
+    Ok(SshSession::new(handle, target.endpoint.clone()))
+}
+
+/// Read the key a server presents, without logging in: for an explicit trust update, which
+/// must show the new key next to the recorded one (IXD-19).
+pub async fn fetch_host_key(
+    endpoint: &HostEndpoint,
+    timeout: Duration,
+    cancel: &CancellationToken,
+) -> Result<HostKey, ConnectError> {
+    // Offer ssh-rsa too, last: the order still picks a modern key when the server has one.
+    let attempt = handshake(endpoint, true, timeout, &[]);
+    let result = tokio::select! {
+        biased;
+        _ = cancel.cancelled() => return Err(ConnectError::new(ConnectErrorKind::Cancelled)),
+        r = attempt => r,
+    };
+    match result {
+        Err(ConnectError {
+            kind: ConnectErrorKind::HostKeyUnknown { presented, .. },
+            ..
+        }) => Ok(presented),
+        Err(e) => Err(e),
+        Ok(handle) => {
+            // Unreachable with no known keys; close anyway.
+            let _ = handle.disconnect(Disconnect::ByApplication, "", "").await;
+            Err(ConnectError::at(
+                ConnectStage::HostKey,
+                ConnectErrorKind::Protocol,
+            ))
+        }
+    }
+}
+
+/// Name lookup, TCP connect and SSH handshake, ending with the host key check.
+async fn handshake(
+    endpoint: &HostEndpoint,
+    allow_legacy_rsa: bool,
+    timeout: Duration,
+    known: &[HostKey],
+) -> Result<client::Handle<Verifier>, ConnectError> {
     let timed_out = |stage| ConnectError::at(stage, ConnectErrorKind::Timeout);
 
     let addrs: Vec<SocketAddr> = tokio::time::timeout(
         timeout,
-        tokio::net::lookup_host((target.endpoint.host.as_str(), target.endpoint.port)),
+        tokio::net::lookup_host((endpoint.host.as_str(), endpoint.port)),
     )
     .await
     .map_err(|_| timed_out(ConnectStage::Resolve))?
@@ -100,54 +161,34 @@ async fn connect_inner(
         verdict: verdict.clone(),
     };
     let config = Arc::new(client::Config {
-        preferred: preferred(target.allow_legacy_rsa),
+        preferred: preferred(allow_legacy_rsa),
         ..Default::default()
     });
     let handshake = tokio::time::timeout(timeout, client::connect_stream(config, socket, handler))
         .await
         .map_err(|_| timed_out(ConnectStage::Handshake))?;
     let presented = verdict.lock().expect("verdict lock").take();
-    let mut handle = match (handshake, presented) {
-        (Ok(handle), Some((key, TrustCheck::Trusted))) => {
-            let _ = key;
-            handle
-        }
+    match (handshake, presented) {
+        (Ok(handle), Some((_, TrustCheck::Trusted))) => Ok(handle),
         (_, Some((presented, TrustCheck::Unknown))) => {
-            return Err(ConnectError::new(ConnectErrorKind::HostKeyUnknown {
-                endpoint: target.endpoint.clone(),
+            Err(ConnectError::new(ConnectErrorKind::HostKeyUnknown {
+                endpoint: endpoint.clone(),
                 presented,
-            }));
+            }))
         }
         (_, Some((presented, TrustCheck::Changed { known }))) => {
-            return Err(ConnectError::new(ConnectErrorKind::HostKeyChanged {
-                endpoint: target.endpoint.clone(),
+            Err(ConnectError::new(ConnectErrorKind::HostKeyChanged {
+                endpoint: endpoint.clone(),
                 known,
                 presented,
-            }));
+            }))
         }
-        (Err(e), _) => return Err(ssh_error(ConnectStage::Handshake, &e)),
-        (Ok(_), None) => {
-            return Err(
-                ConnectError::at(ConnectStage::HostKey, ConnectErrorKind::Protocol)
-                    .with_detail("服务器未出示主机密钥"),
-            );
-        }
-    };
-
-    if let Err(e) = authenticate(
-        &mut handle,
-        &target.user,
-        prepared,
-        target.allow_legacy_rsa,
-        secrets,
-        timeout,
-    )
-    .await
-    {
-        let _ = handle.disconnect(Disconnect::ByApplication, "", "").await;
-        return Err(e);
+        (Err(e), _) => Err(ssh_error(ConnectStage::Handshake, &e)),
+        (Ok(_), None) => Err(
+            ConnectError::at(ConnectStage::HostKey, ConnectErrorKind::Protocol)
+                .with_detail("服务器未出示主机密钥"),
+        ),
     }
-    Ok(SshSession::new(handle, target.endpoint.clone()))
 }
 
 /// Default algorithms without plain `ssh-rsa` (SHA-1) unless the server allows it (ARC-21).

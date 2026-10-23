@@ -73,6 +73,10 @@ pub enum ConnectErrorKind {
     AuthenticationFailed,
     /// The operator cancelled a prompt or the whole operation.
     Cancelled,
+    /// Logged in, but the side-effect-free probe command of the connection test failed.
+    CommandFailed {
+        exit_status: Option<u32>,
+    },
     /// The server closed the connection, e.g. after its login grace time.
     Disconnected,
     /// Anything else the SSH library reported; `message` has the detail.
@@ -93,6 +97,7 @@ impl ConnectErrorKind {
             AlgorithmNegotiation { .. } => ConnectStage::Handshake,
             HostKeyUnknown { .. } | HostKeyChanged { .. } => ConnectStage::HostKey,
             KeyPassphraseWrong | AuthenticationFailed => ConnectStage::Authenticate,
+            CommandFailed { .. } => ConnectStage::Command,
             // Depends on when it happened; the connection layer passes the real stage.
             Timeout | Cancelled | Disconnected | Protocol => ConnectStage::Handshake,
         }
@@ -123,6 +128,10 @@ impl ConnectErrorKind {
             HostKeyChanged { .. } => "服务器身份与已记录的不一致，连接已停止".into(),
             KeyPassphraseWrong => "私钥口令不正确".into(),
             AuthenticationFailed => "认证失败，服务器未接受该账号的凭据".into(),
+            CommandFailed {
+                exit_status: Some(code),
+            } => format!("已登录，但探测命令失败（退出码 {code}）"),
+            CommandFailed { .. } => "已登录，但探测命令没有正常结束".into(),
             Cancelled => "已取消".into(),
             Disconnected => "服务器断开了连接".into(),
             Protocol => "SSH 协议错误".into(),

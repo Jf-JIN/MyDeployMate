@@ -17,8 +17,8 @@ use mdm_core::wsl::parse_wsl_list;
 use mdm_core::{
     Environment, EnvironmentId, KeyFormat, Pipeline, PlanRequest, Project, ProjectId, Reference,
     ResolvedPlan, Server, ServerEdit, ServerId, Shell, Step, StepKind, ValidationReport, Variable,
-    Workspace, build_plan, check_workspace_json, defaults, detect_key_format, edit,
-    parse_workspace, validate_workspace,
+    VariableId, VariableValue, Workspace, build_plan, check_workspace_json, defaults,
+    detect_key_format, edit, parse_workspace, validate_workspace,
 };
 use mdm_exec::resolve_shell;
 use mdm_store::LoadOutcome;
@@ -76,6 +76,34 @@ pub fn load_workspace(state: State<'_, AppState>) -> Result<LoadedWorkspace, App
     Ok(LoadedWorkspace { workspace, notice })
 }
 
+/// Every place a sensitive value is kept: variables whose value is a `secretRef`, and
+/// environment overrides with a `secretRef`, keyed by the variable they override (ARC-10).
+fn secret_slots(ws: &Workspace) -> Vec<(VariableId, Option<EnvironmentId>)> {
+    let mut slots: Vec<_> = ws
+        .global_variables
+        .iter()
+        .chain(ws.projects.iter().flat_map(|p| p.variables.iter()))
+        .filter(|v| matches!(v.value, VariableValue::SecretRef))
+        .map(|v| (v.id, None))
+        .collect();
+    for project in &ws.projects {
+        for o in &project.overrides {
+            if !matches!(o.value, VariableValue::SecretRef) {
+                continue;
+            }
+            let base = project
+                .variables
+                .iter()
+                .chain(&ws.global_variables)
+                .find(|v| v.name == o.name);
+            if let Some(base) = base {
+                slots.push((base.id, Some(o.environment_id)));
+            }
+        }
+    }
+    slots
+}
+
 /// Check a draft without saving. Always succeeds; problems are in the report.
 #[tauri::command]
 pub fn validate_workspace_draft(draft: serde_json::Value) -> ValidationReport {
@@ -93,7 +121,11 @@ pub fn save_workspace(
 ) -> Result<Workspace, AppError> {
     let ws = check_workspace_json(draft).map_err(AppError::validation)?;
     let mut store = state.store()?;
-    Ok(store.save(ws)?)
+    let (before, _) = store.load()?;
+    let saved = store.save(ws)?;
+    drop(store);
+    state.drop_orphan_secrets(&before, &saved);
+    Ok(saved)
 }
 
 /// Open the data directory in Explorer (IXD-36).
@@ -210,11 +242,12 @@ pub fn local_dir_exists(path: String) -> bool {
 /// Effective variable values of a project in an environment, for P04 (IXD-13).
 #[tauri::command]
 pub fn variable_views(
+    state: State<'_, AppState>,
     draft: Workspace,
     project_id: ProjectId,
     environment_id: EnvironmentId,
 ) -> Vec<VariableView> {
-    resolve_variable_views(&draft, project_id, environment_id, &ProcessValues)
+    state.with_values(|values| resolve_variable_views(&draft, project_id, environment_id, values))
 }
 
 /// An empty pipeline with RUN-03/RUN-04 defaults (IXD-08).
@@ -251,11 +284,13 @@ pub fn builtin_variables() -> Vec<BuiltinVariable> {
 /// The UI passes the page draft so an unsaved preview shows what the editor holds (IXD-21).
 #[tauri::command]
 pub fn preview_run(
+    state: State<'_, AppState>,
     draft: serde_json::Value,
     request: PlanRequest,
 ) -> Result<ResolvedPlan, AppError> {
     let draft = parse_workspace(draft).map_err(AppError::validation)?;
-    build_plan(&draft, &request, &ProcessValues)
+    state
+        .with_values(|values| build_plan(&draft, &request, values))
         .map_err(|e| AppError::new(AppErrorKind::Internal, e.to_string()))
 }
 
@@ -298,6 +333,35 @@ pub fn shell_programs() -> Vec<ShellProgram> {
 }
 
 impl AppState {
+    /// Run `f` with the value source of this computer (environment and Credential Manager).
+    pub(crate) fn with_values<T>(&self, f: impl FnOnce(&ProcessValues<'_>) -> T) -> T {
+        let secrets = self.secrets.lock().unwrap_or_else(|e| e.into_inner());
+        f(&ProcessValues {
+            secrets: secrets.as_ref().ok(),
+        })
+    }
+
+    /// After a save: delete what Credential Manager still holds for deleted servers and for
+    /// sensitive values that no longer exist (IXD-20, ARC-10, ARC-26). Best effort; a failure
+    /// leaves an orphan entry, never a broken save.
+    fn drop_orphan_secrets(&self, before: &Workspace, after: &Workspace) {
+        let mut secrets = self.secrets.lock().unwrap_or_else(|e| e.into_inner());
+        let Ok(store) = secrets.as_mut() else {
+            return;
+        };
+        for server in &before.servers {
+            if !after.servers.iter().any(|s| s.id == server.id) {
+                let _ = store.forget_server(server.id);
+            }
+        }
+        let still = secret_slots(after);
+        for slot in secret_slots(before) {
+            if !still.contains(&slot) {
+                let _ = store.delete_variable(slot.0, slot.1);
+            }
+        }
+    }
+
     pub(crate) fn store(
         &self,
     ) -> Result<std::sync::MutexGuard<'_, mdm_store::WorkspaceStore>, AppError> {

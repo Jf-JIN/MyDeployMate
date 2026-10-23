@@ -69,6 +69,11 @@ impl DataDir {
         self.root.join("trust").join("known_hosts.json")
     }
 
+    /// Which credentials are remembered in Credential Manager; never the secrets (SEC-03).
+    pub fn credentials_index(&self) -> PathBuf {
+        self.root.join("credentials.json")
+    }
+
     pub fn lock_file(&self) -> PathBuf {
         self.root.join("app.lock")
     }

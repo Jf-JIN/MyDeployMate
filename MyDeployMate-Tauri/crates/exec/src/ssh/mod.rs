@@ -20,5 +20,5 @@ mod error;
 mod session;
 
 pub use auth::{MAX_ATTEMPTS, SecretFuture, SecretPrompt, SecretSource};
-pub use connect::{SshTarget, connect};
+pub use connect::{SshTarget, connect, fetch_host_key};
 pub use session::{CommandOutput, SshSession};
