@@ -164,6 +164,11 @@
   --backdrop: rgb(0 0 0 / 55%);
 }
 
+/* English interface: Latin glyphs from Segoe UI first; sizes and line heights stay the same (UI-07). */
+:root:lang(en) {
+  --font-sans: 'Segoe UI', 'Microsoft YaHei UI', system-ui, sans-serif;
+}
+
 @media (prefers-reduced-motion: reduce) {
   :root {
     --motion-fast: 0ms;
