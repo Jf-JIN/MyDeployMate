@@ -16,12 +16,12 @@ describe('messages', () => {
   it('compiles every Chinese message and fills its placeholders', () => {
     for (const [key, source] of leaves(zhCN)) {
       const names = [...source.matchAll(/\{(\w+)\}/g)].map((m) => m[1]!)
-      const params = Object.fromEntries(names.map((n) => [n, `<${n}>`]))
+      const params = Object.fromEntries(names.map((n) => [n, `[[${n}]]`]))
       const text = translate(key as MessageKey, params)
       expect(text, key).not.toBe(key)
-      for (const n of names) expect(text, key).toContain(`<${n}>`)
+      for (const n of names) expect(text, key).toContain(`[[${n}]]`)
       // `{'}'}` is a literal brace, not a placeholder.
-      if (!source.includes("{'")) expect(text.replace(/<\w+>/g, ''), key).not.toMatch(/[{}]/)
+      if (!source.includes("{'")) expect(text.replace(/\[\[\w+\]\]/g, ''), key).not.toMatch(/[{}]/)
     }
   })
 
