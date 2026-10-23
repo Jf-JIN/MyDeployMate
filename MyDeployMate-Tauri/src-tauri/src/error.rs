@@ -28,6 +28,8 @@ pub enum AppErrorKind {
     /// Another process holds the data directory.
     Locked,
     StorageUnavailable,
+    /// Another run has not finished yet (ARC-08).
+    RunActive,
     Internal,
 }
 
@@ -56,11 +58,14 @@ impl From<StoreError> for AppError {
             StoreError::Invalid(report) => return Self::validation(report),
             StoreError::RevisionConflict { .. } => AppErrorKind::RevisionConflict,
             StoreError::ExternalChange => AppErrorKind::ExternalChange,
-            StoreError::UnsupportedVersion { .. } | StoreError::Migration { .. } => {
-                AppErrorKind::UnsupportedVersion
-            }
+            StoreError::UnsupportedVersion { .. }
+            | StoreError::Migration { .. }
+            | StoreError::HistoryVersion { .. } => AppErrorKind::UnsupportedVersion,
             StoreError::Locked(_) => AppErrorKind::Locked,
-            StoreError::Io { .. } | StoreError::Corrupt { .. } => AppErrorKind::StorageUnavailable,
+            StoreError::Io { .. } | StoreError::Corrupt { .. } | StoreError::Database(_) => {
+                AppErrorKind::StorageUnavailable
+            }
+            StoreError::RunActive => AppErrorKind::RunActive,
         };
         Self::new(kind, message)
     }
