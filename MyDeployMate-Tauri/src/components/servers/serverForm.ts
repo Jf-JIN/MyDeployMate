@@ -19,3 +19,8 @@ export function describeKeyFormat(format: KeyFormat): string {
 export function parseTags(text: string): string[] {
   return [...new Set(text.split(/[\s,，、]+/).filter(Boolean))]
 }
+
+/** `host:port` for display; an IPv6 address is bracketed so the port stays readable. */
+export function hostPort(host: string, port: number): string {
+  return host.includes(':') ? `[${host}]:${port}` : `${host}:${port}`
+}

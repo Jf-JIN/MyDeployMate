@@ -2,6 +2,7 @@
 import { CircleAlert, Copy, Shield } from '@lucide/vue'
 import { computed, nextTick, ref, useId, watch } from 'vue'
 
+import { hostPort } from '@/components/servers/serverForm'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCheckbox from '@/components/ui/UiCheckbox.vue'
 import UiDialog from '@/components/ui/UiDialog.vue'
@@ -248,7 +249,7 @@ const startReason = computed(() => {
             v-for="t in plan.targets"
             :key="t.serverId"
             :model-value="t.selected"
-            :label="`${t.name}（${t.user}@${t.host}:${t.port}）`"
+            :label="`${t.name}（${t.user}@${hostPort(t.host, t.port)}）`"
             @update:model-value="toggleServer(t.serverId, $event)"
           />
           <p class="muted">只能取消已绑定的服务器，修改只影响本次运行。</p>

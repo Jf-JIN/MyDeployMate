@@ -5,6 +5,7 @@ import { computed, ref } from 'vue'
 import DraftNotices from '@/components/DraftNotices.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import { moveTarget, setTargetIds, targetIds } from '@/components/projects/targets'
+import { hostPort } from '@/components/servers/serverForm'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCheckbox from '@/components/ui/UiCheckbox.vue'
 import UiIconButton from '@/components/ui/UiIconButton.vue'
@@ -183,7 +184,7 @@ const targetIndex = computed(
               <td class="col-order num">{{ selected.has(server.id) ? order(server.id) : '' }}</td>
               <td class="col-name">{{ server.name }}</td>
               <td>
-                <code>{{ server.host }}:{{ server.port }}</code>
+                <code>{{ hostPort(server.host, server.port) }}</code>
               </td>
               <td>{{ server.user }}</td>
               <td>

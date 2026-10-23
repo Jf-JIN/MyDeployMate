@@ -6,6 +6,7 @@ import EmptyState from '@/components/EmptyState.vue'
 import PageLayout from '@/components/PageLayout.vue'
 import { describeReference } from '@/components/references'
 import ServerDialog from '@/components/servers/ServerDialog.vue'
+import { hostPort } from '@/components/servers/serverForm'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCheckbox from '@/components/ui/UiCheckbox.vue'
 import UiConfirm from '@/components/ui/UiConfirm.vue'
@@ -237,7 +238,7 @@ async function applyDelete() {
                 </td>
                 <td class="col-name">{{ server.name }}</td>
                 <td class="col-host">
-                  <code>{{ server.host }}:{{ server.port }}</code>
+                  <code>{{ hostPort(server.host, server.port) }}</code>
                 </td>
                 <td>{{ server.user }}</td>
                 <td>
