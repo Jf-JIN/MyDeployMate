@@ -1,10 +1,16 @@
 //! An authenticated SSH connection. Every command gets its own channel (ARC-19).
 
-use mdm_core::HostEndpoint;
+use std::time::Duration;
+
+use mdm_core::{ConnectError, ConnectErrorKind, ConnectStage, HostEndpoint};
 use russh::client::Handle;
 use russh::{ChannelMsg, Disconnect};
 
 use super::connect::Verifier;
+use super::error::ssh_error;
+
+/// The connection test's command: reads system facts, changes nothing (SRV-04).
+const PROBE: &str = "uname -srm";
 
 pub struct SshSession {
     handle: Handle<Verifier>,
@@ -60,6 +66,24 @@ impl SshSession {
             }
         }
         Ok(out)
+    }
+
+    /// Run the connection test probe and return the system it reports, e.g.
+    /// `Linux 6.8.0 x86_64`.
+    pub async fn probe(&self, timeout: Duration) -> Result<String, ConnectError> {
+        let out = tokio::time::timeout(timeout, self.exec_collect(PROBE, 4096))
+            .await
+            .map_err(|_| ConnectError::at(ConnectStage::Command, ConnectErrorKind::Timeout))?
+            .map_err(|e| ssh_error(ConnectStage::Command, &e))?;
+        if out.exit_status == Some(0) {
+            Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
+        } else {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            Err(ConnectError::new(ConnectErrorKind::CommandFailed {
+                exit_status: out.exit_status,
+            })
+            .with_detail(stderr.lines().next().unwrap_or_default()))
+        }
     }
 
     pub async fn close(self) {

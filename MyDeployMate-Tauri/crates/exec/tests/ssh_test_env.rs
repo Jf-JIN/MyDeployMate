@@ -12,7 +12,7 @@ use mdm_core::{
     AgentKind, AuthMethod, ConnectError, ConnectErrorKind, ConnectStage, CredentialPurpose,
     HostEndpoint, HostKey, PasswordSource,
 };
-use mdm_exec::ssh::{SecretFuture, SecretPrompt, SecretSource, SshTarget, connect};
+use mdm_exec::ssh::{SecretFuture, SecretPrompt, SecretSource, SshTarget, connect, fetch_host_key};
 use secrecy::SecretString;
 use tokio_util::sync::CancellationToken;
 
@@ -134,6 +134,8 @@ async fn first_trust_then_key_login_and_exit_status() {
     assert_eq!(out.stdout, b"out\n");
     assert_eq!(out.stderr, b"err\n");
     assert_eq!(out.exit_status, Some(3));
+    let system = session.probe(Duration::from_secs(5)).await.unwrap();
+    assert!(system.starts_with("Linux "), "{system}");
     let killed = session.exec_collect("kill -9 $$", 1024).await.unwrap();
     assert_eq!(killed.exit_status, None);
     assert_eq!(killed.exit_signal.as_deref(), Some("KILL"));
@@ -437,4 +439,26 @@ async fn cancel_token_stops_a_pending_prompt() {
     });
     let err = connect(&t, &known, &Never, &cancel).await.err().unwrap();
     assert_eq!(err.kind, ConnectErrorKind::Cancelled);
+}
+
+#[tokio::test]
+async fn fetch_host_key_reads_the_key_without_logging_in() {
+    let keys = require_test_env!();
+    let expected = host_key(MODERN, &keys).await;
+    let fetched = fetch_host_key(
+        &HostEndpoint::new("127.0.0.1", MODERN),
+        Duration::from_secs(5),
+        &CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(fetched, expected);
+    let legacy = fetch_host_key(
+        &HostEndpoint::new("127.0.0.1", LEGACY),
+        Duration::from_secs(5),
+        &CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(legacy.algorithm, "ssh-rsa");
 }
