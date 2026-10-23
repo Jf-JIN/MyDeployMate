@@ -50,6 +50,13 @@ impl SshSession {
         Ok(channel)
     }
 
+    /// Open a channel running the SFTP subsystem (ARC-29).
+    pub async fn sftp_channel(&self) -> Result<russh::Channel<russh::client::Msg>, russh::Error> {
+        let channel = self.handle.channel_open_session().await?;
+        channel.request_subsystem(true, "sftp").await?;
+        Ok(channel)
+    }
+
     /// Run a short, non-interactive command without a PTY and collect at most `limit` bytes
     /// of each stream (the rest is read and dropped).
     pub async fn exec_collect(
