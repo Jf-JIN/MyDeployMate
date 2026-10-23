@@ -184,7 +184,7 @@ function environmentLabel(project: Project) {
   width: var(--tree-width);
   min-height: 0;
   border-right: 1px solid var(--border-subtle);
-  background: var(--surface-panel);
+  background: var(--surface-sidebar);
 }
 
 .tree-header {
@@ -246,7 +246,7 @@ function environmentLabel(project: Project) {
 }
 
 .tree-row:hover {
-  background: var(--surface-hover);
+  background: var(--surface-sidebar-hover);
 }
 
 .tree-project.is-current .tree-name {

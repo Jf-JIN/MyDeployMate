@@ -12,6 +12,8 @@
   --surface-panel: #ffffff;
   --surface-hover: #eef1f3;
   --surface-selected: #e7f2f3;
+  --surface-sidebar: #f5f6f7; /* icon rail and project tree; the work area is --surface-panel */
+  --surface-sidebar-hover: #e9ecef;
 
   /* Text */
   --text-primary: #202428; /* 15.62:1 on white */
@@ -120,6 +122,8 @@
   --surface-panel: #1d2125;
   --surface-hover: #262b30;
   --surface-selected: #183538;
+  --surface-sidebar: #15181b;
+  --surface-sidebar-hover: #22272c;
 
   --text-primary: #e6e9ec; /* 13.29:1 on panel */
   --text-secondary: #a3adb7; /* 7.11:1 on panel */

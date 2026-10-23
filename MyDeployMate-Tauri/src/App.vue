@@ -82,6 +82,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  background: var(--surface-panel);
 }
 
 .banners {
