@@ -11,15 +11,16 @@ pub mod decode;
 pub mod executor;
 pub mod local;
 pub mod logs;
+pub mod remote;
 pub mod shell;
 pub mod ssh;
 
 pub use coordinator::{
-    Control, Coordinator, Credential, CredentialRequest, RunObserver, SystemClock, TaskContext,
+    Control, Coordinator, OperatorAnswer, OperatorRequest, RunObserver, SystemClock, TaskContext,
     TaskExecutor, TaskFuture, TaskOutcome,
 };
 pub use decode::OutputDecoder;
-pub use executor::AppExecutor;
+pub use executor::{AppExecutor, ConnectFuture, RemoteConnector};
 pub use local::{LocalCommand, LocalEnd, LocalError, LocalOutcome, OutputChunk, Stream, run_local};
 pub use logs::{LogPipeline, RunView};
 pub use shell::{Invocation, find_program, program_name, resolve_shell};

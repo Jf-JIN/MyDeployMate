@@ -17,7 +17,7 @@
 mod auth;
 mod connect;
 mod error;
-mod session;
+pub(crate) mod session;
 
 pub use auth::{MAX_ATTEMPTS, SecretFuture, SecretPrompt, SecretSource};
 pub use connect::{SshTarget, connect, fetch_host_key};

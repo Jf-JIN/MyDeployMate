@@ -464,3 +464,166 @@ async fn fetch_host_key_reads_the_key_without_logging_in() {
     .unwrap();
     assert_eq!(legacy.algorithm, "ssh-rsa");
 }
+
+// ---- Remote commands (ARC-22, ARC-23) -------------------------------------------------------
+
+mod remote {
+    use super::*;
+    use mdm_core::ResolvedText;
+    use mdm_core::plan::ResolvedCommand;
+    use mdm_exec::OutputChunk;
+    use mdm_exec::remote::{RemoteEnd, RemoteOutcome, Stop, run_remote, wrap_command};
+
+    async fn session(keys: &std::path::Path) -> mdm_exec::ssh::SshSession {
+        let key = host_key(MODERN, keys).await;
+        let t = key_target(MODERN, "deploy", keys.join("id_ed25519"));
+        try_connect(&t, &[key], &Answers::default()).await.unwrap()
+    }
+
+    fn script(s: &str) -> ResolvedCommand {
+        ResolvedCommand::Script {
+            script: ResolvedText::plain(s),
+        }
+    }
+
+    async fn run(
+        session: &mdm_exec::ssh::SshSession,
+        cmd: &ResolvedCommand,
+        cwd: Option<&str>,
+        timeout: Option<Duration>,
+        cancel: &CancellationToken,
+    ) -> (RemoteOutcome, String, String) {
+        let mut out = String::new();
+        let mut err = String::new();
+        let outcome = run_remote(
+            session,
+            &wrap_command(cmd, cwd),
+            timeout,
+            cancel,
+            |c: OutputChunk| match c.stream {
+                mdm_exec::Stream::Stdout => out.push_str(&c.text),
+                mdm_exec::Stream::Stderr => err.push_str(&c.text),
+            },
+        )
+        .await
+        .unwrap();
+        (outcome, out, err)
+    }
+
+    #[tokio::test]
+    async fn exit_codes_cwd_and_quoting() {
+        let keys = require_test_env!();
+        let s = session(&keys).await;
+        let none = CancellationToken::new();
+
+        let (o, out, err) = run(
+            &s,
+            &script("echo \"it's $(pwd)\"; echo warn >&2; exit 7"),
+            Some("/tmp"),
+            None,
+            &none,
+        )
+        .await;
+        assert_eq!(o.end, RemoteEnd::Exited(7));
+        assert!(o.pgid.is_some());
+        assert_eq!(out, "it's /tmp\n");
+        assert_eq!(err, "warn\n", "the process group marker is not shown");
+
+        // `-w` passes the exit status through even when setsid has to fork.
+        let (o, _, _) = run(&s, &script("true"), None, None, &none).await;
+        assert_eq!(o.end, RemoteEnd::Exited(0));
+
+        let program = ResolvedCommand::Program {
+            executable: ResolvedText::plain("printf"),
+            args: vec![ResolvedText::plain("[%s]"), ResolvedText::plain("a b'c")],
+        };
+        let (o, out, _) = run(&s, &program, None, None, &none).await;
+        assert_eq!(o.end, RemoteEnd::Exited(0));
+        assert_eq!(out, "[a b'c]");
+
+        let (o, _, err) = run(&s, &script("true"), Some("/no/such/dir"), None, &none).await;
+        assert_eq!(o.end, RemoteEnd::Exited(1));
+        assert!(err.contains("/no/such/dir"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn killed_by_a_signal_is_not_success() {
+        let keys = require_test_env!();
+        let s = session(&keys).await;
+        let (o, _, _) = run(
+            &s,
+            &script("kill -KILL $$"),
+            None,
+            None,
+            &CancellationToken::new(),
+        )
+        .await;
+        // Reported as a shell does: 128 + SIGKILL.
+        assert_eq!(o.end, RemoteEnd::Exited(137));
+    }
+
+    #[tokio::test]
+    async fn cancel_kills_the_whole_process_group() {
+        let keys = require_test_env!();
+        let s = session(&keys).await;
+        let cancel = CancellationToken::new();
+        let marker = format!("mdm-cancel-{}", std::process::id());
+        // A background child in the same group must stop too.
+        let cmd = script(&format!(
+            "sleep 300 & echo started; exec sleep 301 # {marker}"
+        ));
+        let stopper = {
+            let cancel = cancel.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                cancel.cancel();
+            })
+        };
+        let (o, out, _) = run(&s, &cmd, None, None, &cancel).await;
+        stopper.await.unwrap();
+        assert_eq!(out, "started\n");
+        assert_eq!(o.end, RemoteEnd::Cancelled(Stop::Confirmed));
+        let left = s
+            .exec_collect("ps -eo args | grep -c '[s]leep 30[01]' || true", 1024)
+            .await
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&left.stdout).trim(), "0");
+    }
+
+    #[tokio::test]
+    async fn timeout_stops_the_command() {
+        let keys = require_test_env!();
+        let s = session(&keys).await;
+        let (o, _, _) = run(
+            &s,
+            &script("sleep 302"),
+            None,
+            Some(Duration::from_secs(1)),
+            &CancellationToken::new(),
+        )
+        .await;
+        assert_eq!(o.end, RemoteEnd::TimedOut(Stop::Confirmed));
+    }
+
+    #[tokio::test]
+    async fn a_term_ignoring_command_is_killed() {
+        let keys = require_test_env!();
+        let s = session(&keys).await;
+        let cancel = CancellationToken::new();
+        let c = cancel.clone();
+        let stopper = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            c.cancel();
+        });
+        let (o, _, _) = run(
+            &s,
+            &script("trap '' TERM; while :; do sleep 1; done"),
+            None,
+            None,
+            &cancel,
+        )
+        .await;
+        stopper.await.unwrap();
+        assert_eq!(o.end, RemoteEnd::Cancelled(Stop::Confirmed));
+    }
+}
