@@ -190,6 +190,11 @@ impl RunMachine {
         &self.tasks
     }
 
+    /// Scheduling data per task, in plan order.
+    pub fn meta(&self) -> &[TaskMeta] {
+        &self.meta
+    }
+
     pub fn cancel_reason(&self) -> Option<&str> {
         self.cancel_reason.as_deref()
     }

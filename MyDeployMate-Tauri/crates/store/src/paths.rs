@@ -50,6 +50,11 @@ impl DataDir {
         self.root.join("backups")
     }
 
+    /// Run and task records (ARC-31).
+    pub fn history_db(&self) -> PathBuf {
+        self.root.join("history.sqlite")
+    }
+
     pub fn lock_file(&self) -> PathBuf {
         self.root.join("app.lock")
     }

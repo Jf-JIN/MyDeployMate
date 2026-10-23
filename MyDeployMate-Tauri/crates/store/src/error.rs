@@ -22,6 +22,12 @@ pub enum StoreError {
     UnsupportedVersion { found: u32, supported: u32 },
     #[error("配置从版本 {from} 迁移失败: {message}")]
     Migration { from: u32, message: String },
+    #[error("运行记录数据库出错：{0}")]
+    Database(String),
+    #[error("运行记录数据库版本 {found} 高于本程序支持的版本 {supported}，请升级 MyDeployMate")]
+    HistoryVersion { found: u32, supported: u32 },
+    #[error("另一个运行尚未结束，同一时间只能有一个运行")]
+    RunActive,
     #[error("配置校验未通过（{} 个问题）", .0.issues.len())]
     Invalid(ValidationReport),
 }
