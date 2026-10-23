@@ -1,13 +1,18 @@
 <script setup lang="ts">
 import { Eye, Play, Save, Shield } from '@lucide/vue'
 import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
 
 import ActiveRunChip from '@/components/ActiveRunChip.vue'
+import PreviewDialog from '@/components/preview/PreviewDialog.vue'
+import type { IssueTarget } from '@/components/preview/preview'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
 import UiTag from '@/components/ui/UiTag.vue'
-import type { Pipeline, Project } from '@/ipc'
+import { cloneWorkspace } from '@/composables/workspaceDraft'
+import type { Issue, Pipeline, Project, Workspace } from '@/ipc'
 import { useDraftStore } from '@/stores/drafts'
+import { usePreviewStore } from '@/stores/preview'
 import { useRunStore } from '@/stores/run'
 import { useSessionStore } from '@/stores/session'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -20,6 +25,8 @@ const workspace = useWorkspaceStore()
 const session = useSessionStore()
 const drafts = useDraftStore()
 const run = useRunStore()
+const router = useRouter()
+const previewStore = usePreviewStore()
 
 const environmentId = computed(
   () => session.environment[props.project.id] ?? props.project.defaultEnvironmentId,
@@ -39,6 +46,31 @@ const selectedEnvironment = computed({
     else selectKey.value++
   },
 })
+
+// D03 (IXD-21): a preview shows the editor's unsaved draft, marked as such; it never saves.
+const previewWorkspace = ref<Workspace | null>(null)
+const previewUnsaved = ref(false)
+function openPreview() {
+  const dirty = [...drafts.dirtySources].reverse().find((s) => s.snapshot)
+  const ws = dirty?.snapshot?.() ?? workspace.workspace
+  if (!ws) return
+  previewUnsaved.value = !!dirty
+  previewWorkspace.value = cloneWorkspace(ws)
+}
+
+// IXD-24: a preflight issue leads back to where it can be fixed.
+function onJump(target: IssueTarget, issues: Issue[]) {
+  previewWorkspace.value = null
+  if (target.kind === 'step') previewStore.jumpToStep(issues, target.stepId)
+  if (target.kind === 'step' || target.kind === 'pipeline') {
+    void router.push({
+      name: 'pipeline',
+      params: { projectId: props.project.id, pipelineId: props.pipeline?.id },
+    })
+  } else if (target.kind === 'route') {
+    void router.push({ name: target.name })
+  }
+}
 
 const saveReason = computed(() => (drafts.anyDirty ? null : '没有未保存的更改'))
 const runReason = computed(() => {
@@ -79,9 +111,20 @@ const runReason = computed(() => {
       保存
     </UiButton>
     <template v-if="pipeline">
-      <UiButton :icon="Eye" disabled-reason="发布预览将在阶段 3.7 接入">预览</UiButton>
+      <UiButton :icon="Eye" @click="openPreview">预览</UiButton>
       <UiButton variant="primary" :icon="Play" :disabled-reason="runReason">执行</UiButton>
     </template>
+    <PreviewDialog
+      v-if="pipeline"
+      :open="!!previewWorkspace"
+      :workspace="previewWorkspace"
+      :unsaved="previewUnsaved"
+      :project-id="project.id"
+      :pipeline-id="pipeline.id"
+      :environment-id="environmentId"
+      @cancel="previewWorkspace = null"
+      @jump="onJump"
+    />
   </header>
 </template>
 

@@ -45,6 +45,7 @@ pub fn run() {
             commands::copy_step,
             commands::builtin_variables,
             commands::wsl_distros,
+            commands::preview_run,
         ])
         .run(tauri::generate_context!())
         .expect("error while running MyDeployMate");

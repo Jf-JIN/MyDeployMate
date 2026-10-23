@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Copy, Ellipsis, Pencil, Plus, Trash2 } from '@lucide/vue'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import DraftNotices from '@/components/DraftNotices.vue'
@@ -15,7 +15,7 @@ import UiMenu from '@/components/ui/UiMenu.vue'
 import UiNotice from '@/components/ui/UiNotice.vue'
 import type { MenuEntry } from '@/components/ui/types'
 import { useProjectDraft } from '@/composables/projectDraft'
-import { cloneWorkspace } from '@/composables/workspaceDraft'
+import { cloneWorkspace, focusFirstInvalid } from '@/composables/workspaceDraft'
 import {
   call,
   toAppError,
@@ -25,7 +25,9 @@ import {
   type Server,
   type VariableView,
 } from '@/ipc'
+import { editorField } from '@/components/preview/preview'
 import { useDraftStore } from '@/stores/drafts'
+import { usePreviewStore } from '@/stores/preview'
 import { useRunStore } from '@/stores/run'
 import { useSessionStore } from '@/stores/session'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -77,15 +79,40 @@ const stepIndex = computed(
 )
 const step = computed(() => current.value?.steps[stepIndex.value] ?? null)
 
+// Preflight issues from the publish preview, until the draft changes (IXD-24).
+const preview = usePreviewStore()
+function previewIssue(stepId: string | undefined, field?: string) {
+  return preview.stepIssues.find(
+    (i) => i.object?.id === stepId && (!field || editorField(`.${i.field}`) === `.${field}`),
+  )
+}
+
 function hasIssue(k: number) {
-  return under(`${path.value}.steps[${k}]`).length > 0
+  return (
+    under(`${path.value}.steps[${k}]`).length > 0 || !!previewIssue(current.value?.steps[k]?.id)
+  )
 }
 function stepError(field: string) {
   return (
     issues.value.find((i) => i.path === `${path.value}.steps[${stepIndex.value}].${field}`)
-      ?.message ?? null
+      ?.message ??
+    previewIssue(step.value?.id, field)?.message ??
+    null
   )
 }
+
+watch(
+  () => preview.focusStepId,
+  async (id) => {
+    if (!id || !current.value?.steps.some((s) => s.id === id)) return
+    selectedId.value = id
+    preview.focusStepId = null
+    await nextTick()
+    await focusFirstInvalid(page.value?.querySelector('.right') as HTMLElement | null)
+  },
+  { immediate: true },
+)
+watch(draft, () => preview.clear(), { deep: true })
 
 // Issues this page cannot show next to a field or a step row.
 const elsewhere = computed(() =>

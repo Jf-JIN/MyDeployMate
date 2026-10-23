@@ -10,6 +10,7 @@ use ts_rs::TS;
 
 use crate::ids::{EnvironmentId, PipelineId, ProjectId, ServerId, StepId, VariableId};
 use crate::model::{Pipeline, Project, Server, Step, Workspace};
+use crate::validate::{ValidationReport, parse_workspace};
 
 /// Something that refers to an environment or a server.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, TS)]
@@ -160,6 +161,29 @@ pub fn put_server(mut ws: Workspace, server: Server) -> ServerEdit {
     }
 }
 
+/// [`put_server`] for a server form as raw JSON. A field of the wrong type (a port of 22.5) is
+/// reported at its path in the draft, `servers[i].port`, like a save would report it (AC-02).
+pub fn put_server_json(
+    ws: Workspace,
+    server: serde_json::Value,
+) -> Result<ServerEdit, ValidationReport> {
+    let mut value = serde_json::to_value(&ws).expect("a workspace serializes to JSON");
+    let servers = value["servers"]
+        .as_array_mut()
+        .expect("workspace servers are an array");
+    let at = servers
+        .iter()
+        .position(|s| s.get("id") == server.get("id"))
+        .unwrap_or(servers.len());
+    if at == servers.len() {
+        servers.push(server);
+    } else {
+        servers[at] = server;
+    }
+    let server = parse_workspace(value)?.servers.swap_remove(at);
+    Ok(put_server(ws, server))
+}
+
 /// Delete a server and its target bindings. Run history keeps its own copy of the name (SRV-05).
 pub fn remove_server(mut ws: Workspace, id: ServerId) -> ServerEdit {
     let removed = bindings(&ws, id, None);
@@ -298,6 +322,27 @@ mod tests {
         assert_eq!(edit.removed_bindings, vec![]);
         assert_eq!(edit.workspace.servers[0], server);
         assert_eq!(edit.workspace.projects, demo.workspace.projects);
+    }
+
+    #[test]
+    fn server_json_type_errors_name_the_field_in_the_draft() {
+        let demo = demo_workspace();
+        let mut server = serde_json::to_value(&demo.workspace.servers[1]).unwrap();
+        server["port"] = serde_json::json!(22.5);
+        let report = put_server_json(demo.workspace.clone(), server).unwrap_err();
+        assert_eq!(report.issues[0].path, "servers[1].port");
+        assert_eq!(report.issues[0].message, "必须是 0 或正整数");
+
+        let fresh = crate::defaults::new_server(demo.staging);
+        let mut server = serde_json::to_value(&fresh).unwrap();
+        server["port"] = serde_json::json!(22.5);
+        let report = put_server_json(demo.workspace.clone(), server).unwrap_err();
+        let at = demo.workspace.servers.len();
+        assert_eq!(report.issues[0].path, format!("servers[{at}].port"));
+
+        let server = serde_json::to_value(&fresh).unwrap();
+        let edit = put_server_json(demo.workspace.clone(), server).unwrap();
+        assert_eq!(edit.workspace.servers[at], fresh);
     }
 
     #[test]

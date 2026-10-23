@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 import { computed, ref, shallowRef } from 'vue'
 
+import type { Workspace } from '@/ipc'
+
 /** An editor that holds unsaved changes, such as the pipeline editor or the server form. */
 export interface DraftSource {
   /** What the guard dialog names, for example "流程 发布流程". */
@@ -10,6 +12,8 @@ export interface DraftSource {
   /** Resolve true when saved; false when validation failed and the user must fix fields. */
   save: () => Promise<boolean>
   discard: () => void
+  /** The edited workspace, for previews of unsaved changes (IXD-21). */
+  snapshot?: () => Workspace | null
 }
 
 export type LeaveChoice = 'save' | 'discard' | 'cancel'
