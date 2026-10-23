@@ -26,6 +26,12 @@ const run = useRunStore()
 const toast = useToastStore()
 const router = useRouter()
 
+// IXD-06: a click anywhere on a row opens the project, except on its own controls.
+function openFromRow(event: MouseEvent, project: Project) {
+  if ((event.target as Element).closest('a, button')) return
+  void router.push({ name: 'project', params: { projectId: project.id } })
+}
+
 const query = ref('')
 const visible = computed(() => {
   const q = query.value.trim().toLowerCase()
@@ -151,9 +157,17 @@ async function applyDelete() {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="project in visible" :key="project.id">
+              <tr
+                v-for="project in visible"
+                :key="project.id"
+                class="row"
+                @click="openFromRow($event, project)"
+              >
                 <td class="col-name">
-                  <RouterLink :to="{ name: 'project', params: { projectId: project.id } }">
+                  <RouterLink
+                    class="name"
+                    :to="{ name: 'project', params: { projectId: project.id } }"
+                  >
                     {{ project.name }}
                   </RouterLink>
                 </td>
@@ -287,16 +301,25 @@ async function applyDelete() {
 
 .col-name {
   min-width: 160px;
-  font-weight: 600;
 }
 
-/* The name opens the project, but reads as a bold label rather than a link. */
-.col-name a {
+/* The whole row opens the project; it lights up on hover, and the name takes the accent. */
+.row {
+  cursor: pointer;
+}
+
+.row:hover > td {
+  background: var(--surface-hover);
+}
+
+/* The name stays the keyboard way in, styled as plain text. */
+.name {
   color: var(--text-primary);
+  font-weight: 500;
   text-decoration: none;
 }
 
-.col-name a:hover {
+.row:hover .name {
   color: var(--action-primary);
 }
 
