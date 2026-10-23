@@ -10,9 +10,9 @@ use std::path::PathBuf;
 use mdm_core::{HostEndpoint, HostKey, TrustCheck, TrustedHost, check_host_key};
 use serde::{Deserialize, Serialize};
 
-use crate::error::{StoreError, io};
+use crate::atomic::write_json;
+use crate::error::StoreError;
 use crate::paths::DataDir;
-use crate::workspace::retry;
 
 const FORMAT_VERSION: u32 = 1;
 
@@ -135,18 +135,7 @@ impl TrustStore {
             version: FORMAT_VERSION,
             hosts,
         };
-        let mut bytes = serde_json::to_vec_pretty(&file).expect("trust file serializes");
-        bytes.push(b'\n');
-        let dir = self.path.parent().expect("trust file has a parent");
-        fs::create_dir_all(dir).map_err(io(dir))?;
-        let tmp = self.path.with_extension("json.tmp");
-        {
-            use std::io::Write;
-            let mut f = fs::File::create(&tmp).map_err(io(&tmp))?;
-            f.write_all(&bytes).map_err(io(&tmp))?;
-            f.sync_all().map_err(io(&tmp))?;
-        }
-        retry(|| fs::rename(&tmp, &self.path)).map_err(io(&self.path))?;
+        write_json(&self.path, &file)?;
         self.hosts = file.hosts;
         Ok(())
     }

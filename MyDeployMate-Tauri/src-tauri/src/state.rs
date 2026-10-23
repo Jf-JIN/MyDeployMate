@@ -4,10 +4,12 @@ use std::sync::atomic::AtomicBool;
 use mdm_core::Clock;
 use mdm_exec::SystemClock;
 use mdm_store::{
-    DataDir, HistoryStore, InstanceLock, SharedHistory, StoreError, TrustStore, WorkspaceStore,
+    DataDir, HistoryStore, InstanceLock, SecretStore, SharedHistory, StoreError, TrustStore,
+    WorkspaceStore, platform_vault,
 };
 
 use crate::connection::ConnectionTests;
+use crate::credentials::CredentialBroker;
 use crate::run::ActiveRun;
 
 use crate::error::{AppError, AppErrorKind};
@@ -23,6 +25,10 @@ pub struct AppState {
     pub active: Mutex<Option<ActiveRun>>,
     /// Host trust store; the error text when it could not be opened (ARC-20).
     pub trust: Mutex<Result<TrustStore, String>>,
+    /// Remembered credentials and sensitive variable values (SEC-03, ARC-10, ARC-26).
+    pub secrets: Mutex<Result<SecretStore, String>>,
+    /// Open D04 prompts.
+    pub broker: CredentialBroker,
     /// Connection test results and running tests (IXD-18).
     pub tests: ConnectionTests,
     /// Set by "cancel and quit": the app exits once the active run has stopped (IXD-29).
@@ -59,8 +65,14 @@ impl AppState {
             Some(_) => TrustStore::open(&data_dir).map_err(|e| e.to_string()),
             None => Err(startup_error.clone().unwrap_or_default()),
         };
+        let secrets = match &lock {
+            Some(_) => SecretStore::open(&data_dir, platform_vault()).map_err(|e| e.to_string()),
+            None => Err(startup_error.clone().unwrap_or_default()),
+        };
         Self {
             trust: Mutex::new(trust),
+            secrets: Mutex::new(secrets),
+            broker: CredentialBroker::default(),
             tests: ConnectionTests::default(),
             store: Mutex::new(WorkspaceStore::new(data_dir.clone())),
             history,

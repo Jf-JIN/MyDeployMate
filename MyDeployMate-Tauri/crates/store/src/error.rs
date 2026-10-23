@@ -30,6 +30,8 @@ pub enum StoreError {
     RunActive,
     #[error("{0} 的服务器身份已有记录，只能通过信任管理显式更新")]
     TrustConflict(String),
+    #[error("Windows 凭据管理器出错：{0}")]
+    Vault(String),
     #[error("配置校验未通过（{} 个问题）", .0.issues.len())]
     Invalid(ValidationReport),
 }
