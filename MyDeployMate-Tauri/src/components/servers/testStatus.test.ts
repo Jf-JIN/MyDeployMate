@@ -37,6 +37,10 @@ describe('testStatus', () => {
         false,
       ).label,
     ).toBe('认证失败')
+    expect(
+      testStatus(failed({ stage: 'authenticate', kind: 'agentNoIdentities', message: '' }), false)
+        .label,
+    ).toBe('Agent 无密钥')
   })
 
   it('never calls a failure "offline"', () => {

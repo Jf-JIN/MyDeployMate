@@ -20,6 +20,8 @@ env:
 
 jobs:
   # 应用代码还在搭建中：先探测哪些部分已经存在，没有的部分跳过而不是失败。
+  # PR 只改了文档（*.md 或 docs/ 下的文件）时也跳过 Rust 和前端检查。用跳过而不是工作流级别的
+  # paths-ignore：被跳过的任务算作通过，必需检查不会一直等待。
   detect:
     runs-on: ubuntu-latest
     outputs:
@@ -27,8 +29,23 @@ jobs:
       frontend: ${{ steps.detect.outputs.frontend }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - id: detect
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
+          # 取不到改动列表时按有代码改动处理，照常全跑。
+          if [ -n "$BASE_SHA" ] && changed=$(git diff --name-only "$BASE_SHA...$HEAD_SHA"); then
+            code=$(printf '%s\n' "$changed" | grep -v -E '\.md$|(^|/)docs/' || true)
+            if [ -n "$changed" ] && [ -z "$code" ]; then
+              echo "rust=false" >> "$GITHUB_OUTPUT"
+              echo "frontend=false" >> "$GITHUB_OUTPUT"
+              echo "::notice::只改了文档，跳过 Rust 和前端检查"
+              exit 0
+            fi
+          fi
           if [ -f "$APP_DIR/Cargo.toml" ]; then
             echo "rust=true" >> "$GITHUB_OUTPUT"
           else
