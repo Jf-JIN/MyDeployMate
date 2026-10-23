@@ -4,6 +4,12 @@
   box-sizing: border-box;
 }
 
+/* Thin scrollbars everywhere (UI-09 v0.4); the thumb follows the theme. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
 html,
 body,
 #app {
@@ -53,12 +59,35 @@ pre {
   white-space: nowrap;
 }
 
+/* Separate borders so the outer edge can be rounded; corner cells follow the radius instead of
+   clipping, which would cut off menus opened from a row. */
 .table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   background: var(--surface-panel);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-surface);
+}
+
+.table tr:last-child > td {
+  border-bottom: 0;
+}
+
+.table thead tr:first-child > :first-child {
+  border-top-left-radius: var(--radius-surface);
+}
+
+.table thead tr:first-child > :last-child {
+  border-top-right-radius: var(--radius-surface);
+}
+
+.table tbody tr:last-child > :first-child {
+  border-bottom-left-radius: var(--radius-surface);
+}
+
+.table tbody tr:last-child > :last-child {
+  border-bottom-right-radius: var(--radius-surface);
 }
 
 .table th,
@@ -89,7 +118,9 @@ pre {
   background: var(--surface-panel);
   color: var(--text-primary);
   font: var(--font-body);
-  transition: border-color var(--motion-fast);
+  transition:
+    border-color var(--motion-fast),
+    box-shadow var(--motion-fast);
 }
 
 .control--mono {
@@ -108,7 +139,7 @@ pre {
   color: var(--text-secondary);
 }
 
-.control:hover:not(:disabled, [readonly]) {
+.control:hover:not(:disabled, [readonly], :focus) {
   border-color: var(--text-secondary);
 }
 
@@ -117,9 +148,19 @@ pre {
   box-shadow: inset 0 0 0 1px var(--state-failure);
 }
 
+/* Fields show focus as a teal border with a soft halo, on mouse focus too (UI-17). */
+.control:focus,
 .control:focus-visible {
-  outline: var(--focus-ring-width) solid var(--focus-ring);
-  outline-offset: var(--focus-ring-offset);
+  border-color: var(--action-primary);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-halo);
+}
+
+.control[aria-invalid='true']:focus {
+  border-color: var(--state-failure);
+  box-shadow:
+    inset 0 0 0 1px var(--state-failure),
+    0 0 0 3px color-mix(in srgb, var(--state-failure) 22%, transparent);
 }
 
 /* Read-only keeps body text colour and stays selectable (UI-06). */

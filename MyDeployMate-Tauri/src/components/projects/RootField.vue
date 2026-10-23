@@ -55,7 +55,7 @@ async function browse() {
         :invalid="invalid"
         :described-by="describedBy"
       />
-      <UiIconButton :icon="FolderOpen" label="浏览根目录" @click="browse" />
+      <UiIconButton tonal :icon="FolderOpen" label="浏览根目录" @click="browse" />
     </div>
   </UiField>
 </template>

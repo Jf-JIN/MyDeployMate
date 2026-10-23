@@ -4,6 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MyDeployMate</title>
+    <script>
+      // Apply the theme before the first paint (UI-02); src/stores/theme.ts keeps it in sync.
+      try {
+        const pref = localStorage.getItem('mydeploymate.theme')
+        const dark =
+          pref === 'dark' ||
+          (pref !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light'
+      } catch {
+        document.documentElement.dataset.theme = 'light'
+      }
+    </script>
   </head>
   <body>
     <div id="app"></div>

@@ -2,10 +2,11 @@
 import { LoaderCircle } from '@lucide/vue'
 import { computed, useId, type Component } from 'vue'
 
-// UI-15: primary / secondary / danger / ghost; busy keeps the width and blocks repeat clicks.
+// UI-15: primary / secondary / danger / ghost, plus tinted tonal (teal) and info (blue) for
+// actions that sit next to the primary one; busy keeps the width and blocks repeat clicks.
 const props = withDefaults(
   defineProps<{
-    variant?: 'primary' | 'secondary' | 'danger' | 'ghost'
+    variant?: 'primary' | 'secondary' | 'tonal' | 'info' | 'danger' | 'ghost'
     compact?: boolean
     icon?: Component
     busy?: boolean
@@ -92,6 +93,26 @@ function onClick(event: MouseEvent) {
 
 .btn--primary:active:not(:disabled, [aria-disabled='true']) {
   background: var(--action-pressed);
+}
+
+.btn--tonal {
+  border-color: color-mix(in srgb, var(--action-primary) 45%, transparent);
+  background: var(--surface-selected);
+  color: var(--action-primary);
+}
+
+.btn--tonal:hover:not(:disabled, [aria-disabled='true']) {
+  background: color-mix(in srgb, var(--action-primary) 22%, var(--surface-panel));
+}
+
+.btn--info {
+  border-color: color-mix(in srgb, var(--state-running) 45%, transparent);
+  background: var(--state-running-bg);
+  color: var(--state-running);
+}
+
+.btn--info:hover:not(:disabled, [aria-disabled='true']) {
+  background: color-mix(in srgb, var(--state-running) 18%, var(--surface-panel));
 }
 
 .btn--danger {

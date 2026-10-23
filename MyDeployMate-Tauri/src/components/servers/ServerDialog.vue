@@ -427,7 +427,7 @@ const pendingEnvironment = computed(() =>
                 :invalid="invalid"
                 :described-by="describedBy"
               />
-              <UiIconButton :icon="FolderOpen" label="浏览私钥文件" @click="browseKey" />
+              <UiIconButton tonal :icon="FolderOpen" label="浏览私钥文件" @click="browseKey" />
             </div>
           </UiField>
 

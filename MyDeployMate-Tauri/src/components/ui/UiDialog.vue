@@ -125,7 +125,7 @@ function onBackdrop(event: MouseEvent) {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgb(32 36 40 / 40%);
+  background: var(--backdrop);
 }
 
 .dialog {
@@ -136,7 +136,7 @@ function onBackdrop(event: MouseEvent) {
   max-height: calc(100vh - 64px);
   border-radius: var(--radius-dialog);
   background: var(--surface-panel);
-  box-shadow: 0 8px 32px rgb(32 36 40 / 20%);
+  box-shadow: var(--shadow-dialog);
   outline: none;
   animation: dialog-in var(--motion-panel) ease-out;
 }

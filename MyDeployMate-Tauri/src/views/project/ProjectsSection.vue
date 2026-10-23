@@ -40,7 +40,7 @@ const session = useSessionStore()
   width: 40px;
   padding-top: var(--space-3);
   border-right: 1px solid var(--border-subtle);
-  background: var(--surface-panel);
+  background: var(--surface-sidebar);
 }
 
 .section-page {

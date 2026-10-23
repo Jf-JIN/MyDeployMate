@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowDown, ArrowUp, Search, Shield } from '@lucide/vue'
+import { ArrowDown, ArrowUp, Search, SearchX, ServerOff, Shield } from '@lucide/vue'
 import { computed, ref } from 'vue'
 
 import DraftNotices from '@/components/DraftNotices.vue'
@@ -214,14 +214,19 @@ const targetIndex = computed(
             </tr>
           </tbody>
         </table>
-        <EmptyState v-else title="没有符合条件的服务器">
-          <UiButton compact class="empty-action" @click="clearFilters"> 清除筛选 </UiButton>
+        <EmptyState v-else title="没有符合条件的服务器" :icon="SearchX" compact>
+          <UiButton compact @click="clearFilters">清除筛选</UiButton>
         </EmptyState>
       </div>
     </template>
 
-    <EmptyState v-else title="当前环境没有服务器。">
-      <RouterLink :to="{ name: 'servers' }" class="empty-action">前往服务器管理</RouterLink>
+    <EmptyState
+      v-else
+      title="当前环境没有服务器"
+      detail="先在服务器管理里添加属于这个环境的服务器，再回来勾选。"
+      :icon="ServerOff"
+    >
+      <RouterLink :to="{ name: 'servers' }" class="empty-link">前往服务器管理</RouterLink>
     </EmptyState>
   </div>
 </template>
@@ -331,8 +336,8 @@ const targetIndex = computed(
   flex-wrap: nowrap;
 }
 
-.empty-action {
-  display: inline-block;
-  margin-top: var(--space-3);
+.empty-link {
+  color: var(--action-primary);
+  font: var(--font-label);
 }
 </style>

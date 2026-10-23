@@ -9,11 +9,13 @@ import UiToasts from './components/ui/UiToasts.vue'
 import { openLayerCount } from './composables/focus'
 import { useDraftStore } from './stores/drafts'
 import { useSessionStore } from './stores/session'
+import { useThemeStore } from './stores/theme'
 import { useWorkspaceStore } from './stores/workspace'
 
 const workspace = useWorkspaceStore()
 const session = useSessionStore()
 const drafts = useDraftStore()
+useThemeStore()
 const route = useRoute()
 const router = useRouter()
 
@@ -80,6 +82,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  background: var(--surface-panel);
 }
 
 .banners {

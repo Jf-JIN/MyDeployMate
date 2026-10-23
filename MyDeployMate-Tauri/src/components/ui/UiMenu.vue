@@ -14,6 +14,8 @@ const props = withDefaults(
     /** Show only the icon; `label` stays the accessible name. */
     iconOnly?: boolean
     compact?: boolean
+    /** Tinted, bordered trigger the height of a text field, for actions attached to a field. */
+    tonal?: boolean
     align?: 'start' | 'end'
   }>(),
   { icon: null, align: 'start' },
@@ -104,7 +106,11 @@ function onTriggerKeydown(event: KeyboardEvent) {
       ref="trigger"
       type="button"
       class="menu-trigger"
-      :class="{ 'menu-trigger--icon': iconOnly, 'menu-trigger--compact': compact }"
+      :class="{
+        'menu-trigger--icon': iconOnly,
+        'menu-trigger--compact': compact,
+        'menu-trigger--tonal': tonal,
+      }"
       aria-haspopup="menu"
       :aria-expanded="open"
       :aria-controls="open ? menuId : undefined"
@@ -196,8 +202,21 @@ function onTriggerKeydown(event: KeyboardEvent) {
   color: var(--text-secondary);
 }
 
+.menu-trigger--tonal {
+  width: var(--input-height);
+  height: var(--input-height);
+  border-color: color-mix(in srgb, var(--action-primary) 45%, transparent);
+  background: var(--surface-selected);
+  color: var(--action-primary);
+}
+
 .menu-trigger:hover {
   background: var(--surface-hover);
+}
+
+.menu-trigger--tonal:hover,
+.menu-trigger--tonal[aria-expanded='true'] {
+  background: color-mix(in srgb, var(--action-primary) 22%, var(--surface-panel));
 }
 
 .menu {
@@ -211,7 +230,7 @@ function onTriggerKeydown(event: KeyboardEvent) {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);
   background: var(--surface-panel);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+  box-shadow: var(--shadow-popover);
 }
 
 .menu--start {

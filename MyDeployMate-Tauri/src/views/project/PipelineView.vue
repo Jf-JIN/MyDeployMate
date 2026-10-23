@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Copy, Ellipsis, Pencil, Plus, Trash2 } from '@lucide/vue'
+import { Copy, Ellipsis, MousePointerClick, Pencil, Plus, Trash2 } from '@lucide/vue'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
@@ -255,7 +255,13 @@ async function deletePipeline() {
           :targets="targets"
           :error-at="stepError"
         />
-        <EmptyState v-else title="未选择步骤" />
+        <EmptyState
+          v-else
+          title="未选择步骤"
+          detail="在左侧选择或添加步骤。"
+          :icon="MousePointerClick"
+          compact
+        />
       </div>
     </div>
 
@@ -302,6 +308,8 @@ async function deletePipeline() {
   min-height: 0;
 }
 
+/* Both columns scroll; 4 px of padding, taken back with a negative margin, keeps the focus halo
+   of edge fields from being clipped (UI-17). */
 .left,
 .right {
   display: flex;
@@ -309,10 +317,13 @@ async function deletePipeline() {
   gap: var(--space-4);
   min-width: 0;
   min-height: 0;
+  margin: -4px;
+  padding: 4px;
   overflow-y: auto;
 }
 
 .right {
+  margin-left: 0;
   padding-left: var(--space-4);
   border-left: 1px solid var(--border-subtle);
 }

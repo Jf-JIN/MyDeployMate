@@ -382,6 +382,7 @@ const usesSudo = computed(() => {
           />
           <UiIconButton
             v-if="local.shell !== 'wsl'"
+            tonal
             :icon="FolderOpen"
             label="浏览工作目录"
             @click="browseDir((v) => (localCwd = v), localCwd)"
@@ -411,7 +412,7 @@ const usesSudo = computed(() => {
             :invalid="invalid"
             :described-by="describedBy"
           />
-          <UiIconButton :icon="FolderOpen" label="浏览本地路径" @click="browseSource" />
+          <UiIconButton tonal :icon="FolderOpen" label="浏览本地路径" @click="browseSource" />
           <VariableMenu
             v-model="upload.source"
             :field-id="fid('source')"

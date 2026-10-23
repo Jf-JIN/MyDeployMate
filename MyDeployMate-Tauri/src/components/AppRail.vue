@@ -53,7 +53,7 @@ const bottom = [{ to: '/settings', label: '配置中心', icon: Settings }]
   width: var(--rail-width);
   padding: var(--space-3) 0;
   border-right: 1px solid var(--border-subtle);
-  background: var(--surface-panel);
+  background: var(--surface-sidebar);
 }
 
 .brand {
@@ -80,7 +80,7 @@ const bottom = [{ to: '/settings', label: '配置中心', icon: Settings }]
 }
 
 .rail-item:hover {
-  background: var(--surface-hover);
+  background: var(--surface-sidebar-hover);
   color: var(--text-primary);
 }
 
