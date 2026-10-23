@@ -3,8 +3,11 @@ use std::sync::atomic::AtomicBool;
 
 use mdm_core::Clock;
 use mdm_exec::SystemClock;
-use mdm_store::{DataDir, HistoryStore, InstanceLock, SharedHistory, StoreError, WorkspaceStore};
+use mdm_store::{
+    DataDir, HistoryStore, InstanceLock, SharedHistory, StoreError, TrustStore, WorkspaceStore,
+};
 
+use crate::connection::ConnectionTests;
 use crate::run::ActiveRun;
 
 use crate::error::{AppError, AppErrorKind};
@@ -18,6 +21,10 @@ pub struct AppState {
     pub history_error: Option<String>,
     /// The single run in progress (ARC-08).
     pub active: Mutex<Option<ActiveRun>>,
+    /// Host trust store; the error text when it could not be opened (ARC-20).
+    pub trust: Mutex<Result<TrustStore, String>>,
+    /// Connection test results and running tests (IXD-18).
+    pub tests: ConnectionTests,
     /// Set by "cancel and quit": the app exits once the active run has stopped (IXD-29).
     pub quit_when_idle: AtomicBool,
     /// Held for the life of the process (ARC-08).
@@ -48,7 +55,13 @@ impl AppState {
             },
             None => (None, startup_error.clone()),
         };
+        let trust = match &lock {
+            Some(_) => TrustStore::open(&data_dir).map_err(|e| e.to_string()),
+            None => Err(startup_error.clone().unwrap_or_default()),
+        };
         Self {
+            trust: Mutex::new(trust),
+            tests: ConnectionTests::default(),
             store: Mutex::new(WorkspaceStore::new(data_dir.clone())),
             history,
             history_error,

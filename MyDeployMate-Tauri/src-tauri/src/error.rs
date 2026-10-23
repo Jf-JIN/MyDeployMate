@@ -33,6 +33,8 @@ pub enum AppErrorKind {
     /// A server key differs from the recorded one; only an explicit trust update may replace
     /// it (SRV-03).
     HostKeyChanged,
+    /// Reaching a server failed; the message names the stage and the reason.
+    Connection,
     /// The requested record does not exist, e.g. a run that was deleted.
     NotFound,
     Internal,

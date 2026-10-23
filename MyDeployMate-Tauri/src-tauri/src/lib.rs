@@ -2,9 +2,11 @@
 //! a single instance.
 
 mod commands;
+mod connection;
 mod error;
 mod run;
 mod state;
+mod trust;
 mod values;
 
 use tauri::Manager;
@@ -60,6 +62,14 @@ pub fn run() {
             run::cancel_run,
             run::answer_confirmation,
             run::cancel_and_quit,
+            connection::connection_tests,
+            connection::test_connection,
+            connection::cancel_connection_test,
+            connection::answer_host_trust,
+            trust::trusted_hosts,
+            trust::remove_trusted_host,
+            trust::fetch_host_key,
+            trust::replace_trusted_host,
         ])
         .run(tauri::generate_context!())
         .expect("error while running MyDeployMate");
