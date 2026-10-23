@@ -7,9 +7,7 @@ use std::sync::{Arc, Mutex};
 use mdm_core::fixtures::demo_workspace;
 use mdm_core::resolve::NoValues;
 use mdm_core::*;
-use mdm_exec::{
-    AppExecutor, Coordinator, CredentialRequest, OutputChunk, RunObserver, SystemClock,
-};
+use mdm_exec::{AppExecutor, Coordinator, OperatorRequest, OutputChunk, RunObserver, SystemClock};
 
 type Saved = Option<(Run, Vec<Task>)>;
 
@@ -35,7 +33,7 @@ impl RunObserver for Collect {
         self.0.lock().unwrap().push_str(&chunk.text);
     }
     fn note(&self, _seq: u32, _text: &str) {}
-    fn credential_requested(&self, _request: &CredentialRequest) {}
+    fn requested(&self, _request: &OperatorRequest) {}
     fn storage_failed(&self, _error: &StorageError) {}
 }
 
@@ -68,7 +66,7 @@ async fn run_build(command: &str) -> (RunStatus, Vec<Task>, String) {
         RunId::new(),
         store.clone(),
         Arc::new(SystemClock),
-        Arc::new(AppExecutor),
+        Arc::new(AppExecutor::default()),
         observer.clone(),
         control_rx,
     )

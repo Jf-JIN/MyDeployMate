@@ -13,7 +13,12 @@ import { credentialTitle } from './credentialLabels'
 // D04 (IXD-31, IXD-32, SEC-02, SEC-03). The title names what the secret is for; the input
 // starts empty and masked; "remember" starts unticked unless it replaces a remembered value
 // that failed. The typed value is cleared as soon as it is handed over.
-const props = defineProps<{ prompt: CredentialPrompt | null; busy?: boolean }>()
+const props = defineProps<{
+  prompt: CredentialPrompt | null
+  /** Changes for every new request, including each retry. */
+  requestId: number | null
+  busy?: boolean
+}>()
 const emit = defineEmits<{ submit: [secret: string, remember: boolean]; cancel: [] }>()
 
 const secret = ref('')
@@ -21,7 +26,7 @@ const remember = ref(false)
 const form = ref<HTMLFormElement | null>(null)
 
 watch(
-  () => props.prompt?.requestId,
+  () => props.requestId,
   async () => {
     secret.value = ''
     remember.value = props.prompt?.rememberDefault ?? false
@@ -90,7 +95,7 @@ function submit() {
 
       <div class="field">
         <UiTextInput
-          :key="prompt.requestId"
+          :key="requestId ?? 0"
           v-model="secret"
           type="password"
           :aria-label="fieldLabel"

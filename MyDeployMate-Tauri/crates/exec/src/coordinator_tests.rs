@@ -10,6 +10,7 @@ use mdm_core::fixtures::demo_workspace;
 use mdm_core::resolve::NoValues;
 use mdm_core::*;
 use pretty_assertions::assert_eq;
+use secrecy::ExposeSecret;
 use tokio::sync::mpsc;
 
 use crate::coordinator::*;
@@ -95,8 +96,13 @@ impl TaskExecutor for FakeExecutor {
                     outcome
                 }
                 Script::AskCredential => {
-                    let value = ctx.credential("deploy 的 SSH 密码").await;
-                    let seen = value.as_ref().map(|c| c.expose().to_owned());
+                    let answer = ctx.ask(OperatorPrompt::Credential(password_prompt())).await;
+                    let seen = match answer {
+                        Some(OperatorAnswer::Secret { value, .. }) => {
+                            Some(value.expose_secret().to_owned())
+                        }
+                        _ => None,
+                    };
                     self.shared
                         .lock()
                         .unwrap()
@@ -112,11 +118,27 @@ impl TaskExecutor for FakeExecutor {
     }
 }
 
+fn password_prompt() -> CredentialPrompt {
+    CredentialPrompt {
+        purpose: CredentialPurpose::SshPassword,
+        server_name: "staging-api-01".into(),
+        address: "192.0.2.21:22".into(),
+        user: "deploy".into(),
+        key_path: None,
+        context: "任务 2".into(),
+        attempt: 1,
+        max_attempts: 3,
+        rejected: false,
+        saved_rejected: false,
+        remember_default: false,
+    }
+}
+
 #[derive(Debug)]
 enum Seen {
     Changed(RunStatus),
     Output(u32),
-    Credential(CredentialRequest),
+    Credential(OperatorRequest),
     StorageFailed,
 }
 
@@ -130,7 +152,7 @@ impl RunObserver for Observer {
         let _ = self.0.send(Seen::Output(seq));
     }
     fn note(&self, _seq: u32, _text: &str) {}
-    fn credential_requested(&self, request: &CredentialRequest) {
+    fn requested(&self, request: &OperatorRequest) {
         let _ = self.0.send(Seen::Credential(request.clone()));
     }
     fn storage_failed(&self, _error: &StorageError) {
@@ -442,15 +464,18 @@ async fn credential_wait_then_provided() {
     assert_eq!(saved.0.status, RunStatus::WaitingCredential);
     assert_eq!(saved.1[1].status, TaskStatus::WaitingCredential);
     h.control
-        .send(Control::Credential {
+        .send(Control::Answer {
             request: req.id + 1,
-            value: None,
+            answer: None,
         })
         .unwrap(); // stale request id: ignored
     h.control
-        .send(Control::Credential {
+        .send(Control::Answer {
             request: req.id,
-            value: Some(Credential::new("s3cret")),
+            answer: Some(OperatorAnswer::Secret {
+                value: "s3cret".into(),
+                remember: false,
+            }),
         })
         .unwrap();
     let (status, _, shared) = h.finish().await;
@@ -469,9 +494,9 @@ async fn cancelling_the_credential_prompt_cancels_the_run() {
         unreachable!()
     };
     h.control
-        .send(Control::Credential {
+        .send(Control::Answer {
             request: req.id,
-            value: None,
+            answer: None,
         })
         .unwrap();
     let (status, tasks, shared) = h.finish().await;

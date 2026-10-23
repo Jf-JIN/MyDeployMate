@@ -15,9 +15,10 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use mdm_core::{
-    Clock, Next, PlannedTask, ResolvedPlan, RunEvent, RunId, RunMachine, RunStatus, RunStore,
-    StepKind, StorageError, TaskStatus,
+    Clock, Next, OperatorPrompt, PlannedTask, ResolvedPlan, RunEvent, RunId, RunMachine, RunStatus,
+    RunStore, StepKind, StorageError, TaskStatus,
 };
+use secrecy::SecretString;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
@@ -34,38 +35,36 @@ pub enum Control {
         seq: u32,
         proceed: bool,
     },
-    /// Answer to a credential request; `None` cancels the prompt, which cancels the run (SEC-02).
-    Credential {
+    /// Answer to an operator request; `None` declines it, which cancels the run (IXD-32).
+    Answer {
         request: u64,
-        value: Option<Credential>,
+        answer: Option<OperatorAnswer>,
     },
 }
 
-/// A password or passphrase typed by the operator. Never printed.
-pub struct Credential(String);
-
-impl Credential {
-    pub fn new(value: impl Into<String>) -> Self {
-        Credential(value.into())
-    }
-
-    pub fn expose(&self) -> &str {
-        &self.0
-    }
+/// What the operator gave for an [`OperatorPrompt`].
+pub enum OperatorAnswer {
+    /// D04: the typed secret, and whether to remember it once it is accepted.
+    Secret { value: SecretString, remember: bool },
+    /// D02: the operator checked the fingerprint and trusts the key.
+    Trust,
 }
 
-impl fmt::Debug for Credential {
+impl fmt::Debug for OperatorAnswer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("Credential(***)")
+        match self {
+            Self::Secret { remember, .. } => write!(f, "Secret(***, remember: {remember})"),
+            Self::Trust => f.write_str("Trust"),
+        }
     }
 }
 
+/// A task waits for the operator.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CredentialRequest {
+pub struct OperatorRequest {
     pub id: u64,
     pub seq: u32,
-    /// What to ask for, e.g. "deploy@10.0.0.5 的 SSH 密码".
-    pub prompt: String,
+    pub prompt: OperatorPrompt,
 }
 
 /// How a task ended, as the executor saw it.
@@ -96,7 +95,8 @@ pub trait RunObserver: Send + Sync {
     fn output(&self, seq: u32, chunk: OutputChunk);
     /// A line written by the app itself, not by the command (e.g. why a process was killed).
     fn note(&self, seq: u32, text: &str);
-    fn credential_requested(&self, request: &CredentialRequest);
+    /// A task waits for the operator; the run is already recorded as waiting.
+    fn requested(&self, request: &OperatorRequest);
     fn storage_failed(&self, error: &StorageError);
 }
 
@@ -112,7 +112,7 @@ pub struct TaskContext {
     pub seq: u32,
     pub cancel: CancellationToken,
     observer: Arc<dyn RunObserver>,
-    credentials: mpsc::UnboundedSender<(String, oneshot::Sender<Option<Credential>>)>,
+    requests: mpsc::UnboundedSender<(OperatorPrompt, oneshot::Sender<Option<OperatorAnswer>>)>,
 }
 
 impl TaskContext {
@@ -124,11 +124,11 @@ impl TaskContext {
         self.observer.note(self.seq, text);
     }
 
-    /// Ask the operator for a credential. `None` means the prompt was cancelled; the run is
-    /// then cancelled too and the executor should stop.
-    pub async fn credential(&self, prompt: impl Into<String>) -> Option<Credential> {
+    /// Ask the operator and wait (D02, D04). `None` means the prompt was declined or the run
+    /// was cancelled meanwhile; the run is then cancelled and the executor should stop.
+    pub async fn ask(&self, prompt: OperatorPrompt) -> Option<OperatorAnswer> {
         let (tx, rx) = oneshot::channel();
-        self.credentials.send((prompt.into(), tx)).ok()?;
+        self.requests.send((prompt, tx)).ok()?;
         rx.await.ok().flatten()
     }
 }
@@ -277,22 +277,22 @@ impl<S: RunStore> Coordinator<S> {
         let task = &plan.tasks[seq as usize];
         debug_assert_ne!(task.kind, StepKind::Confirm);
         let cancel = CancellationToken::new();
-        let (cred_tx, mut cred_rx) = mpsc::unbounded_channel();
+        let (req_tx, mut req_rx) = mpsc::unbounded_channel();
         let ctx = TaskContext {
             seq,
             cancel: cancel.clone(),
             observer: Arc::clone(&self.observer),
-            credentials: cred_tx,
+            requests: req_tx,
         };
         let executor = Arc::clone(&self.executor);
         let mut running = executor.execute(task, ctx);
-        let mut pending: Option<(u64, oneshot::Sender<Option<Credential>>)> = None;
+        let mut pending: Option<(u64, bool, oneshot::Sender<Option<OperatorAnswer>>)> = None;
         let mut failed: Option<Abort> = None;
 
         let outcome = loop {
             tokio::select! {
                 outcome = &mut running => break outcome,
-                Some((prompt, reply)) = cred_rx.recv() => {
+                Some((prompt, reply)) = req_rx.recv() => {
                     let id = self.next_request;
                     self.next_request += 1;
                     if failed.is_some() || cancel.is_cancelled() {
@@ -305,30 +305,32 @@ impl<S: RunStore> Coordinator<S> {
                         let _ = reply.send(None);
                         continue;
                     }
-                    pending = Some((id, reply));
-                    self.observer.credential_requested(&CredentialRequest { id, seq, prompt });
+                    let trust = matches!(prompt, OperatorPrompt::HostTrust(_));
+                    pending = Some((id, trust, reply));
+                    self.observer.requested(&OperatorRequest { id, seq, prompt });
                 }
                 control = Self::recv_control(&mut self.control, self.control_open) => match control {
                     Some(Control::Cancel { reason }) => {
                         cancel.cancel();
-                        if let Some((_, reply)) = pending.take() {
+                        if let Some((_, _, reply)) = pending.take() {
                             let _ = reply.send(None);
                         }
                         if failed.is_none() && let Err(abort) = self.step(RunEvent::CancelRequested { reason }) {
                             failed = Some(abort);
                         }
                     }
-                    Some(Control::Credential { request, value }) => {
-                        let Some((id, _)) = &pending else { continue };
+                    Some(Control::Answer { request, answer }) => {
+                        let Some((id, _, _)) = &pending else { continue };
                         if *id != request {
                             continue;
                         }
-                        let (_, reply) = pending.take().expect("checked");
-                        let event = match &value {
+                        let (_, trust, reply) = pending.take().expect("checked");
+                        let event = match &answer {
                             Some(_) => RunEvent::CredentialProvided { seq },
                             None => {
                                 cancel.cancel();
-                                RunEvent::CancelRequested { reason: "取消输入凭据".into() }
+                                let reason = if trust { "未信任服务器身份" } else { "取消输入凭据" };
+                                RunEvent::CancelRequested { reason: reason.into() }
                             }
                         };
                         if let Err(abort) = self.step(event) {
@@ -336,7 +338,7 @@ impl<S: RunStore> Coordinator<S> {
                             cancel.cancel();
                             let _ = reply.send(None);
                         } else {
-                            let _ = reply.send(value);
+                            let _ = reply.send(answer);
                         }
                     }
                     Some(Control::Confirm { .. }) => {}

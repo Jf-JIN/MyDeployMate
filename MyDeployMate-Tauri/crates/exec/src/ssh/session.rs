@@ -40,6 +40,16 @@ impl SshSession {
         self.handle.is_closed()
     }
 
+    /// Start `command` on a new channel without a PTY; the caller reads the channel (ARC-22).
+    pub async fn exec_channel(
+        &self,
+        command: &str,
+    ) -> Result<russh::Channel<russh::client::Msg>, russh::Error> {
+        let channel = self.handle.channel_open_session().await?;
+        channel.exec(true, command).await?;
+        Ok(channel)
+    }
+
     /// Run a short, non-interactive command without a PTY and collect at most `limit` bytes
     /// of each stream (the rest is read and dropped).
     pub async fn exec_collect(
@@ -86,7 +96,7 @@ impl SshSession {
         }
     }
 
-    pub async fn close(self) {
+    pub async fn close(&self) {
         let _ = self
             .handle
             .disconnect(Disconnect::ByApplication, "", "")
@@ -94,7 +104,7 @@ impl SshSession {
     }
 }
 
-fn signal_name_text(sig: &russh::Sig) -> String {
+pub(crate) fn signal_name_text(sig: &russh::Sig) -> String {
     match sig {
         russh::Sig::Custom(name) => name.clone(),
         other => format!("{other:?}"),

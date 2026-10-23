@@ -48,6 +48,7 @@ function snapshot(over: Partial<RunSnapshot> = {}): RunSnapshot {
     logs: [{ n: 0, task: 0, source: 'stdout', text: 'a\n', atMs: 0 }],
     damagedLines: 0,
     active: true,
+    request: null,
     ...over,
   }
 }
@@ -112,5 +113,37 @@ describe('run store', () => {
     expect(store.activeId).toBeNull()
     expect(await store.open('run-1')).toBe(d)
     expect(call).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the open trust request until the run stops waiting, and answers it', async () => {
+    call.mockResolvedValue(snapshot())
+    const store = useRunStore()
+    await store.open('run-1')
+    const waiting = { ...run, status: 'waitingCredential' as const }
+    channel?.onmessage({ type: 'state', run: waiting, tasks: [], cancelReason: null })
+    channel?.onmessage({
+      type: 'request',
+      requestId: 4,
+      task: 1,
+      prompt: {
+        type: 'hostTrust',
+        serverId: 's1',
+        serverName: 'web-1',
+        user: 'deploy',
+        endpoint: { host: '10.0.0.5', port: 22 },
+        presented: { algorithm: 'ssh-ed25519', fingerprint: 'SHA256:abc' },
+      },
+    })
+    expect(store.detail('run-1')?.request?.requestId).toBe(4)
+    expect(store.active?.waiting).toBe('trust')
+
+    await store.answerTrust('run-1', 4, true)
+    expect(call).toHaveBeenCalledWith('answer_run_trust', {
+      runId: 'run-1',
+      requestId: 4,
+      trust: true,
+    })
+    channel?.onmessage({ type: 'state', run, tasks: [], cancelReason: null })
+    expect(store.detail('run-1')?.request).toBeNull()
   })
 })

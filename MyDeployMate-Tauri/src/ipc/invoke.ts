@@ -74,6 +74,12 @@ export interface Commands {
   active_run: [Record<string, never>, RunId | null]
   cancel_run: [{ runId: RunId }, null]
   answer_confirmation: [{ runId: RunId; seq: number; proceed: boolean }, null]
+  answer_run_secret: [
+    { runId: RunId; requestId: number; secret: string | null; remember: boolean },
+    null,
+  ]
+  answer_run_trust: [{ runId: RunId; requestId: number; trust: boolean }, null]
+  active_run_servers: [Record<string, never>, ServerId[]]
   cancel_and_quit: [Record<string, never>, null]
   connection_tests: [Record<string, never>, ConnectionTest[]]
   test_connection: [

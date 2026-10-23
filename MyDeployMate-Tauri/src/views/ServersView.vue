@@ -47,6 +47,7 @@ import {
   type Server,
 } from '@/ipc'
 import { useConnectionTestStore } from '@/stores/connectionTests'
+import { useRunStore } from '@/stores/run'
 import { useToastStore } from '@/stores/toast'
 import { useWorkspaceStore } from '@/stores/workspace'
 
@@ -243,6 +244,15 @@ const deleting = ref<Server | null>(null)
 const deleteRefs = ref<Reference[]>([])
 const deleteCredentials = ref<SavedCredential[]>([])
 const deleteBusy = ref(false)
+/** AC-05: the active run uses this server, so it cannot be deleted until the run ends. */
+const deleteBlocked = ref(false)
+const runs = useRunStore()
+
+function openActiveRun() {
+  const id = runs.activeId
+  deleting.value = null
+  if (id) void router.push({ name: 'run', params: { runId: id } })
+}
 
 async function requestDelete(server: Server) {
   if (!store.workspace) return
@@ -256,6 +266,11 @@ async function requestDelete(server: Server) {
     deleteCredentials.value = saved.filter((c) => c.serverId === server.id)
   } catch {
     deleteCredentials.value = []
+  }
+  try {
+    deleteBlocked.value = (await call('active_run_servers')).includes(server.id)
+  } catch {
+    deleteBlocked.value = false
   }
   deleting.value = server
 }
@@ -480,7 +495,8 @@ async function applyDelete() {
       @cancel="answerTrust(false)"
     />
     <CredentialDialog
-      :prompt="tests.pendingTrust ? null : tests.pendingCredential"
+      :prompt="tests.pendingTrust ? null : (tests.pendingCredential?.prompt ?? null)"
+      :request-id="tests.pendingCredential?.requestId ?? null"
       :busy="credentialBusy"
       @submit="answerCredential"
       @cancel="answerCredential(null)"
@@ -548,9 +564,14 @@ async function applyDelete() {
       confirm-label="删除配置并解除绑定"
       danger
       :busy="deleteBusy"
+      :blocked-reason="deleteBlocked ? '运行结束后才能删除' : null"
       @cancel="deleting = null"
       @confirm="applyDelete"
     >
+      <UiNotice v-if="deleteBlocked" tone="warning">
+        该服务器正被当前运行使用，运行结束后才能删除。
+        <button type="button" class="link" @click="openActiveRun">查看运行</button>
+      </UiNotice>
       <template v-if="deleteRefs.length">
         <p>以下项目绑定了该服务器，删除后会一并解除：</p>
         <ul class="refs">
@@ -572,6 +593,17 @@ async function applyDelete() {
 </template>
 
 <style scoped>
+.link {
+  margin-left: var(--space-2);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .servers {
   display: flex;
   flex-direction: column;

@@ -2,6 +2,7 @@
 import type { LogEntry } from "./LogEntry";
 import type { ResolvedPlan } from "./ResolvedPlan";
 import type { Run } from "./Run";
+import type { RunRequest } from "./RunRequest";
 import type { Task } from "./Task";
 
 /**
@@ -19,4 +20,8 @@ damagedLines: number,
 /**
  * Later updates arrive through the channel.
  */
-active: boolean, };
+active: boolean, 
+/**
+ * The open D02 or D04 request of the active run.
+ */
+request: RunRequest | null, };
