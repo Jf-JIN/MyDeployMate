@@ -4,6 +4,7 @@ import { computed, nextTick, onMounted, ref } from 'vue'
 
 import PageLayout from '@/components/PageLayout.vue'
 import { describeReference } from '@/components/references'
+import TrustedHostsSection from '@/components/settings/TrustedHostsSection.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCheckbox from '@/components/ui/UiCheckbox.vue'
 import UiConfirm from '@/components/ui/UiConfirm.vue'
@@ -27,9 +28,9 @@ import {
 } from '@/ipc'
 import { useThemeStore, type ThemePreference } from '@/stores/theme'
 
-// P10 configuration center, phase 3.2: environments, global variables, appearance and the data
-// directory (IXD-14, IXD-36, UI-02). Saved credentials, host trust, import/export and updates join in later
-// phases.
+// P10 configuration center: environments, global variables, host trust, appearance and the
+// data directory (IXD-14, IXD-19, IXD-36, UI-02). Saved credentials, import/export and updates
+// join in later phases.
 const page = ref<HTMLElement | null>(null)
 const { draft, dirty, at, issues, error, save, discard } = useWorkspaceDraft('配置中心', page)
 const saving = ref(false)
@@ -318,6 +319,8 @@ async function openDataDir() {
         </table>
         <p v-else class="empty">尚无全局变量</p>
       </section>
+
+      <TrustedHostsSection />
 
       <section class="section" aria-labelledby="look-title">
         <header class="section-head">

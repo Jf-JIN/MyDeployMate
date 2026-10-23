@@ -5,8 +5,11 @@ import { type Channel, invoke } from '@tauri-apps/api/core'
 import type { AppError } from './bindings/AppError'
 import type { AppInfo } from './bindings/AppInfo'
 import type { BuiltinVariable } from './bindings/BuiltinVariable'
+import type { ConnectionTest } from './bindings/ConnectionTest'
 import type { Environment } from './bindings/Environment'
 import type { EnvironmentId } from './bindings/EnvironmentId'
+import type { HostEndpoint } from './bindings/HostEndpoint'
+import type { HostKey } from './bindings/HostKey'
 import type { KeyFormat } from './bindings/KeyFormat'
 import type { LoadedWorkspace } from './bindings/LoadedWorkspace'
 import type { Pipeline } from './bindings/Pipeline'
@@ -25,6 +28,8 @@ import type { ShellProgram } from './bindings/ShellProgram'
 import type { StartRunRequest } from './bindings/StartRunRequest'
 import type { Step } from './bindings/Step'
 import type { StepKind } from './bindings/StepKind'
+import type { TestEvent } from './bindings/TestEvent'
+import type { TrustedHost } from './bindings/TrustedHost'
 import type { ValidationReport } from './bindings/ValidationReport'
 import type { Variable } from './bindings/Variable'
 import type { VariableView } from './bindings/VariableView'
@@ -67,6 +72,17 @@ export interface Commands {
   cancel_run: [{ runId: RunId }, null]
   answer_confirmation: [{ runId: RunId; seq: number; proceed: boolean }, null]
   cancel_and_quit: [Record<string, never>, null]
+  connection_tests: [Record<string, never>, ConnectionTest[]]
+  test_connection: [
+    { serverId: ServerId; operationId: string; onEvent: Channel<TestEvent> },
+    ConnectionTest,
+  ]
+  cancel_connection_test: [{ operationId: string }, null]
+  answer_host_trust: [{ requestId: number; trust: boolean }, null]
+  trusted_hosts: [Record<string, never>, TrustedHost[]]
+  remove_trusted_host: [{ endpoint: HostEndpoint }, null]
+  fetch_host_key: [{ endpoint: HostEndpoint; timeoutSec: number }, HostKey]
+  replace_trusted_host: [{ endpoint: HostEndpoint; key: HostKey }, null]
 }
 
 export type CommandName = keyof Commands
