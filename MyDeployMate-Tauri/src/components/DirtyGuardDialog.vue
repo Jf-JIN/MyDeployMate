@@ -14,13 +14,21 @@ const drafts = useDraftStore()
     width="credential"
     @cancel="drafts.answer('cancel')"
   >
-    <p class="guard-text">离开前要保存这些更改吗？</p>
+    <p class="guard-text">
+      {{
+        drafts.pending?.discardable === false
+          ? '执行前需要先保存这些更改。'
+          : '离开前要保存这些更改吗？'
+      }}
+    </p>
     <ul class="guard-list">
       <li v-for="label in drafts.pending?.labels ?? []" :key="label">{{ label }}</li>
     </ul>
     <template #footer>
       <UiButton @click="drafts.answer('cancel')">取消</UiButton>
-      <UiButton @click="drafts.answer('discard')">放弃更改</UiButton>
+      <UiButton v-if="drafts.pending?.discardable !== false" @click="drafts.answer('discard')">
+        放弃更改
+      </UiButton>
       <UiButton variant="primary" @click="drafts.answer('save')">保存并继续</UiButton>
     </template>
   </UiDialog>

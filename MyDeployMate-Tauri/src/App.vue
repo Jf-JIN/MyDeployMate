@@ -4,10 +4,12 @@ import { useRoute, useRouter } from 'vue-router'
 
 import AppRail from './components/AppRail.vue'
 import DirtyGuardDialog from './components/DirtyGuardDialog.vue'
+import CloseRunDialog from './components/run/CloseRunDialog.vue'
 import UiNotice from './components/ui/UiNotice.vue'
 import UiToasts from './components/ui/UiToasts.vue'
 import { openLayerCount } from './composables/focus'
 import { useDraftStore } from './stores/drafts'
+import { useRunStore } from './stores/run'
 import { useSessionStore } from './stores/session'
 import { useThemeStore } from './stores/theme'
 import { useWorkspaceStore } from './stores/workspace'
@@ -15,11 +17,14 @@ import { useWorkspaceStore } from './stores/workspace'
 const workspace = useWorkspaceStore()
 const session = useSessionStore()
 const drafts = useDraftStore()
+const runs = useRunStore()
 useThemeStore()
 const route = useRoute()
 const router = useRouter()
 
 onMounted(async () => {
+  // IXD-02: after a reload the active run's entry point comes back.
+  void runs.restore()
   await workspace.load()
   await router.isReady()
   // IXD-02: start in the last project and pipeline; a deleted one falls back to the list.
@@ -66,6 +71,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       <RouterView />
     </main>
     <DirtyGuardDialog />
+    <CloseRunDialog />
     <UiToasts />
   </div>
 </template>

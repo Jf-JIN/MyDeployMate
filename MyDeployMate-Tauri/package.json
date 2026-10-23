@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@lucide/vue": "^1.61.0",
+    "@tanstack/vue-virtual": "3.13.39",
     "@tauri-apps/api": "~2.12.4",
     "@tauri-apps/plugin-dialog": "~2.7.0",
     "pinia": "^3.0.4",

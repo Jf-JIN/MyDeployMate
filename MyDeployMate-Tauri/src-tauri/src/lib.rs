@@ -22,6 +22,11 @@ pub fn run() {
         // Native file picker for key files and paths (UI-14).
         .plugin(tauri_plugin_dialog::init())
         .manage(state::AppState::init())
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                run::close_requested(window, api);
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             commands::app_info,
             commands::load_workspace,
@@ -50,9 +55,11 @@ pub fn run() {
             commands::shell_programs,
             commands::preview_run,
             run::start_run,
+            run::open_run,
             run::active_run,
             run::cancel_run,
             run::answer_confirmation,
+            run::cancel_and_quit,
         ])
         .run(tauri::generate_context!())
         .expect("error while running MyDeployMate");

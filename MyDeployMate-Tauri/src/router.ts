@@ -54,7 +54,14 @@ export const routes: RouteRecordRaw[] = [
     ],
   },
   { path: '/servers', name: 'servers', component: () => import('./views/ServersView.vue') },
-  { path: '/history', name: 'history', component: () => import('./views/HistoryView.vue') },
+  {
+    path: '/history',
+    children: [
+      { path: '', name: 'history', component: () => import('./views/HistoryView.vue') },
+      // P07 run detail (IXD-26); under history so the rail marks it.
+      { path: 'runs/:runId', name: 'run', component: () => import('./views/RunView.vue') },
+    ],
+  },
   { path: '/templates', name: 'templates', component: () => import('./views/TemplatesView.vue') },
   { path: '/settings', name: 'settings', component: () => import('./views/SettingsView.vue') },
   // Component state page for visual checks (UI-32); not shipped in production builds.

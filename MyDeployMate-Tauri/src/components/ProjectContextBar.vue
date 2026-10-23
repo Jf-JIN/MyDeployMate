@@ -73,10 +73,18 @@ function onJump(target: IssueTarget, issues: Issue[]) {
 }
 
 const saveReason = computed(() => (drafts.anyDirty ? null : '没有未保存的更改'))
-const runReason = computed(() => {
-  if (run.active) return '已有运行进行中'
-  return '执行引擎尚未接入（阶段 4）'
-})
+const runReason = computed(() => (run.activeId ? '已有运行进行中' : null))
+
+// IXD-21: running starts from the saved configuration, so unsaved changes are saved first.
+async function openRun() {
+  if (await drafts.confirmSave()) openPreview()
+}
+
+// IXD-25: a started run opens its page.
+function onStarted(runId: string) {
+  previewWorkspace.value = null
+  void router.push({ name: 'run', params: { runId } })
+}
 </script>
 
 <template>
@@ -113,7 +121,9 @@ const runReason = computed(() => {
     </UiButton>
     <template v-if="pipeline">
       <UiButton variant="info" :icon="Eye" @click="openPreview">预览</UiButton>
-      <UiButton variant="primary" :icon="Play" :disabled-reason="runReason">执行</UiButton>
+      <UiButton variant="primary" :icon="Play" :disabled-reason="runReason" @click="openRun">
+        执行
+      </UiButton>
     </template>
     <PreviewDialog
       v-if="pipeline"
@@ -125,6 +135,7 @@ const runReason = computed(() => {
       :environment-id="environmentId"
       @cancel="previewWorkspace = null"
       @jump="onJump"
+      @started="onStarted"
     />
   </header>
 </template>
