@@ -47,8 +47,9 @@ function failureStatus(error: ConnectError): TestStatus {
     case 'keyPassphraseWrong':
       return failure('认证失败')
     case 'agentUnavailable':
-    case 'agentNoIdentities':
       return failure('Agent 不可用')
+    case 'agentNoIdentities':
+      return failure('Agent 无密钥')
     case 'keyFileUnreadable':
     case 'keyFormatUnsupported':
       return failure('私钥不可用')

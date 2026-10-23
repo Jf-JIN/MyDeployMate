@@ -6,6 +6,7 @@ import DraftNotices from '@/components/DraftNotices.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import { moveTarget, setTargetIds, targetIds } from '@/components/projects/targets'
 import { hostPort } from '@/components/servers/serverForm'
+import { testStatus } from '@/components/servers/testStatus'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCheckbox from '@/components/ui/UiCheckbox.vue'
 import UiIconButton from '@/components/ui/UiIconButton.vue'
@@ -14,6 +15,7 @@ import UiTag from '@/components/ui/UiTag.vue'
 import UiTextInput from '@/components/ui/UiTextInput.vue'
 import { useProjectDraft } from '@/composables/projectDraft'
 import type { Pipeline, Project, Server } from '@/ipc'
+import { useConnectionTestStore } from '@/stores/connectionTests'
 import { useSessionStore } from '@/stores/session'
 import { useWorkspaceStore } from '@/stores/workspace'
 
@@ -23,6 +25,12 @@ const props = defineProps<{ project: Project; pipeline: Pipeline | null }>()
 
 const store = useWorkspaceStore()
 const session = useSessionStore()
+const tests = useConnectionTestStore()
+
+function statusOf(server: Server) {
+  return testStatus(tests.results[server.id], !!tests.running[server.id])
+}
+
 const page = ref<HTMLElement | null>(null)
 const { project, fieldError, outside, error } = useProjectDraft(
   '目标服务器',
@@ -192,7 +200,15 @@ const targetIndex = computed(
                   <UiTag v-for="tag in server.tags" :key="tag">{{ tag }}</UiTag>
                 </span>
               </td>
-              <td><UiTag>未测试</UiTag></td>
+              <td>
+                <UiTag
+                  :tone="statusOf(server).tone"
+                  :icon="statusOf(server).icon"
+                  :spin="statusOf(server).spin"
+                >
+                  {{ statusOf(server).label }}
+                </UiTag>
+              </td>
               <td class="col-move">
                 <span v-if="selected.has(server.id)" class="move">
                   <UiIconButton
