@@ -153,6 +153,20 @@ describe('run state', () => {
     )
   })
 
+  it('tells an unconfirmed stop apart from the app quitting', () => {
+    const unconfirmed = [
+      task(0, 'unknown', 'a', '已取消，但无法确认远端进程已停止（检查远端进程超时）'),
+      task(1, 'skipped', 'b'),
+    ]
+    expect(outcomeText('interrupted', unconfirmed, '用户取消')).toBe(
+      '运行已中断，后续任务不再执行。结果未知的任务需要人工核验',
+    )
+    const quit = [task(0, 'unknown', 'a', '应用在运行过程中退出，运行未自动继续')]
+    expect(outcomeText('interrupted', quit, null)).toBe(
+      '应用在运行过程中退出，运行没有继续。结果未知的任务需要人工核验',
+    )
+  })
+
   it('formats durations', () => {
     expect(duration(860)).toBe('0.9 秒')
     expect(duration(42_000)).toBe('42 秒')

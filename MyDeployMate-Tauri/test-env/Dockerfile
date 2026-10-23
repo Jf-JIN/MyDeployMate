@@ -1,9 +1,12 @@
 # Linux SSH target for MyDeployMate integration tests. Test use only: weak passwords, never expose publicly.
 FROM ubuntu:24.04
 
+# Host keys made by the openssh-server package are removed so entrypoint.sh generates them per
+# container (otherwise every container shares the image's keys).
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssh-server sudo procps curl ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
+ && rm -f /etc/ssh/ssh_host_* \
  && mkdir -p /run/sshd
 
 # deploy:   sudo needs a password (tests sudo -S)

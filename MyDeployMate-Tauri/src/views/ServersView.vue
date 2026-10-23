@@ -675,7 +675,7 @@ async function applyDelete() {
 }
 
 .col-status {
-  width: 170px;
+  width: 220px;
 }
 
 .row {
@@ -692,11 +692,15 @@ async function applyDelete() {
   color: var(--action-primary);
 }
 
+/* Fixed tag column so the times line up whatever the label length. */
 .status-button,
 .status-plain {
-  display: inline-flex;
+  display: inline-grid;
+  grid-template-columns: 7.5rem auto;
   align-items: center;
+  justify-items: start;
   gap: var(--space-2);
+  text-align: left;
 }
 
 .status-button {
