@@ -87,7 +87,6 @@ const runReason = computed(() => {
         {{ pipeline?.name ?? project.name }}
       </h1>
     </div>
-    <UiTag v-if="drafts.anyDirty" tone="warning">未保存</UiTag>
     <span class="separator" aria-hidden="true" />
     <label class="context-env">
       <span class="context-env-label">环境</span>
@@ -102,6 +101,7 @@ const runReason = computed(() => {
     <UiTag v-if="environment?.protected" tone="warning" :icon="Shield">保护环境</UiTag>
     <div class="spacer" />
     <ActiveRunChip />
+    <UiTag v-if="drafts.anyDirty" tone="warning">未保存</UiTag>
     <UiButton
       variant="tonal"
       :icon="Save"
