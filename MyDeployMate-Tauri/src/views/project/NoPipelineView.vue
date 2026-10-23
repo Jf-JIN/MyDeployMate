@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Plus } from '@lucide/vue'
+import { Plus, Workflow } from '@lucide/vue'
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 
@@ -21,10 +21,8 @@ function onSaved(pipelineId: string) {
 </script>
 
 <template>
-  <EmptyState title="尚无流程">
-    <UiButton class="empty-action" :icon="Plus" variant="primary" @click="creating = true">
-      新建流程
-    </UiButton>
+  <EmptyState title="尚无流程" detail="流程是一组按顺序执行的步骤。" :icon="Workflow">
+    <UiButton :icon="Plus" variant="primary" @click="creating = true">新建流程</UiButton>
   </EmptyState>
   <PipelineDialog
     :mode="creating ? 'create' : null"
@@ -33,9 +31,3 @@ function onSaved(pipelineId: string) {
     @saved="onSaved"
   />
 </template>
-
-<style scoped>
-.empty-action {
-  margin-top: var(--space-3);
-}
-</style>

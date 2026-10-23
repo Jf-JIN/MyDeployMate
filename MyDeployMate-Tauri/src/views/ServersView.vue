@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import { Pencil, PlugZap, Plus, Search, Shield, Trash2 } from '@lucide/vue'
+import {
+  Pencil,
+  PlugZap,
+  Plus,
+  Search,
+  SearchX,
+  Server as ServerIcon,
+  Shield,
+  Trash2,
+} from '@lucide/vue'
 import { computed, nextTick, ref } from 'vue'
 
 import EmptyState from '@/components/EmptyState.vue'
@@ -281,18 +290,19 @@ async function applyDelete() {
               </tr>
             </tbody>
           </table>
-          <EmptyState v-else title="没有符合条件的服务器">
-            <UiButton v-if="filtered" compact class="empty-action" @click="clearFilters">
-              清除筛选
-            </UiButton>
+          <EmptyState v-else title="没有符合条件的服务器" :icon="SearchX" compact>
+            <UiButton v-if="filtered" compact @click="clearFilters">清除筛选</UiButton>
           </EmptyState>
         </div>
       </template>
 
-      <EmptyState v-else title="尚无服务器">
-        <UiButton variant="primary" :icon="Plus" class="empty-action" @click="create">
-          新增服务器
-        </UiButton>
+      <EmptyState
+        v-else
+        title="尚无服务器"
+        detail="添加要部署到的 Linux 服务器，之后在项目里按环境勾选为目标。"
+        :icon="ServerIcon"
+      >
+        <UiButton variant="primary" :icon="Plus" @click="create">新增服务器</UiButton>
       </EmptyState>
     </div>
 
@@ -415,10 +425,6 @@ async function applyDelete() {
 .row--new td {
   background: var(--surface-selected);
   transition: background 400ms;
-}
-
-.empty-action {
-  margin-top: var(--space-3);
 }
 
 .refs {

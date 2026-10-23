@@ -35,7 +35,7 @@ const store = useToastStore()
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);
   background: var(--surface-panel);
-  box-shadow: 0 4px 16px rgb(32 36 40 / 12%);
+  box-shadow: var(--shadow-toast);
   color: var(--state-success);
 }
 

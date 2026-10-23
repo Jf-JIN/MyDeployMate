@@ -211,7 +211,7 @@ function onTriggerKeydown(event: KeyboardEvent) {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);
   background: var(--surface-panel);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+  box-shadow: var(--shadow-popover);
 }
 
 .menu--start {

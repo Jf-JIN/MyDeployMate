@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Copy, Plus, Search, Trash2 } from '@lucide/vue'
+import { Check, Copy, FolderKanban, Plus, Search, SearchX, Trash2 } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
@@ -34,6 +34,27 @@ const visible = computed(() => {
   )
   return q ? sorted.filter((p) => `${p.name}\n${p.description}`.toLowerCase().includes(q)) : sorted
 })
+
+// First-run guide on the empty page: servers can be added before or after the project.
+const guide = computed(() => [
+  {
+    title: '添加服务器',
+    detail: '录入要部署到的 Linux 服务器和登录方式。',
+    done: store.servers.length > 0,
+    to: { name: 'servers' },
+    link: '前往服务器',
+  },
+  {
+    title: '新建项目',
+    detail: '选择默认环境，再为各环境勾选目标服务器。',
+    done: false,
+  },
+  {
+    title: '编辑流程',
+    detail: '添加本地命令、上传文件、远程命令和人工确认，先预览再执行。',
+    done: false,
+  },
+])
 
 function currentEnvironment(project: Project) {
   return session.environment[project.id] ?? project.defaultEnvironmentId
@@ -162,16 +183,38 @@ async function applyDelete() {
               </tr>
             </tbody>
           </table>
-          <EmptyState v-else title="没有符合条件的项目">
-            <UiButton compact class="empty-action" @click="query = ''">清除搜索</UiButton>
+          <EmptyState v-else title="没有符合条件的项目" :icon="SearchX" compact>
+            <UiButton compact @click="query = ''">清除搜索</UiButton>
           </EmptyState>
         </div>
       </template>
 
-      <EmptyState v-else title="尚无项目">
-        <UiButton variant="primary" :icon="Plus" class="empty-action" @click="create">
-          新建项目
-        </UiButton>
+      <EmptyState
+        v-else
+        title="尚无项目"
+        detail="项目把目标服务器、变量和发布流程组织在一起，按环境分别发布。"
+        :icon="FolderKanban"
+      >
+        <UiButton variant="primary" :icon="Plus" @click="create">新建项目</UiButton>
+        <template #after>
+          <ol class="guide" aria-label="开始使用">
+            <li v-for="(step, i) in guide" :key="step.title" :class="{ done: step.done }">
+              <span class="guide-mark" aria-hidden="true">
+                <Check v-if="step.done" :size="14" :stroke-width="2.5" />
+                <template v-else>{{ i + 1 }}</template>
+              </span>
+              <span class="guide-text">
+                <span class="guide-title">
+                  {{ step.title }}<span v-if="step.done" class="sr-only">（已完成）</span>
+                </span>
+                <span class="guide-detail">{{ step.detail }}</span>
+              </span>
+              <RouterLink v-if="step.to && !step.done" :to="step.to" class="guide-link">
+                {{ step.link }}
+              </RouterLink>
+            </li>
+          </ol>
+        </template>
       </EmptyState>
     </div>
 
@@ -267,7 +310,63 @@ async function applyDelete() {
   color: var(--text-secondary);
 }
 
-.empty-action {
-  margin-top: var(--space-3);
+.guide {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 100%;
+  margin: var(--space-5) 0 0;
+  padding: var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-surface);
+  background: var(--surface-panel);
+  list-style: none;
+  text-align: left;
+}
+
+.guide li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.guide-mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border-control);
+  border-radius: 50%;
+  color: var(--text-secondary);
+  font: var(--font-caption);
+}
+
+.done .guide-mark {
+  border-color: var(--state-success);
+  background: var(--state-success-bg);
+  color: var(--state-success);
+}
+
+.guide-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+.guide-title {
+  color: var(--text-primary);
+  font: var(--font-label);
+}
+
+.guide-detail {
+  font: var(--font-caption);
+}
+
+.guide-link {
+  flex: none;
+  color: var(--action-primary);
+  font: var(--font-label);
 }
 </style>

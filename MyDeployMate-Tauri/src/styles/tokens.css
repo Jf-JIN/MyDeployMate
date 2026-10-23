@@ -1,9 +1,12 @@
 /*
  * MyDeployMate design tokens, per docs/UI设计规范.md v0.2 (values from UI spec v0.1, confirmed 2026-10-21).
  * The Vue app imports this file once; components use only these variables, never raw values.
- * Sizes are CSS px (logical pixels in WebView2). Light theme only in P0.
+ * Sizes are CSS px (logical pixels in WebView2). Colours have a light and a dark set (UI-02);
+ * `data-theme` on <html> picks one, resolved from the user's choice or the system setting.
  */
 :root {
+  color-scheme: light;
+
   /* Surfaces */
   --surface-canvas: #f5f6f7;
   --surface-panel: #ffffff;
@@ -36,6 +39,12 @@
   --state-running-bg: #eff6ff;
   --state-unknown: #6b3fa0;
   --state-unknown-bg: #f4eefa;
+
+  /* Elevation */
+  --shadow-popover: 0 8px 24px rgb(0 0 0 / 12%);
+  --shadow-toast: 0 4px 16px rgb(32 36 40 / 12%);
+  --shadow-dialog: 0 8px 32px rgb(32 36 40 / 20%);
+  --backdrop: rgb(32 36 40 / 40%);
 
   /* Typography (UI spec §3) */
   --font-sans: 'Microsoft YaHei UI', 'Segoe UI', system-ui, sans-serif;
@@ -98,6 +107,47 @@
   /* Motion (UI-29) */
   --motion-fast: 120ms;
   --motion-panel: 160ms;
+}
+
+/*
+ * Dark theme (UI-02): its own values, not an inversion. Contrast is checked on --surface-panel
+ * like the light set: body text ≥ 4.5:1, control edges and icons ≥ 3:1.
+ */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --surface-canvas: #15181b;
+  --surface-panel: #1d2125;
+  --surface-hover: #262b30;
+  --surface-selected: #183538;
+
+  --text-primary: #e6e9ec; /* 13.29:1 on panel */
+  --text-secondary: #a3adb7; /* 7.11:1 on panel */
+  --text-on-action: #0b1d20; /* 7.41:1 on --action-primary */
+
+  --border-subtle: #30363c;
+  --border-control: #6f7a85; /* 3.70:1 on panel */
+
+  --action-primary: #4fb8c2; /* 6.92:1 on panel */
+  --action-hover: #6ac6cf;
+  --action-pressed: #86d2da;
+  --focus-ring: #6ea8fe; /* 6.71:1 on panel */
+
+  --state-success: #5cc98a;
+  --state-success-bg: #13291c;
+  --state-failure: #ff8a7a;
+  --state-failure-bg: #3a1a17;
+  --state-warning: #f0b44c;
+  --state-warning-bg: #33260f;
+  --state-running: #6ea8fe;
+  --state-running-bg: #142338;
+  --state-unknown: #c4a2f0;
+  --state-unknown-bg: #2a1f3a;
+
+  --shadow-popover: 0 8px 24px rgb(0 0 0 / 40%);
+  --shadow-toast: 0 4px 16px rgb(0 0 0 / 40%);
+  --shadow-dialog: 0 8px 32px rgb(0 0 0 / 50%);
+  --backdrop: rgb(0 0 0 / 55%);
 }
 
 @media (prefers-reduced-motion: reduce) {

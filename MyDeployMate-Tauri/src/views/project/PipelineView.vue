@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Copy, Ellipsis, Pencil, Plus, Trash2 } from '@lucide/vue'
+import { Copy, Ellipsis, MousePointerClick, Pencil, Plus, Trash2 } from '@lucide/vue'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
@@ -255,7 +255,13 @@ async function deletePipeline() {
           :targets="targets"
           :error-at="stepError"
         />
-        <EmptyState v-else title="未选择步骤" />
+        <EmptyState
+          v-else
+          title="未选择步骤"
+          detail="在左侧选择或添加步骤。"
+          :icon="MousePointerClick"
+          compact
+        />
       </div>
     </div>
 

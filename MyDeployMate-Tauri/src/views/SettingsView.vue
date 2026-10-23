@@ -10,6 +10,7 @@ import UiConfirm from '@/components/ui/UiConfirm.vue'
 import UiDialog from '@/components/ui/UiDialog.vue'
 import UiIconButton from '@/components/ui/UiIconButton.vue'
 import UiNotice from '@/components/ui/UiNotice.vue'
+import UiSegmented from '@/components/ui/UiSegmented.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
 import UiSwitch from '@/components/ui/UiSwitch.vue'
 import UiTag from '@/components/ui/UiTag.vue'
@@ -24,9 +25,10 @@ import {
   type Variable,
   type VariableValue,
 } from '@/ipc'
+import { useThemeStore, type ThemePreference } from '@/stores/theme'
 
-// P10 configuration center, phase 3.2: environments, global variables and the data directory
-// (IXD-14, IXD-36). Saved credentials, host trust, import/export and updates join in later
+// P10 configuration center, phase 3.2: environments, global variables, appearance and the data
+// directory (IXD-14, IXD-36, UI-02). Saved credentials, host trust, import/export and updates join in later
 // phases.
 const page = ref<HTMLElement | null>(null)
 const { draft, dirty, at, issues, error, save, discard } = useWorkspaceDraft('配置中心', page)
@@ -41,6 +43,14 @@ onMounted(async () => {
     infoError.value = toAppError(e).message
   }
 })
+
+// Appearance applies at once and is kept on this machine, outside the workspace draft.
+const theme = useThemeStore()
+const themeOptions: { value: ThemePreference; label: string }[] = [
+  { value: 'system', label: '跟随系统' },
+  { value: 'light', label: '浅色' },
+  { value: 'dark', label: '深色' },
+]
 
 async function onSave() {
   saving.value = true
@@ -307,6 +317,14 @@ async function openDataDir() {
           </tbody>
         </table>
         <p v-else class="empty">尚无全局变量</p>
+      </section>
+
+      <section class="section" aria-labelledby="look-title">
+        <header class="section-head">
+          <h2 id="look-title">外观</h2>
+          <p class="section-hint">立即生效，只保存在本机，不写入配置文件，也不随导出。</p>
+        </header>
+        <UiSegmented v-model="theme.preference" :options="themeOptions" label="主题" />
       </section>
 
       <section class="section" aria-labelledby="data-title">
