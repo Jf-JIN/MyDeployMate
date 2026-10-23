@@ -64,6 +64,7 @@ async function insert(expression: string) {
     :entries="entries"
     :icon="Braces"
     icon-only
+    tonal
     align="end"
     @select="insert"
   />
