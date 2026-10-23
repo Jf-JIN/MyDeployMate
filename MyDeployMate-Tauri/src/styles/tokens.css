@@ -60,7 +60,7 @@
   /* Shape */
   --radius-control: 4px;
   --radius-dialog: 8px;
-  --radius-surface: 4px;
+  --radius-surface: 6px; /* tables and bordered panels (UI-09 v0.4) */
   --focus-ring-width: 2px;
   --focus-ring-offset: 2px;
 
