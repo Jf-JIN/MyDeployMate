@@ -11,6 +11,10 @@ n: number,
  */
 task: number, source: LogSource, text: string, atMs: number, 
 /**
- * The body limit was reached here; later stdout and stderr were not kept.
+ * The body limit was reached here; later stdout and stderr were not kept in full.
  */
-truncated?: boolean, };
+truncated?: boolean, 
+/**
+ * Past the body limit: shown while the run is open but not saved (only its tail is).
+ */
+live?: boolean, };
