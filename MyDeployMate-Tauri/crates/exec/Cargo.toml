@@ -14,8 +14,11 @@ workspace = true
 encoding_rs = "0.8.42"
 mdm-core = { version = "0.1.0", path = "../core" }
 process-wrap = { version = "10.0.1", default-features = false, features = ["tokio1", "kill-on-drop"] }
+russh = { version = "0.64.1", default-features = false, features = ["flate2", "ring", "rsa"] }
+secrecy = "0.10.3"
+ssh-key = { version = "=0.7.0-rc.11", features = ["ppk", "encryption"] }
 thiserror = "2.0.21"
-tokio = { version = "1.54.0", features = ["io-util", "macros", "process", "rt", "sync", "time"] }
+tokio = { version = "1.54.0", features = ["fs", "io-util", "macros", "net", "process", "rt", "sync", "time"] }
 tokio-util = "0.7.20"
 
 [target.'cfg(windows)'.dependencies]
@@ -28,4 +31,7 @@ process-wrap = { version = "10.0.1", default-features = false, features = ["toki
 [dev-dependencies]
 mdm-core = { version = "0.1.0", path = "../core", features = ["fixtures"] }
 pretty_assertions = "1.4.1"
-tokio = { version = "1.54.0", features = ["io-util", "macros", "process", "rt", "rt-multi-thread", "sync", "time"] }
+secrecy = "0.10.3"
+tempfile = "3.27.0"
+tokio = { version = "1.54.0", features = ["fs", "io-util", "macros", "net", "process", "rt", "rt-multi-thread", "sync", "time"] }
+tokio-util = "0.7.20"
