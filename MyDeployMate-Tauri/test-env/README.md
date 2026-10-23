@@ -7,6 +7,8 @@
 docker compose up -d --build
 ```
 
+运行 SSH 连接层集成测试（`crates/exec/tests/ssh_test_env.rs`）：`./run-ssh-tests.sh`。脚本会生成密钥、启动容器、启动临时 ssh-agent 并设置测试所需的环境变量；需要 docker、ssh-keygen、ssh-agent 和 puttygen。未设置 `MDM_TEST_ENV_KEYS` 时这些测试直接跳过，所以普通的 `cargo test` 不受影响。
+
 | 服务 | 地址 | 说明 |
 |---|---|---|
 | modern | 127.0.0.1:2222 | 现代算法（ed25519 / rsa-sha2） |

@@ -83,6 +83,27 @@ jobs:
             }
           fi
 
+  # SSH 连接层集成测试：对 test-env 的 Docker sshd 运行（架构 ARC-37）。Windows runner 没有 Linux
+  # 容器，这里只编译和测试 mdm-exec，不涉及 src-tauri。
+  ssh-integration:
+    needs: detect
+    if: needs.detect.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ env.APP_DIR }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ env.APP_DIR }}
+          key: ssh-integration
+      - name: Install puttygen
+        run: sudo apt-get update -q && sudo apt-get install -y -q putty-tools
+      - name: SSH integration tests
+        run: test-env/run-ssh-tests.sh --locked
+
   frontend:
     needs: detect
     if: needs.detect.outputs.frontend == 'true'
