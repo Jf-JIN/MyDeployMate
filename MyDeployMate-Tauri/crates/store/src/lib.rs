@@ -2,14 +2,16 @@
 //!
 //! Owns the data directory `%APPDATA%\MyDeployMate`: the process lock, `workspace.json` with
 //! atomic replace and backups, schema migrations, run history in SQLite and run log files,
-//! and the host trust store.
+//! the host trust store, and secrets in Windows Credential Manager.
 
+mod atomic;
 mod error;
 mod history;
 mod lock;
 mod logs;
 pub mod migrate;
 mod paths;
+mod secrets;
 mod trust;
 mod workspace;
 
@@ -18,5 +20,9 @@ pub use history::{HistoryStore, INTERRUPTED_REASON, SharedHistory, StoredRun};
 pub use lock::InstanceLock;
 pub use logs::{RunLog, RunLogFile, read_run_log};
 pub use paths::DataDir;
+pub use secrets::{
+    MemoryVault, SavedCredential, SecretStore, SecretVault, credential_account, platform_vault,
+    variable_account,
+};
 pub use trust::TrustStore;
 pub use workspace::{LoadOutcome, WorkspaceStore};
