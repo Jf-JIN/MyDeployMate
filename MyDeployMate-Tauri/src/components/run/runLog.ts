@@ -1,25 +1,35 @@
 import type { LogEntry, LogSource } from '@/ipc'
 
+/** Lines of output past the 50 MiB limit kept on screen; older ones are dropped (NFR-02). */
+export const LIVE_LINES = 5000
+
 /** One display line of a run log (IXD-27). */
 export interface LogLine {
-  /** Position in the whole log, from 0. */
+  /** Unique within the log, in order. */
   index: number
   task: number
   source: LogSource
   text: string
   atMs: number
-  /** The 50 MiB marker: later output was not kept. */
+  /** The 50 MiB marker: later output was not kept in full. */
   truncated: boolean
+  /** Past the limit: shown live, not saved. */
+  live: boolean
 }
 
 /**
  * Log entries cut into lines. Entries carry raw chunks, so a line can arrive in pieces and
  * pieces of stdout and stderr can interleave: each task and stream keeps its own open line.
- * Entries repeated after reopening a run are dropped by their number.
+ * Entries repeated after reopening a run are dropped by their number. Past the body limit
+ * only the newest [`LIVE_LINES`] live lines stay.
  */
 export class RunLogLines {
   readonly lines: LogLine[] = []
+  /** Live lines dropped to keep memory bounded. */
+  trimmed = 0
   private lastN = -1
+  private nextIndex = 0
+  private live = 0
   /** Open (unterminated) line per task and stream, by line index. */
   private open = new Map<string, number>()
 
@@ -32,10 +42,13 @@ export class RunLogLines {
       changed = true
       this.addEntry(entry)
     }
+    if (this.live > 2 * LIVE_LINES) this.trim()
     return changed
   }
 
   private addEntry(entry: LogEntry) {
+    // Output after the marker is either live or a saved tail: neither continues an earlier line.
+    if (entry.truncated) this.open.clear()
     const key = `${entry.task}:${entry.source}`
     const parts = entry.text.split('\n')
     // The text after the last newline stays open; an empty one means the entry ended a line.
@@ -61,16 +74,40 @@ export class RunLogLines {
   }
 
   private push(entry: LogEntry, text: string): number {
-    const index = this.lines.length
+    const at = this.lines.length
     this.lines.push({
-      index,
+      index: this.nextIndex++,
       task: entry.task,
       source: entry.source,
       text,
       atMs: entry.atMs,
       truncated: !!entry.truncated,
+      live: !!entry.live,
     })
-    return index
+    if (entry.live) this.live++
+    return at
+  }
+
+  /** Drop the oldest live lines down to [`LIVE_LINES`], in place. */
+  private trim() {
+    let drop = this.live - LIVE_LINES
+    const openAt = new Map<number, string>()
+    for (const [key, at] of this.open) openAt.set(at, key)
+    this.open.clear()
+    let w = 0
+    for (let r = 0; r < this.lines.length; r++) {
+      const line = this.lines[r] as LogLine
+      if (drop > 0 && line.live) {
+        drop--
+        continue
+      }
+      const key = openAt.get(r)
+      if (key !== undefined) this.open.set(key, w)
+      this.lines[w++] = line
+    }
+    this.trimmed += this.lines.length - w
+    this.live -= this.lines.length - w
+    this.lines.length = w
   }
 }
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { LogEntry, LogSource, PlannedTask, ResolvedPlan, Task, TaskStatus } from '@/ipc'
 
-import { highlight, RunLogLines } from './runLog'
+import { highlight, LIVE_LINES, RunLogLines } from './runLog'
 import { duration, groupRunTasks, outcomeText, skippedServerCount } from './runState'
 
 let n = 0
@@ -40,6 +40,38 @@ describe('run log lines', () => {
       ['', true],
       ['已达到上限', true],
     ])
+  })
+
+  it('starts new lines after the marker', () => {
+    const log = new RunLogLines()
+    log.add([entry('kept'), { ...entry('上限\n', 'system'), truncated: true }])
+    log.add([{ ...entry('live\n'), live: true }])
+    expect(log.lines.map((l) => [l.text, l.live])).toEqual([
+      ['kept', false],
+      ['上限', false],
+      ['live', true],
+    ])
+  })
+
+  it('keeps only the newest live lines', () => {
+    const log = new RunLogLines()
+    log.add([entry('head\n'), { ...entry('上限\n', 'system'), truncated: true }])
+    const live = (i: number) => ({ ...entry(`l${i}\n`), live: true })
+    for (let i = 0; i < 2 * LIVE_LINES - 1; i++) log.add([live(i)])
+    log.add([entry('note\n', 'system'), { ...entry('open'), live: true }])
+    expect(log.trimmed).toBe(0)
+    log.add([{ ...entry(' more\n'), live: true }, live(2 * LIVE_LINES)])
+    expect(log.trimmed).toBe(LIVE_LINES + 1)
+    expect(log.lines.length).toBe(2 + LIVE_LINES + 1)
+    expect(log.lines.slice(0, 3).map((l) => l.text)).toEqual(['head', '上限', `l${LIVE_LINES + 1}`])
+    // The open line moved with the rest and still took its end.
+    expect(log.lines.slice(-3).map((l) => l.text)).toEqual([
+      'note',
+      'open more',
+      `l${2 * LIVE_LINES}`,
+    ])
+    const ids = log.lines.map((l) => l.index)
+    expect(ids.every((id, i) => i === 0 || id > (ids[i - 1] ?? -1))).toBe(true)
   })
 })
 
