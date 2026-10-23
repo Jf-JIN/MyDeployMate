@@ -10,6 +10,8 @@ const props = withDefaults(
     toolbar?: boolean
     disabledReason?: string | null
     pressed?: boolean | null
+    /** Field-side action (browse): input-height, tinted like the insert-variable button. */
+    tonal?: boolean
   }>(),
   { disabledReason: null, pressed: null },
 )
@@ -31,7 +33,7 @@ function onClick(event: MouseEvent) {
   <button
     type="button"
     class="icon-btn"
-    :class="{ 'icon-btn--toolbar': toolbar }"
+    :class="{ 'icon-btn--toolbar': toolbar, 'icon-btn--tonal': tonal }"
     :aria-label="label"
     :aria-disabled="disabledReason ? true : undefined"
     :aria-describedby="disabledReason ? reasonId : undefined"
@@ -66,9 +68,22 @@ function onClick(event: MouseEvent) {
   height: var(--icon-button-size-toolbar);
 }
 
+.icon-btn--tonal {
+  width: var(--input-height);
+  height: var(--input-height);
+  border: 1px solid color-mix(in srgb, var(--action-primary) 45%, transparent);
+  background: var(--surface-selected);
+  color: var(--action-primary);
+}
+
 .icon-btn:hover:not([aria-disabled='true']) {
   background: var(--surface-hover);
   color: var(--text-primary);
+}
+
+.icon-btn--tonal:hover:not([aria-disabled='true']) {
+  background: color-mix(in srgb, var(--action-primary) 22%, var(--surface-panel));
+  color: var(--action-primary);
 }
 
 .icon-btn[aria-pressed='true'] {
@@ -77,6 +92,8 @@ function onClick(event: MouseEvent) {
 }
 
 .icon-btn[aria-disabled='true'] {
+  border-color: var(--border-subtle);
+  background: transparent;
   color: var(--border-control);
   cursor: not-allowed;
 }
