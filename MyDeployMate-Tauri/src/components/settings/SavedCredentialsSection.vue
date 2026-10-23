@@ -8,7 +8,8 @@ import UiConfirm from '@/components/ui/UiConfirm.vue'
 import UiIconButton from '@/components/ui/UiIconButton.vue'
 import UiNotice from '@/components/ui/UiNotice.vue'
 import { useT } from '@/i18n'
-import { call, toAppError, type SavedCredential } from '@/ipc'
+import { errorText } from '@/i18n/message'
+import { call, type SavedCredential } from '@/ipc'
 import { useToastStore } from '@/stores/toast'
 import { useWorkspaceStore } from '@/stores/workspace'
 
@@ -27,7 +28,7 @@ async function load() {
   try {
     saved.value = await call('saved_credentials')
   } catch (e) {
-    error.value = toAppError(e).message
+    error.value = errorText(e)
   }
 }
 onMounted(load)
@@ -54,7 +55,7 @@ async function applyClear() {
     toast.show(t('settings.credentials.cleared'))
     await load()
   } catch (e) {
-    error.value = toAppError(e).message
+    error.value = errorText(e)
   } finally {
     busy.value = false
     clearing.value = null

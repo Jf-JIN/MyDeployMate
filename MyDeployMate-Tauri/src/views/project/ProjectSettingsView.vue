@@ -15,7 +15,8 @@ import UiTextInput from '@/components/ui/UiTextInput.vue'
 import { useProjectDraft } from '@/composables/projectDraft'
 import { cloneWorkspace } from '@/composables/workspaceDraft'
 import { useT } from '@/i18n'
-import { toAppError, type Pipeline, type Project } from '@/ipc'
+import { errorText } from '@/i18n/message'
+import { type Pipeline, type Project } from '@/ipc'
 import { useRunStore } from '@/stores/run'
 import { useToastStore } from '@/stores/toast'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -70,7 +71,7 @@ async function applyDelete() {
     toast.show(t('projects.deleted', { name }))
     await router.replace({ name: 'projects' })
   } catch (e) {
-    deleteError.value = toAppError(e).message
+    deleteError.value = errorText(e)
   } finally {
     deleting.value = false
     confirming.value = false

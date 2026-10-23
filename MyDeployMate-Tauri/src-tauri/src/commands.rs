@@ -15,9 +15,9 @@ use mdm_core::resolve::{VariableView, variable_views as resolve_variable_views};
 use mdm_core::template::{BuiltinVariable, builtin_variables as template_builtins};
 use mdm_core::wsl::parse_wsl_list;
 use mdm_core::{
-    Environment, EnvironmentId, KeyFormat, Pipeline, PlanRequest, Project, ProjectId, Reference,
-    ResolvedPlan, Server, ServerEdit, ServerId, Shell, Step, StepKind, ValidationReport, Variable,
-    VariableId, VariableValue, Workspace, build_plan, check_workspace_json, defaults,
+    Environment, EnvironmentId, KeyFormat, Message, Pipeline, PlanRequest, Project, ProjectId,
+    Reference, ResolvedPlan, Server, ServerEdit, ServerId, Shell, Step, StepKind, ValidationReport,
+    Variable, VariableId, VariableValue, Workspace, build_plan, check_workspace_json, defaults,
     detect_key_format, edit, parse_workspace, validate_workspace,
 };
 use mdm_exec::resolve_shell;
@@ -138,19 +138,16 @@ fn check_active_run_servers(state: &AppState, ws: &Workspace) -> Result<(), AppE
         return Ok(());
     };
     for frozen in &run.servers {
+        let server = frozen.name.clone();
         let message = match ws.servers.iter().find(|s| s.id == frozen.id) {
-            None => "删除",
-            Some(s) if s.environment_id != frozen.environment_id => "更换环境",
-            Some(s) if signature(s) != signature(frozen) => "修改连接设置",
+            None => Message::ServerInUseDelete { server },
+            Some(s) if s.environment_id != frozen.environment_id => {
+                Message::ServerInUseMove { server }
+            }
+            Some(s) if signature(s) != signature(frozen) => Message::ServerInUseEdit { server },
             Some(_) => continue,
         };
-        return Err(AppError::new(
-            AppErrorKind::RunActive,
-            format!(
-                "服务器 {} 正被当前运行使用，运行结束后才能{message}",
-                frozen.name
-            ),
-        ));
+        return Err(AppError::new(AppErrorKind::RunActive, message));
     }
     Ok(())
 }
@@ -165,7 +162,9 @@ pub fn open_data_dir(state: State<'_, AppState>) -> Result<(), AppError> {
         .map_err(|err| {
             AppError::new(
                 AppErrorKind::StorageUnavailable,
-                format!("无法打开数据目录：{err}"),
+                Message::OpenDataDir {
+                    detail: err.to_string(),
+                },
             )
         })
 }
@@ -220,9 +219,12 @@ pub fn inspect_key_file(path: String) -> Result<KeyFormat, AppError> {
         .and_then(|f| f.take(KEY_HEAD_LEN as u64).read_to_end(&mut head))
         .map_err(|err| {
             let message = if err.kind() == std::io::ErrorKind::NotFound {
-                format!("找不到私钥文件：{path}")
+                Message::KeyFileMissing { path: path.clone() }
             } else {
-                format!("无法读取私钥文件：{path}（{err}）")
+                Message::KeyFileReadFailed {
+                    path: path.clone(),
+                    detail: err.to_string(),
+                }
             };
             AppError::new(AppErrorKind::StorageUnavailable, message)
         })?;
@@ -241,8 +243,8 @@ pub fn env_var_present(name: String) -> bool {
 
 /// A project with one empty pipeline in the given default environment (IXD-07).
 #[tauri::command]
-pub fn new_project(default_environment_id: EnvironmentId) -> Project {
-    defaults::new_project(default_environment_id)
+pub fn new_project(default_environment_id: EnvironmentId, pipeline_name: String) -> Project {
+    defaults::new_project(default_environment_id, pipeline_name)
 }
 
 /// Copy a project of the draft without its target bindings or credentials (IXD-07).
@@ -257,7 +259,7 @@ pub fn copy_project(
         .iter()
         .find(|p| p.id == project_id)
         .map(|p| edit::copy_project(p, name))
-        .ok_or_else(|| AppError::new(AppErrorKind::Internal, "要复制的项目不存在"))
+        .ok_or_else(|| AppError::new(AppErrorKind::Internal, Message::ProjectMissing))
 }
 
 /// Whether a local directory exists, to warn about a project root that is missing (IXD-07).
@@ -289,16 +291,16 @@ pub fn copy_pipeline(pipeline: Pipeline, name: String) -> Pipeline {
     edit::copy_pipeline(&pipeline, name)
 }
 
-/// A step of `kind` with STEP-01 defaults and a name for its kind (IXD-10).
+/// A step of `kind` with STEP-01 defaults; the UI names it after its kind (IXD-10).
 #[tauri::command]
-pub fn new_step(kind: StepKind) -> Step {
-    defaults::new_step(kind, defaults::step_kind_label(kind))
+pub fn new_step(kind: StepKind, name: String) -> Step {
+    defaults::new_step(kind, name)
 }
 
 /// A copy of a step with a new ID (IXD-09).
 #[tauri::command]
-pub fn copy_step(step: Step) -> Step {
-    edit::copy_step(&step)
+pub fn copy_step(step: Step, name: String) -> Step {
+    edit::copy_step(&step, name)
 }
 
 /// Built-in expressions for the variable menu (IXD-11).
@@ -318,7 +320,7 @@ pub fn preview_run(
     let draft = parse_workspace(draft).map_err(AppError::validation)?;
     state
         .with_values(|values| build_plan(&draft, &request, values))
-        .map_err(|e| AppError::new(AppErrorKind::Internal, e.to_string()))
+        .map_err(|e| AppError::new(AppErrorKind::Internal, e.message()))
 }
 
 /// Installed WSL distributions; empty when WSL is missing or fails (STEP-02).
@@ -397,6 +399,6 @@ impl AppState {
         }
         self.store
             .lock()
-            .map_err(|_| AppError::new(AppErrorKind::Internal, "工作区存储状态异常，请重启应用"))
+            .map_err(|_| AppError::new(AppErrorKind::Internal, Message::WorkspaceStateBroken))
     }
 }

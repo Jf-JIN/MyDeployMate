@@ -8,6 +8,8 @@ use std::collections::VecDeque;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::message::Message;
+
 /// Body limit per run (NFR-02). Notes and the truncation marker are always kept.
 pub const LOG_BODY_LIMIT: u64 = 50 * 1024 * 1024;
 
@@ -34,7 +36,12 @@ pub struct LogEntry {
     /// Task position in the plan.
     pub task: u32,
     pub source: LogSource,
+    /// For a note with a `message`, only the line end: the UI renders the message before it.
     pub text: String,
+    /// A note written by the app (ARC-38). Notes saved before v0.3 have plain `text` instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub message: Option<Message>,
     #[ts(type = "number")]
     pub at_ms: i64,
     /// The body limit was reached here; later stdout and stderr were not kept in full.
@@ -231,6 +238,7 @@ mod tests {
             task: 1,
             source: LogSource::Stdout,
             text: "ok\n".into(),
+            message: None,
             at_ms: 5,
             truncated: false,
             live: false,

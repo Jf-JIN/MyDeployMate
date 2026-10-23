@@ -5,6 +5,7 @@ import { computed, nextTick } from 'vue'
 import UiMenu from '@/components/ui/UiMenu.vue'
 import type { MenuEntry } from '@/components/ui/types'
 import { useT } from '@/i18n'
+import { messageText } from '@/i18n/message'
 
 import { insertExpression } from './pipeline'
 import { useVariableMenu } from './variableMenu'
@@ -48,7 +49,7 @@ const entries = computed<MenuEntry[]>(() => {
     out.push({
       key: b.expression,
       label: b.expression,
-      detail: b.label,
+      detail: messageText(b.label),
       disabledReason: props.local && b.needsServer ? t('variableMenu.noServer') : null,
     })
   }

@@ -17,9 +17,9 @@ import type { MenuEntry } from '@/components/ui/types'
 import { useProjectDraft } from '@/composables/projectDraft'
 import { cloneWorkspace, focusFirstInvalid } from '@/composables/workspaceDraft'
 import { useT } from '@/i18n'
+import { errorText, issueText } from '@/i18n/message'
 import {
   call,
-  toAppError,
   type BuiltinVariable,
   type Pipeline,
   type Project,
@@ -59,7 +59,7 @@ const current = computed(() => project.value?.pipelines[pipelineIndex.value] ?? 
 const path = computed(() => `${prefix.value}.pipelines[${pipelineIndex.value}]`)
 
 function pipelineError(field: string) {
-  return issues.value.find((i) => i.path === `${path.value}.${field}`)?.message ?? null
+  return issueText(issues.value.find((i) => i.path === `${path.value}.${field}`))
 }
 
 // ---- Steps ---------------------------------------------------------------------------------
@@ -96,11 +96,9 @@ function hasIssue(k: number) {
   )
 }
 function stepError(field: string) {
-  return (
-    issues.value.find((i) => i.path === `${path.value}.steps[${stepIndex.value}].${field}`)
-      ?.message ??
-    previewIssue(step.value?.id, field)?.message ??
-    null
+  return issueText(
+    issues.value.find((i) => i.path === `${path.value}.steps[${stepIndex.value}].${field}`) ??
+      previewIssue(step.value?.id, field),
   )
 }
 
@@ -216,7 +214,7 @@ async function deletePipeline() {
     deleting.value = false
     if (neighbour) openPipeline(neighbour.id)
   } catch (e) {
-    deleteError.value = toAppError(e).message
+    deleteError.value = errorText(e)
   } finally {
     busy.value = false
   }

@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
-import type { LogEntry, LogSource, PlannedTask, ResolvedPlan, Task, TaskStatus } from '@/ipc'
+import type {
+  LogEntry,
+  LogSource,
+  Message,
+  PlannedTask,
+  ResolvedPlan,
+  Task,
+  TaskStatus,
+} from '@/ipc'
 
 import { highlight, LIVE_LINES, RunLogLines } from './runLog'
 import { duration, groupRunTasks, outcomeText, skippedServerCount } from './runState'
@@ -102,7 +110,7 @@ function planned(seq: number, server: string | null, segment: number): PlannedTa
   }
 }
 
-function task(seq: number, status: TaskStatus, server: string | null, reason?: string): Task {
+function task(seq: number, status: TaskStatus, server: string | null, reason?: Message): Task {
   return {
     id: `t${seq}`,
     runId: 'r',
@@ -130,8 +138,8 @@ describe('run state', () => {
   it('marks a server group stopped by the skip-server policy', () => {
     const tasks = [
       task(0, 'succeeded', null),
-      task(1, 'failed', 'a', '退出码 1'),
-      task(2, 'skipped', 'a', '服务器 a 已跳过（任务 2 失败）'),
+      task(1, 'failed', 'a', { code: 'exec.exitCode', params: { code: 1 } }),
+      task(2, 'skipped', 'a', { code: 'run.serverSkipped', params: { server: 'a', n: 2 } }),
       task(3, 'succeeded', 'b'),
     ]
     const groups = groupRunTasks(plan, tasks)
@@ -148,20 +156,23 @@ describe('run state', () => {
 
   it('says what ran before a cancel', () => {
     const tasks = [task(0, 'succeeded', null), task(1, 'cancelled', 'a'), task(2, 'skipped', 'a')]
-    expect(outcomeText('cancelled', tasks, '用户取消')).toBe(
+    expect(outcomeText('cancelled', tasks, { code: 'run.userCancelled' })).toBe(
       '用户取消。已执行 2 个任务，未执行 1 个；已完成的操作不会自动撤销',
     )
   })
 
   it('tells an unconfirmed stop apart from the app quitting', () => {
     const unconfirmed = [
-      task(0, 'unknown', 'a', '已取消，但无法确认远端进程已停止（检查远端进程超时）'),
+      task(0, 'unknown', 'a', {
+        code: 'exec.cancelUnconfirmed',
+        params: { why: { code: 'exec.checkTimeout' } },
+      }),
       task(1, 'skipped', 'b'),
     ]
-    expect(outcomeText('interrupted', unconfirmed, '用户取消')).toBe(
+    expect(outcomeText('interrupted', unconfirmed, { code: 'run.userCancelled' })).toBe(
       '运行已中断，后续任务不再执行。结果未知的任务需要人工核验',
     )
-    const quit = [task(0, 'unknown', 'a', '应用在运行过程中退出，运行未自动继续')]
+    const quit = [task(0, 'unknown', 'a', { code: 'run.appExited' })]
     expect(outcomeText('interrupted', quit, null)).toBe(
       '应用在运行过程中退出，运行没有继续。结果未知的任务需要人工核验',
     )

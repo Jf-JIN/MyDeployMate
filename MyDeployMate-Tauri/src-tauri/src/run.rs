@@ -13,8 +13,8 @@ use std::sync::{Arc, Mutex};
 
 use mdm_core::log::LogBudget;
 use mdm_core::{
-    Clock, LogEntry, OperatorPrompt, PlanRequest, ResolvedPlan, Run, RunId, RunMachine, Server,
-    ServerId, StorageError, Task, build_plan,
+    Clock, LogEntry, Message, OperatorPrompt, PlanRequest, ResolvedPlan, Run, RunId, RunMachine,
+    Server, ServerId, StorageError, Task, build_plan,
 };
 use mdm_exec::{
     AppExecutor, ConnectFuture, Control, Coordinator, LogPipeline, OperatorAnswer, OperatorRequest,
@@ -74,7 +74,7 @@ pub enum RunUpdate {
     State {
         run: Box<Run>,
         tasks: Vec<Task>,
-        cancel_reason: Option<String>,
+        cancel_reason: Option<Message>,
     },
     Logs {
         entries: Vec<LogEntry>,
@@ -83,7 +83,7 @@ pub enum RunUpdate {
     /// `answer_run_secret`.
     Request(RunRequest),
     StorageFailed {
-        message: String,
+        message: Message,
     },
 }
 
@@ -114,7 +114,7 @@ impl From<&OperatorRequest> for RunRequest {
 pub struct RunSnapshot {
     pub run: Run,
     pub tasks: Vec<Task>,
-    pub cancel_reason: Option<String>,
+    pub cancel_reason: Option<Message>,
     /// The frozen plan, for each task's parameters.
     pub plan: ResolvedPlan,
     pub logs: Vec<LogEntry>,
@@ -155,7 +155,7 @@ impl RunView for ChannelView {
         self.send(RunUpdate::State {
             run: Box::new(machine.run().clone()),
             tasks: machine.tasks().to_vec(),
-            cancel_reason: machine.cancel_reason().map(str::to_owned),
+            cancel_reason: machine.cancel_reason().cloned(),
         });
     }
 
@@ -171,7 +171,7 @@ impl RunView for ChannelView {
 
     fn storage_failed(&self, error: &StorageError) {
         self.send(RunUpdate::StorageFailed {
-            message: error.to_string(),
+            message: error.message(),
         });
     }
 }
@@ -187,14 +187,14 @@ pub fn start_run(
     let mut active = state
         .active
         .lock()
-        .map_err(|_| AppError::new(AppErrorKind::Internal, "运行状态异常，请重启应用"))?;
+        .map_err(|_| AppError::new(AppErrorKind::Internal, Message::RunStateBroken))?;
     if let Some(run) = active.as_ref() {
         if run.key == start.key {
             return Ok(run.run_id);
         }
         return Err(AppError::new(
             AppErrorKind::RunActive,
-            "已有运行正在进行，同一时间只能有一个运行",
+            Message::AnotherRunActive,
         ));
     }
     let history = history(&state)?;
@@ -203,30 +203,31 @@ pub fn start_run(
     if workspace.revision != start.revision {
         return Err(AppError::new(
             AppErrorKind::RevisionConflict,
-            "配置在预览后已被修改，请重新预览后再开始",
+            Message::StalePreview,
         ));
     }
     let plan = state
         .with_values(|values| build_plan(&workspace, &start.request, values))
-        .map_err(|e| AppError::new(AppErrorKind::Validation, e.to_string()))?;
+        .map_err(|e| AppError::new(AppErrorKind::Validation, e.message()))?;
     if !plan.issues.is_empty() {
         return Err(AppError::new(
             AppErrorKind::Validation,
-            format!(
-                "预检有 {} 个问题，请在预览中处理后再开始",
-                plan.issues.len()
-            ),
+            Message::PreflightIssues {
+                n: plan.issues.len() as u32,
+            },
         ));
     }
     if plan.tasks.is_empty() {
-        return Err(AppError::new(AppErrorKind::Validation, "没有要执行的任务"));
+        return Err(AppError::new(AppErrorKind::Validation, Message::NoTasks));
     }
     if plan.protected
         && start.confirmation.as_deref().map(str::trim) != Some(plan.environment_name.as_str())
     {
         return Err(AppError::new(
             AppErrorKind::Validation,
-            format!("请输入环境名称 {} 以确认", plan.environment_name),
+            Message::ConfirmEnvironment {
+                name: plan.environment_name.clone(),
+            },
         ));
     }
 
@@ -265,7 +266,7 @@ pub fn start_run(
         pipeline.clone(),
         control_rx,
     )
-    .map_err(|(e, _)| AppError::new(AppErrorKind::StorageUnavailable, e.to_string()))?;
+    .map_err(|(e, _)| AppError::new(AppErrorKind::StorageUnavailable, e.message()))?;
 
     *active = Some(ActiveRun {
         run_id,
@@ -341,7 +342,7 @@ fn read_snapshot(
         (store.load_run(run_id)?, store.load_plan(run_id)?)
     };
     let (Some(stored), Some(plan)) = (stored, plan) else {
-        return Err(AppError::new(AppErrorKind::NotFound, "找不到该运行记录"));
+        return Err(AppError::new(AppErrorKind::NotFound, Message::RunNotFound));
     };
     let log = read_run_log(&state.data_dir, run_id)?;
     Ok(RunSnapshot {
@@ -363,7 +364,7 @@ fn history(state: &AppState) -> Result<SharedHistory, AppError> {
             state
                 .history_error
                 .clone()
-                .unwrap_or_else(|| "运行记录不可用".into()),
+                .unwrap_or(Message::RunUnavailable),
         )
     })
 }
@@ -392,7 +393,7 @@ pub fn cancel_run(state: State<'_, AppState>, run_id: RunId) -> Result<(), AppEr
         &state,
         run_id,
         Control::Cancel {
-            reason: "用户取消".into(),
+            reason: Message::UserCancelled,
         },
     )
 }
@@ -462,18 +463,24 @@ impl RemoteConnector for RunConnector {
                 return Err(TaskOutcome::Failed {
                     exit_code: None,
                     exit_signal: None,
-                    reason: "运行开始时找不到该服务器的配置".into(),
+                    reason: Message::ServerMissing,
                 });
             };
             let task = &self.plan.tasks[ctx.seq as usize];
-            let context = format!("任务 {}：{}", ctx.seq + 1, task.step_name);
-            match open_session(&self.app, server, &context, &TaskAsker(ctx), &ctx.cancel).await {
+            let context = Message::TaskContext {
+                n: ctx.seq + 1,
+                step: task.step_name.clone(),
+            };
+            match open_session(&self.app, server, context, &TaskAsker(ctx), &ctx.cancel).await {
                 Ok(session) => Ok(session),
                 Err(SessionError::Cancelled) => Err(TaskOutcome::Cancelled),
                 Err(SessionError::Failed(e)) => Err(TaskOutcome::Failed {
                     exit_code: None,
                     exit_signal: None,
-                    reason: format!("连接 {} 失败：{}", server.name, e.message),
+                    reason: Message::ConnectFailed {
+                        server: server.name.clone(),
+                        reason: Box::new(e.message),
+                    },
                 }),
             }
         })
@@ -497,7 +504,7 @@ pub fn cancel_and_quit(app: AppHandle, state: State<'_, AppState>) {
     let sent = active.as_ref().is_some_and(|a| {
         a.control
             .send(Control::Cancel {
-                reason: "用户取消并退出应用".into(),
+                reason: Message::QuitCancelled,
             })
             .is_ok()
     });
@@ -526,7 +533,10 @@ fn send_control(state: &AppState, run_id: RunId, control: Control) -> Result<(),
         Some(a) if a.run_id == run_id => a
             .control
             .send(control)
-            .map_err(|_| AppError::new(AppErrorKind::Internal, "运行已结束")),
-        _ => Err(AppError::new(AppErrorKind::Validation, "该运行已结束")),
+            .map_err(|_| AppError::new(AppErrorKind::Internal, Message::RunEnded)),
+        _ => Err(AppError::new(
+            AppErrorKind::Validation,
+            Message::RunAlreadyEnded,
+        )),
     }
 }

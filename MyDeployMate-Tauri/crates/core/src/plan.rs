@@ -13,6 +13,7 @@ use thiserror::Error;
 use ts_rs::TS;
 
 use crate::ids::{EnvironmentId, PipelineId, ProjectId, ServerId, StepId};
+use crate::message::{Label, Message};
 use crate::model::*;
 use crate::resolve::{
     Context, ResolveError, ResolveErrorKind, ResolvedText, Resolver, VERSION_VARIABLE, ValueSource,
@@ -50,12 +51,22 @@ pub enum RunScope {
 
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
 pub enum PlanError {
-    #[error("项目不存在")]
+    #[error("project not found")]
     ProjectNotFound,
-    #[error("流程不存在")]
+    #[error("pipeline not found")]
     PipelineNotFound,
-    #[error("环境不存在")]
+    #[error("environment not found")]
     EnvironmentNotFound,
+}
+
+impl PlanError {
+    pub fn message(&self) -> Message {
+        match self {
+            PlanError::ProjectNotFound => Message::ProjectNotFound,
+            PlanError::PipelineNotFound => Message::PipelineNotFound,
+            PlanError::EnvironmentNotFound => Message::EnvironmentNotFound,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
@@ -263,7 +274,7 @@ pub fn build_plan(
                 b.plain(
                     format!("serverIds[{i}]"),
                     IssueCode::NotBound,
-                    "所选服务器未绑定到当前环境，不能作为本次目标",
+                    Message::NotBound,
                 );
             }
         }
@@ -299,7 +310,7 @@ pub fn build_plan(
         b.plain(
             "version".into(),
             IssueCode::Required,
-            "请填写本次发布的版本",
+            Message::VersionRequired,
         );
     }
     let resolver = resolver.with_version(version.as_deref());
@@ -307,11 +318,7 @@ pub fn build_plan(
     // Expansion (RUN-03).
     let has_remote = steps.iter().any(|(_, s)| is_remote_kind(s.spec.kind()));
     if has_remote && selected.is_empty() {
-        b.plain(
-            "serverIds".into(),
-            IssueCode::NoTargets,
-            "此流程包含远程操作，请至少选择一台目标服务器。",
-        );
+        b.plain("serverIds".into(), IssueCode::NoTargets, Message::NoTargets);
     }
     let mut planned: Vec<(usize, &Step, Option<&Server>, u32)> = Vec::new();
     match pipeline.execution_order {
@@ -392,9 +399,9 @@ pub fn build_plan(
 
     if tasks.is_empty() && !b.issues.iter().any(|i| i.code == IssueCode::NoTargets) {
         let message = if local_only {
-            "仅本地命令范围内没有启用的本地步骤"
+            Message::NoLocalSteps
         } else {
-            "流程中没有启用的步骤"
+            Message::NoSteps
         };
         b.plain("steps".into(), IssueCode::NoTasks, message);
     }
@@ -419,7 +426,10 @@ pub fn build_plan(
                     }),
                     field: "auth.source.name".into(),
                     code: IssueCode::MissingValue,
-                    message: format!("服务器 {} 的登录密码环境变量 {name} 未设置", s.name),
+                    message: Message::PasswordEnvUnset {
+                        server: s.name.clone(),
+                        name: name.clone(),
+                    },
                 });
             }
         }
@@ -514,14 +524,14 @@ struct Builder {
 
 impl Builder {
     /// A plan-level issue (version, targets) with no owning object.
-    fn plain(&mut self, path: String, code: IssueCode, message: impl Into<String>) {
+    fn plain(&mut self, path: String, code: IssueCode, message: Message) {
         let field = path.split('[').next().unwrap_or(&path).to_owned();
         self.issues.push(Issue {
             path,
             object: None,
             field,
             code,
-            message: message.into(),
+            message,
         });
     }
 
@@ -530,12 +540,24 @@ impl Builder {
         &mut self,
         at: &StepAt<'_>,
         field: &str,
-        label: &str,
+        label: &Label,
         code: IssueCode,
-        msg: &str,
+        reason: Message,
     ) {
+        self.push_step_issue(
+            at,
+            field,
+            code,
+            Message::StepIssue {
+                step: at.index as u32 + 1,
+                label: label.clone(),
+                reason: Box::new(reason),
+            },
+        );
+    }
+
+    fn push_step_issue(&mut self, at: &StepAt<'_>, field: &str, code: IssueCode, message: Message) {
         let path = format!("{}[{}].{field}", self.step_prefix, at.index);
-        let message = format!("步骤 {} · {label}：{msg}", at.index + 1);
         if self
             .issues
             .iter()
@@ -561,44 +583,51 @@ impl Builder {
         resolver: &Resolver<'_>,
         at: &StepAt<'_>,
         field: &str,
-        label: &str,
+        label: Label,
         raw: &str,
     ) -> Option<ResolvedText> {
         match resolver.resolve(raw, Context { server: at.server }) {
             Ok(t) => Some(t),
             Err(e) => {
-                self.step_issue(at, field, label, issue_code(&e), &e.message());
+                self.step_issue(at, field, &label, issue_code(&e), e.message());
                 None
             }
         }
     }
 
     /// A path issue found after resolution; names the server because values may differ by server.
-    fn path_issue(&mut self, at: &StepAt<'_>, field: &str, label: &str, msg: &str) {
-        let label = match at.server {
-            Some(s) => format!("{label}（{}）", s.name),
-            None => label.to_owned(),
-        };
-        self.step_issue(at, field, &label, IssueCode::InvalidFormat, msg);
+    fn path_issue(&mut self, at: &StepAt<'_>, field: &str, label: &Label, reason: Message) {
+        match at.server {
+            Some(s) => {
+                let message = Message::StepServerIssue {
+                    step: at.index as u32 + 1,
+                    label: label.clone(),
+                    server: s.name.clone(),
+                    reason: Box::new(reason),
+                };
+                self.push_step_issue(at, field, IssueCode::InvalidFormat, message);
+            }
+            None => self.step_issue(at, field, label, IssueCode::InvalidFormat, reason),
+        }
     }
 
     fn control_chars(
         &mut self,
         at: &StepAt<'_>,
         field: &str,
-        label: &str,
+        label: &Label,
         t: &ResolvedText,
     ) -> bool {
         let bad = t.expose().contains(['\n', '\r', '\0']);
         if bad {
-            self.path_issue(at, field, label, "路径不能包含换行或 NUL 字符");
+            self.path_issue(at, field, label, Message::PathControl);
         }
         !bad
     }
 
-    fn remote_path(&mut self, at: &StepAt<'_>, field: &str, label: &str, t: &ResolvedText) {
+    fn remote_path(&mut self, at: &StepAt<'_>, field: &str, label: &Label, t: &ResolvedText) {
         if self.control_chars(at, field, label, t) && !t.expose().starts_with('/') {
-            self.path_issue(at, field, label, "必须是远端绝对路径（以 / 开头）");
+            self.path_issue(at, field, label, Message::MustBeRemoteAbsolute);
         }
     }
 
@@ -607,7 +636,7 @@ impl Builder {
         &mut self,
         at: &StepAt<'_>,
         field: &str,
-        label: &str,
+        label: &Label,
         t: ResolvedText,
         root: Option<&str>,
     ) -> ResolvedText {
@@ -617,12 +646,7 @@ impl Builder {
         match root {
             Some(root) => t.map(|rel| join_windows(root, rel)),
             None => {
-                self.path_issue(
-                    at,
-                    field,
-                    label,
-                    "相对路径需要项目根目录，请填写绝对路径或设置项目根目录",
-                );
+                self.path_issue(at, field, label, Message::RelativePath);
                 t
             }
         }
@@ -633,27 +657,27 @@ impl Builder {
             |t: Option<ResolvedText>, raw: &str| t.unwrap_or_else(|| ResolvedText::plain(raw));
         match &at.step.spec {
             StepSpec::Local(l) => {
-                let command = self.resolve(r, at, "spec.command", "命令", &l.command);
+                let command = self.resolve(r, at, "spec.command", Label::Command, &l.command);
                 let cwd_raw = l.cwd.as_deref().filter(|c| !c.trim().is_empty());
                 let cwd = match (cwd_raw, l.shell) {
                     (Some(raw), Shell::Wsl) => self
-                        .resolve(r, at, "spec.cwd", "工作目录", raw)
+                        .resolve(r, at, "spec.cwd", Label::Cwd, raw)
                         .inspect(|t| {
-                            if self.control_chars(at, "spec.cwd", "工作目录", t)
+                            if self.control_chars(at, "spec.cwd", &Label::Cwd, t)
                                 && !t.expose().starts_with('/')
                             {
                                 self.path_issue(
                                     at,
                                     "spec.cwd",
-                                    "工作目录",
-                                    "WSL 工作目录必须是 Linux 绝对路径，例如 /home/user/app",
+                                    &Label::Cwd,
+                                    Message::WslCwdAbsolute,
                                 );
                             }
                         })
                         .or_else(|| Some(ResolvedText::plain(raw))),
                     (Some(raw), _) => Some(
-                        self.resolve(r, at, "spec.cwd", "工作目录", raw)
-                            .map(|t| self.local_path(at, "spec.cwd", "工作目录", t, root))
+                        self.resolve(r, at, "spec.cwd", Label::Cwd, raw)
+                            .map(|t| self.local_path(at, "spec.cwd", &Label::Cwd, t, root))
                             .unwrap_or_else(|| ResolvedText::plain(raw)),
                     ),
                     (None, Shell::Wsl) => None,
@@ -669,17 +693,17 @@ impl Builder {
             }
             StepSpec::Upload(u) => {
                 let source = self
-                    .resolve(r, at, "spec.source", "本地源路径", &u.source)
-                    .map(|t| self.local_path(at, "spec.source", "本地源路径", t, root));
-                let target = self.resolve(r, at, "spec.target", "远端目标", &u.target);
+                    .resolve(r, at, "spec.source", Label::Source, &u.source)
+                    .map(|t| self.local_path(at, "spec.source", &Label::Source, t, root));
+                let target = self.resolve(r, at, "spec.target", Label::Target, &u.target);
                 if let Some(t) = &target {
-                    self.remote_path(at, "spec.target", "远端目标", t);
+                    self.remote_path(at, "spec.target", &Label::Target, t);
                     if u.source_kind == SourceKind::File && t.expose().ends_with('/') {
                         self.path_issue(
                             at,
                             "spec.target",
-                            "远端目标",
-                            "上传文件时目标必须是完整文件路径，不能以 / 结尾",
+                            &Label::Target,
+                            Message::UploadFileTarget,
                         );
                     }
                 }
@@ -694,7 +718,7 @@ impl Builder {
                 let command = match &rs.command {
                     RemoteCommand::Script { script } => ResolvedCommand::Script {
                         script: or_raw(
-                            self.resolve(r, at, "spec.command.script", "命令", script),
+                            self.resolve(r, at, "spec.command.script", Label::Command, script),
                             script,
                         ),
                     },
@@ -703,26 +727,26 @@ impl Builder {
                             r,
                             at,
                             "spec.command.executable",
-                            "可执行文件",
+                            Label::Executable,
                             executable,
                         );
                         if let Some(t) = &exe {
-                            self.remote_path(at, "spec.command.executable", "可执行文件", t);
+                            self.remote_path(at, "spec.command.executable", &Label::Executable, t);
                         }
                         let args = args
                             .iter()
                             .enumerate()
                             .map(|(a, raw)| {
                                 let field = format!("spec.command.args[{a}]");
-                                let label = format!("参数 {}", a + 1);
-                                let t = self.resolve(r, at, &field, &label, raw);
+                                let label = Label::Argument { n: a as u32 + 1 };
+                                let t = self.resolve(r, at, &field, label.clone(), raw);
                                 if t.as_ref().is_some_and(|t| t.expose().contains('\0')) {
                                     self.step_issue(
                                         at,
                                         &field,
                                         &label,
                                         IssueCode::InvalidFormat,
-                                        "参数不能包含 NUL 字符",
+                                        Message::ArgNul,
                                     );
                                 }
                                 or_raw(t, raw)
@@ -739,9 +763,9 @@ impl Builder {
                     .as_deref()
                     .filter(|c| !c.trim().is_empty())
                     .map(|raw| {
-                        let t = self.resolve(r, at, "spec.cwd", "远端目录", raw);
+                        let t = self.resolve(r, at, "spec.cwd", Label::RemoteCwd, raw);
                         if let Some(t) = &t {
-                            self.remote_path(at, "spec.cwd", "远端目录", t);
+                            self.remote_path(at, "spec.cwd", &Label::RemoteCwd, t);
                         }
                         or_raw(t, raw)
                     });
@@ -770,7 +794,7 @@ impl Builder {
             }
             StepSpec::Confirm(c) => TaskAction::Confirm {
                 prompt: or_raw(
-                    self.resolve(r, at, "spec.prompt", "确认提示", &c.prompt),
+                    self.resolve(r, at, "spec.prompt", Label::Prompt, &c.prompt),
                     &c.prompt,
                 ),
             },
@@ -779,14 +803,13 @@ impl Builder {
 
     fn check_version(&mut self, v: &str) -> bool {
         let problem = if v.is_empty() {
-            Some((IssueCode::Required, "请填写本次发布的版本".to_owned()))
+            Some((IssueCode::Required, Message::VersionRequired))
         } else if v.contains(['\n', '\r', '\0']) {
-            Some((
-                IssueCode::InvalidFormat,
-                "版本不能包含换行或 NUL 字符".to_owned(),
-            ))
+            Some((IssueCode::InvalidFormat, Message::VersionControl))
         } else if v.chars().count() > VERSION_MAX {
-            Some((IssueCode::TooLong, format!("版本最多 {VERSION_MAX} 个字符")))
+            let label = Label::Version;
+            let max = VERSION_MAX as u32;
+            Some((IssueCode::TooLong, Message::TooLong { label, max }))
         } else {
             None
         };

@@ -9,6 +9,7 @@ import UiNotice from './components/ui/UiNotice.vue'
 import UiToasts from './components/ui/UiToasts.vue'
 import { openLayerCount } from './composables/focus'
 import { useT } from './i18n'
+import { messageText } from './i18n/message'
 import { useDraftStore } from './stores/drafts'
 import { useLocaleStore } from './stores/locale'
 import { useRunStore } from './stores/run'
@@ -56,7 +57,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
     <main class="main">
       <div v-if="workspace.error || workspace.notice" class="banners">
         <UiNotice v-if="workspace.error" tone="failure">
-          {{ t('app.workspace.loadFailed', { error: workspace.error.message }) }}
+          {{ t('app.workspace.loadFailed', { error: messageText(workspace.error.message) }) }}
         </UiNotice>
         <UiNotice
           v-else-if="workspace.notice?.kind === 'created'"

@@ -8,6 +8,7 @@ import UiNotice from '@/components/ui/UiNotice.vue'
 import UiTextInput from '@/components/ui/UiTextInput.vue'
 import { cloneWorkspace, useIssues } from '@/composables/workspaceDraft'
 import { useT } from '@/i18n'
+import { messageText } from '@/i18n/message'
 import { call, toAppError, type Pipeline, type Project } from '@/ipc'
 import { useWorkspaceStore } from '@/stores/workspace'
 
@@ -106,7 +107,7 @@ async function onSave() {
   } catch (e) {
     const err = toAppError(e)
     if (err.kind === 'validation' && err.validation) issues.value = err.validation.issues
-    else error.value = err.message
+    else error.value = messageText(err.message)
   } finally {
     saving.value = false
   }
@@ -120,7 +121,7 @@ async function onSave() {
       <UiNotice v-if="otherIssues.length" tone="warning">
         {{ t('common.issuesElsewhereShort') }}
         <ul class="issues">
-          <li v-for="issue in otherIssues" :key="issue.path">{{ issue.message }}</li>
+          <li v-for="issue in otherIssues" :key="issue.path">{{ messageText(issue.message) }}</li>
         </ul>
       </UiNotice>
       <p v-if="mode === 'copy'" class="note">{{ t('pipelines.dialog.copyNote') }}</p>

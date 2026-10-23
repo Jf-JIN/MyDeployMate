@@ -10,7 +10,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use mdm_core::machine::TaskMeta;
 use mdm_core::{
-    ResolvedPlan, Run, RunEvent, RunId, RunMachine, RunStatus, RunStore, StorageError, Task, TaskId,
+    Message, ResolvedPlan, Run, RunEvent, RunId, RunMachine, RunStatus, RunStore, StorageError,
+    Task, TaskId,
 };
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use serde::Serialize;
@@ -61,15 +62,12 @@ CREATE TABLE tasks (
 );
 "#];
 
-/// Why a run was found unfinished at startup (RUN-07).
-pub const INTERRUPTED_REASON: &str = "应用在运行过程中退出，运行未自动继续";
-
 /// A run as stored, with its tasks in plan order.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StoredRun {
     pub run: Run,
     pub tasks: Vec<Task>,
-    pub cancel_reason: Option<String>,
+    pub cancel_reason: Option<Message>,
 }
 
 pub struct HistoryStore {
@@ -126,7 +124,8 @@ impl HistoryStore {
             machine
                 .apply(
                     RunEvent::Interrupted {
-                        reason: INTERRUPTED_REASON.into(),
+                        // Why the run was found unfinished at startup (RUN-07).
+                        reason: Message::AppExited,
                     },
                     now_ms,
                 )
@@ -173,6 +172,7 @@ impl HistoryStore {
         let Some((run, cancel_reason)) = head else {
             return Ok(None);
         };
+        let cancel_reason = cancel_reason.map(|s| Message::from_stored(&s));
         let run = run?;
         let mut stmt = self
             .conn
@@ -233,7 +233,7 @@ impl HistoryStore {
                 r.local_only,
                 to_text(&r.status),
                 r.status.is_terminal(),
-                machine.cancel_reason(),
+                machine.cancel_reason().map(Message::to_stored),
                 r.created_at_ms,
                 r.finished_at_ms,
                 plan_json,
@@ -262,13 +262,13 @@ impl HistoryStore {
                     to_text(&r.id),
                     to_text(&r.status),
                     r.status.is_terminal(),
-                    machine.cancel_reason(),
+                    machine.cancel_reason().map(Message::to_stored),
                     r.finished_at_ms,
                 ],
             )
             .map_err(db)?;
         if updated != 1 {
-            return Err(StoreError::Database(format!("运行 {} 不存在", r.id)));
+            return Err(StoreError::Database(format!("run {} not found", r.id)));
         }
         let changed: Vec<&Task> = machine
             .tasks()
@@ -285,7 +285,7 @@ impl HistoryStore {
                     to_text(&t.status),
                     t.exit_code,
                     t.exit_signal,
-                    t.reason,
+                    t.reason.as_ref().map(Message::to_stored),
                     t.started_at_ms,
                     t.finished_at_ms,
                 ],
@@ -311,11 +311,11 @@ impl RunStore for HistoryStore {
         plan: &ResolvedPlan,
     ) -> Result<(), StorageError> {
         self.create(machine, plan)
-            .map_err(|e| StorageError(e.to_string()))
+            .map_err(|e| StorageError(e.message()))
     }
 
     fn save_run(&mut self, machine: &RunMachine) -> Result<(), StorageError> {
-        self.save(machine).map_err(|e| StorageError(e.to_string()))
+        self.save(machine).map_err(|e| StorageError(e.message()))
     }
 }
 
@@ -388,7 +388,7 @@ fn insert_task(tx: &Transaction<'_>, t: &Task, meta: &TaskMeta) -> Result<(), St
             to_text(&t.status),
             t.exit_code,
             t.exit_signal,
-            t.reason,
+            t.reason.as_ref().map(Message::to_stored),
             t.started_at_ms,
             t.finished_at_ms,
         ],
@@ -431,7 +431,7 @@ fn read_task(run_id: RunId, r: &Row<'_>) -> Result<(Task, TaskMeta), StoreError>
         status: from_text(&text(8)?)?,
         exit_code: r.get(9).map_err(db)?,
         exit_signal: opt(10)?,
-        reason: opt(11)?,
+        reason: opt(11)?.map(|s| Message::from_stored(&s)),
         started_at_ms: r.get(12).map_err(db)?,
         finished_at_ms: r.get(13).map_err(db)?,
     };
@@ -451,7 +451,7 @@ fn to_text<T: Serialize>(value: &T) -> String {
 
 fn from_text<T: DeserializeOwned>(text: &str) -> Result<T, StoreError> {
     serde_json::from_value(serde_json::Value::String(text.to_owned()))
-        .map_err(|e| StoreError::Database(format!("无法读取 {text:?}: {e}")))
+        .map_err(|e| StoreError::Database(format!("cannot read {text:?}: {e}")))
 }
 
 fn db(e: rusqlite::Error) -> StoreError {
@@ -512,7 +512,7 @@ mod tests {
                 seq,
                 exit_code: Some(2),
                 exit_signal: None,
-                reason: "退出码 2".into(),
+                reason: Message::ExitCode { code: 2 },
             },
             1_020,
         )
@@ -538,20 +538,20 @@ mod tests {
         let plan = plan();
         let second = RunMachine::from_plan(&plan, RunId::new(), 2_000);
         let err = store.create_run(&second, &plan).unwrap_err();
-        assert!(err.0.contains("另一个运行"), "{err}");
+        assert_eq!(err.0, Message::RunActive);
 
         first
             .apply(
                 RunEvent::CancelRequested {
-                    reason: "用户取消".into(),
+                    reason: Message::UserCancelled,
                 },
                 2_001,
             )
             .unwrap();
         store.save_run(&first).unwrap();
         assert_eq!(
-            stored(&store, &first).cancel_reason.as_deref(),
-            Some("用户取消")
+            stored(&store, &first).cancel_reason,
+            Some(Message::UserCancelled)
         );
         store.create_run(&second, &plan).unwrap();
     }
@@ -578,7 +578,7 @@ mod tests {
         assert_eq!(back.run.finished_at_ms, Some(5_000));
         let running = &back.tasks[running_seq as usize];
         assert_eq!(running.status, TaskStatus::Unknown);
-        assert_eq!(running.reason.as_deref(), Some(INTERRUPTED_REASON));
+        assert_eq!(running.reason, Some(Message::AppExited));
         assert!(
             back.tasks
                 .iter()

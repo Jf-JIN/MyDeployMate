@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use mdm_core::{
-    AuthMethod, ConnectError, ConnectErrorKind, ConnectStage, HostEndpoint, HostKey, Server,
-    TrustCheck, check_host_key,
+    AuthMethod, ConnectError, ConnectErrorKind, ConnectStage, HostEndpoint, HostKey, Message,
+    Server, TrustCheck, check_host_key,
 };
 use russh::client::{self, Handler};
 use russh::keys::{Algorithm, HashAlg, PublicKeyOrCertificate};
@@ -186,7 +186,7 @@ async fn handshake(
         (Err(e), _) => Err(ssh_error(ConnectStage::Handshake, &e)),
         (Ok(_), None) => Err(
             ConnectError::at(ConnectStage::HostKey, ConnectErrorKind::Protocol)
-                .with_detail("服务器未出示主机密钥"),
+                .with_note(Message::NoHostKey),
         ),
     }
 }

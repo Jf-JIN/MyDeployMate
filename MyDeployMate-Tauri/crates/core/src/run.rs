@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::ids::{EnvironmentId, PipelineId, ProjectId, RunId, ServerId, StepId, TaskId};
+use crate::message::Message;
 use crate::model::{ExecutionOrder, StepKind};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -104,7 +105,7 @@ pub struct Task {
     pub exit_code: Option<i32>,
     pub exit_signal: Option<String>,
     /// Why the task ended this way, e.g. which upstream failure caused a skip.
-    pub reason: Option<String>,
+    pub reason: Option<Message>,
     #[ts(type = "number | null")]
     pub started_at_ms: Option<i64>,
     #[ts(type = "number | null")]

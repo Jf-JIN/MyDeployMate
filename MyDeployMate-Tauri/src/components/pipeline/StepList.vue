@@ -61,7 +61,10 @@ async function focusSelected() {
 }
 
 async function add(kind: string) {
-  const step = await call('new_step', { kind: kind as StepKind })
+  const step = await call('new_step', {
+    kind: kind as StepKind,
+    name: t(`steps.kind.${kind as StepKind}`),
+  })
   steps.value.push(step)
   selectedId.value = step.id
   await focusSelected()
@@ -73,7 +76,10 @@ function move(delta: -1 | 1) {
 
 async function copy() {
   if (!selected.value) return
-  const copied = await call('copy_step', { step: structuredClone(toRaw(selected.value)) })
+  const copied = await call('copy_step', {
+    step: structuredClone(toRaw(selected.value)),
+    name: t('steps.copyName', { name: selected.value.name }),
+  })
   steps.value.splice(index.value + 1, 0, copied)
   selectedId.value = copied.id
   await focusSelected()

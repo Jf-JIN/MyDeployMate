@@ -5,7 +5,8 @@ import { useRouter } from 'vue-router'
 
 import UiConfirm from '@/components/ui/UiConfirm.vue'
 import { useT } from '@/i18n'
-import { call, toAppError } from '@/ipc'
+import { errorText } from '@/i18n/message'
+import { call } from '@/ipc'
 import { useToastStore } from '@/stores/toast'
 
 const t = useT()
@@ -37,7 +38,7 @@ async function quit() {
     await call('cancel_and_quit')
   } catch (e) {
     quitting.value = false
-    toast.show(toAppError(e).message)
+    toast.show(errorText(e))
   }
 }
 </script>

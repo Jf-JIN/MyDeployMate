@@ -1,6 +1,7 @@
 import { computed, nextTick, ref, shallowRef, toRaw, watch, type Ref } from 'vue'
 
 import { translate, type MessageKey } from '@/i18n'
+import { issueText } from '@/i18n/message'
 import { call, toAppError, type AppError, type Issue, type Workspace } from '@/ipc'
 import { useToastStore } from '@/stores/toast'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -26,7 +27,7 @@ export function useIssues() {
   const issues = shallowRef<Issue[]>([])
 
   function at(path: string): string | null {
-    return issues.value.find((i) => i.path === path)?.message ?? null
+    return issueText(issues.value.find((i) => i.path === path))
   }
 
   function under(prefix: string): Issue[] {

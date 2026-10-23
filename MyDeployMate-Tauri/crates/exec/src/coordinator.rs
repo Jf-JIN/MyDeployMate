@@ -15,8 +15,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use mdm_core::{
-    Clock, Next, OperatorPrompt, PlannedTask, ResolvedPlan, RunEvent, RunId, RunMachine, RunStatus,
-    RunStore, StepKind, StorageError, TaskStatus,
+    Clock, Message, Next, OperatorPrompt, PlannedTask, ResolvedPlan, RunEvent, RunId, RunMachine,
+    RunStatus, RunStore, StepKind, StorageError, TaskStatus,
 };
 use secrecy::SecretString;
 use tokio::sync::{mpsc, oneshot};
@@ -28,7 +28,7 @@ use crate::local::OutputChunk;
 #[derive(Debug)]
 pub enum Control {
     Cancel {
-        reason: String,
+        reason: Message,
     },
     /// Answer to the confirm task `seq` (IXD-28).
     Confirm {
@@ -77,13 +77,13 @@ pub enum TaskOutcome {
     Failed {
         exit_code: Option<i32>,
         exit_signal: Option<String>,
-        reason: String,
+        reason: Message,
     },
     /// Stopped after a cancel request, and known to have stopped.
     Cancelled,
     /// Whether the command still runs or took effect cannot be confirmed.
     Unknown {
-        reason: String,
+        reason: Message,
     },
 }
 
@@ -94,7 +94,7 @@ pub trait RunObserver: Send + Sync {
     fn changed(&self, machine: &RunMachine);
     fn output(&self, seq: u32, chunk: OutputChunk);
     /// A line written by the app itself, not by the command (e.g. why a process was killed).
-    fn note(&self, seq: u32, text: &str);
+    fn note(&self, seq: u32, message: Message);
     /// A task waits for the operator; the run is already recorded as waiting.
     fn requested(&self, request: &OperatorRequest);
     fn storage_failed(&self, error: &StorageError);
@@ -120,8 +120,8 @@ impl TaskContext {
         self.observer.output(self.seq, chunk);
     }
 
-    pub fn note(&self, text: &str) {
-        self.observer.note(self.seq, text);
+    pub fn note(&self, message: Message) {
+        self.observer.note(self.seq, message);
     }
 
     /// Ask the operator and wait (D02, D04). `None` means the prompt was declined or the run
@@ -203,7 +203,7 @@ impl<S: RunStore> Coordinator<S> {
                 Next::Dispatch { seq } => self.dispatch(seq).await,
                 Next::AwaitConfirmation { seq } => self.await_confirmation(seq).await,
                 // Only a queued run waits with no active task, and `create` started it.
-                Next::Wait => Err(Abort::Internal("运行没有可执行的任务".into())),
+                Next::Wait => Err(Abort::Internal("the run has no runnable task".into())),
             };
             if let Err(abort) = step {
                 break self.abort(abort);
@@ -227,9 +227,9 @@ impl<S: RunStore> Coordinator<S> {
         let reason = match abort {
             Abort::Storage(e) => {
                 self.observer.storage_failed(&e);
-                e.to_string()
+                e.message()
             }
-            Abort::Internal(message) => format!("内部错误：{message}"),
+            Abort::Internal(detail) => Message::Internal { detail },
         };
         if !self.machine.run().status.is_terminal() {
             let _ = self
@@ -329,8 +329,12 @@ impl<S: RunStore> Coordinator<S> {
                             Some(_) => RunEvent::CredentialProvided { seq },
                             None => {
                                 cancel.cancel();
-                                let reason = if trust { "未信任服务器身份" } else { "取消输入凭据" };
-                                RunEvent::CancelRequested { reason: reason.into() }
+                                let reason = if trust {
+                                    Message::TrustDeclined
+                                } else {
+                                    Message::SecretDeclined
+                                };
+                                RunEvent::CancelRequested { reason }
                             }
                         };
                         if let Err(abort) = self.step(event) {

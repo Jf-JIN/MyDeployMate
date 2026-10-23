@@ -21,6 +21,7 @@ import {
 } from '@/components/variables/variables'
 import { useProjectDraft } from '@/composables/projectDraft'
 import { useT } from '@/i18n'
+import { messageText } from '@/i18n/message'
 import { call, type Pipeline, type Project, type Variable, type VariableView } from '@/ipc'
 import { useSessionStore } from '@/stores/session'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -56,6 +57,10 @@ const inherited = computed(() => {
 // ---- Effective values (resolved by Rust from the draft) ------------------------------------
 
 const views = ref(new Map<string, VariableView>())
+const viewError = (name: string) => {
+  const error = views.value.get(name)?.error
+  return error ? messageText(error) : ''
+}
 /** Bumped when a Credential Manager value changes, so effective values are read again. */
 const secretsChanged = ref(0)
 let ticket = 0
@@ -259,7 +264,7 @@ function confirmUnmark() {
                 <span v-else-if="views.get(v.name)!.display === ''" class="effective muted">{{
                   t('projectVars.emptyText')
                 }}</span>
-                <span v-else class="cell-error">{{ views.get(v.name)!.error }}</span>
+                <span v-else class="cell-error">{{ viewError(v.name) }}</span>
                 <span class="source">{{ sourceOf(v) }}</span>
               </template>
             </td>
@@ -324,7 +329,7 @@ function confirmUnmark() {
                 <span v-else-if="views.get(g.name)!.display === ''" class="effective muted">{{
                   t('projectVars.emptyText')
                 }}</span>
-                <span v-else class="cell-error">{{ views.get(g.name)!.error }}</span>
+                <span v-else class="cell-error">{{ viewError(g.name) }}</span>
                 <span class="source">{{ sourceOf(g) }}</span>
               </template>
             </td>

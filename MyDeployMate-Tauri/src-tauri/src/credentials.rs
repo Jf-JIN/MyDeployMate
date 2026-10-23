@@ -14,8 +14,8 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use mdm_core::{
-    Clock, CredentialPrompt, CredentialPurpose, CredentialRef, EnvironmentId, OperatorPrompt,
-    ServerId, VariableId,
+    Clock, CredentialPrompt, CredentialPurpose, CredentialRef, EnvironmentId, Message,
+    OperatorPrompt, ServerId, VariableId,
 };
 use mdm_exec::ssh::{MAX_ATTEMPTS, SecretFuture, SecretPrompt, SecretSource};
 use mdm_exec::{OperatorAnswer, SystemClock};
@@ -75,7 +75,10 @@ impl PromptBroker {
                 let _ = tx.send(answer);
                 Ok(())
             }
-            None => Err(AppError::new(AppErrorKind::Validation, "该请求已失效")),
+            None => Err(AppError::new(
+                AppErrorKind::Validation,
+                Message::RequestExpired,
+            )),
         }
     }
 }
@@ -106,7 +109,7 @@ pub struct SecretContext {
     pub server_name: String,
     pub address: String,
     pub user: String,
-    pub context: String,
+    pub context: Message,
 }
 
 /// The value last handed out, kept until the connection says whether it worked.
@@ -239,9 +242,11 @@ fn with_store<T>(
     let mut secrets = lock(&state.secrets);
     match secrets.as_mut() {
         Ok(store) => f(store),
-        Err(message) => Err(AppError::new(
+        Err(reason) => Err(AppError::new(
             AppErrorKind::StorageUnavailable,
-            format!("已保存凭据不可用：{message}"),
+            Message::SavedCredentialUnavailable {
+                reason: Box::new(reason.clone()),
+            },
         )),
     }
 }
@@ -272,7 +277,10 @@ pub fn set_variable_secret(
     value: String,
 ) -> Result<(), AppError> {
     if value.is_empty() {
-        return Err(AppError::new(AppErrorKind::Validation, "值不能为空"));
+        return Err(AppError::new(
+            AppErrorKind::Validation,
+            Message::ValueRequired,
+        ));
     }
     with_store(&state, |s| {
         Ok(s.set_variable(variable_id, environment_id, &SecretString::from(value))?)

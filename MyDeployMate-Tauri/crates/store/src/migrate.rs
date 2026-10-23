@@ -5,7 +5,7 @@
 
 use serde_json::Value;
 
-use mdm_core::SCHEMA_VERSION;
+use mdm_core::{Message, SCHEMA_VERSION};
 
 use crate::error::StoreError;
 
@@ -31,7 +31,9 @@ pub fn migrate_with(
 ) -> Result<(Value, u32), StoreError> {
     let start = schema_version(&doc).ok_or_else(|| StoreError::Migration {
         from: 0,
-        message: "缺少 schemaVersion 字段".into(),
+        reason: Message::MissingField {
+            name: "schemaVersion".into(),
+        },
     })?;
     if start > target {
         return Err(StoreError::UnsupportedVersion {
@@ -44,14 +46,14 @@ pub fn migrate_with(
         let step = chain
             .iter()
             .find(|(from, _)| *from == version)
-            .ok_or_else(|| StoreError::Migration {
+            .ok_or(StoreError::Migration {
                 from: version,
-                message: "没有对应的迁移".into(),
+                reason: Message::NoMigration,
             })?
             .1;
         doc = step(doc).map_err(|message| StoreError::Migration {
             from: version,
-            message,
+            reason: Message::text(message),
         })?;
         version += 1;
         doc["schemaVersion"] = Value::from(version);
@@ -119,7 +121,7 @@ mod tests {
         let chain: &[(u32, MigrationFn)] = &[(1, |_| Err("boom".into()))];
         assert!(matches!(
             migrate_with(json!({ "schemaVersion": 1 }), 2, chain),
-            Err(StoreError::Migration { from: 1, message }) if message == "boom"
+            Err(StoreError::Migration { from: 1, reason }) if reason == Message::text("boom")
         ));
     }
 }

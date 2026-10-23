@@ -4,6 +4,7 @@
 //! `${env.NAME}` is a client process environment variable, and `$${` keeps a literal `${` for the
 //! shell. A lone `$` is plain text.
 
+use crate::message::Message;
 use crate::validate::is_identifier;
 
 /// Built-in namespaces; user variables cannot use these names (VAR-01).
@@ -24,26 +25,26 @@ pub const RUN_KEYS: [&str; 1] = ["env"];
 pub struct BuiltinVariable {
     /// As inserted, e.g. `${server.host}`.
     pub expression: String,
-    pub label: String,
+    pub label: Message,
     /// Only meaningful on a target server: not offered for local commands.
     pub needs_server: bool,
 }
 
 /// Built-ins for the variable menu, in a stable order.
 pub fn builtin_variables() -> Vec<BuiltinVariable> {
-    let item = |ns: &str, key: &str, label: &str, needs_server| BuiltinVariable {
+    let item = |ns: &str, key: &str, label, needs_server| BuiltinVariable {
         expression: format!("${{{ns}.{key}}}"),
-        label: label.to_owned(),
+        label,
         needs_server,
     };
     vec![
-        item(NS_PROJECT, "name", "项目名称", false),
-        item(NS_PROJECT, "root", "项目根目录", false),
-        item(NS_RUN, "env", "当前环境名", false),
-        item(NS_SERVER, "name", "服务器名称", true),
-        item(NS_SERVER, "host", "服务器地址", true),
-        item(NS_SERVER, "port", "SSH 端口", true),
-        item(NS_SERVER, "user", "登录用户", true),
+        item(NS_PROJECT, "name", Message::BuiltinProjectName, false),
+        item(NS_PROJECT, "root", Message::BuiltinProjectRoot, false),
+        item(NS_RUN, "env", Message::BuiltinEnv, false),
+        item(NS_SERVER, "name", Message::BuiltinServerName, true),
+        item(NS_SERVER, "host", Message::BuiltinServerHost, true),
+        item(NS_SERVER, "port", Message::BuiltinServerPort, true),
+        item(NS_SERVER, "user", Message::BuiltinServerUser, true),
     ]
 }
 
@@ -87,15 +88,16 @@ pub enum SyntaxError {
 }
 
 impl SyntaxError {
-    pub fn message(&self) -> String {
+    pub fn message(&self) -> Message {
         match self {
-            SyntaxError::Unterminated => "表达式缺少右花括号 }".into(),
-            SyntaxError::InvalidExpression(e) => {
-                format!(
-                    "表达式 ${{{e}}} 无效：变量名只能含字母、数字和下划线，需要保留给 Shell 时写成 $${{"
-                )
-            }
-            SyntaxError::UnknownBuiltin(e) => format!("内建变量 ${{{e}}} 不存在"),
+            SyntaxError::Unterminated => Message::Unterminated,
+            SyntaxError::InvalidExpression(e) => Message::InvalidExpression {
+                expression: format!("${{{e}}}"),
+                escape: "$${".into(),
+            },
+            SyntaxError::UnknownBuiltin(e) => Message::UnknownBuiltin {
+                expression: format!("${{{e}}}"),
+            },
         }
     }
 }

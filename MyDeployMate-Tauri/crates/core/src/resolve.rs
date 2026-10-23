@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::ids::{EnvironmentId, ProjectId, VariableId};
+use crate::message::Message;
 use crate::model::*;
 use crate::template::{self, Expr, Part, SyntaxError};
 
@@ -150,7 +151,7 @@ pub struct ResolveError {
 #[ts(export)]
 pub enum ResolveErrorKind {
     Syntax {
-        message: String,
+        message: Message,
     },
     Undefined {
         name: String,
@@ -180,32 +181,40 @@ impl ResolveError {
         }
     }
 
-    /// User-facing message in Chinese, with the reference chain when there is one.
-    pub fn message(&self) -> String {
+    /// What went wrong, with the reference chain when there is one.
+    pub fn message(&self) -> Message {
         let chain = self.chain.join(" → ");
-        let via = |s: String| {
+        let via = |reason: Message| {
             if self.chain.is_empty() {
-                s
+                reason
             } else {
-                format!("{s}（引用链：{chain}）")
+                Message::Via {
+                    reason: Box::new(reason),
+                    chain: chain.clone(),
+                }
             }
         };
         match &self.kind {
             ResolveErrorKind::Syntax { message } => via(message.clone()),
-            ResolveErrorKind::Undefined { name } => via(format!("变量 {name} 未定义")),
-            ResolveErrorKind::Cycle => format!("变量循环引用：{chain}"),
-            ResolveErrorKind::TooDeep => {
-                format!("变量引用超过 {MAX_DEPTH} 层：{chain}")
+            ResolveErrorKind::Undefined { name } => via(Message::Undefined { name: name.clone() }),
+            ResolveErrorKind::Cycle => Message::Cycle {
+                chain: chain.clone(),
+            },
+            ResolveErrorKind::TooDeep => Message::TooDeep {
+                max: MAX_DEPTH as u32,
+                chain: chain.clone(),
+            },
+            ResolveErrorKind::ServerContext { expression } => via(Message::ServerContext {
+                expression: expression.clone(),
+            }),
+            ResolveErrorKind::ProjectRootMissing => via(Message::ProjectRootMissing {
+                expression: "${project.root}".into(),
+            }),
+            ResolveErrorKind::MissingEnvVar { name } => {
+                via(Message::MissingEnvVar { name: name.clone() })
             }
-            ResolveErrorKind::ServerContext { expression } => via(format!(
-                "本地命令和人工确认没有目标服务器，不能引用 {expression}"
-            )),
-            ResolveErrorKind::ProjectRootMissing => {
-                via("项目未设置根目录，不能引用 ${project.root}".into())
-            }
-            ResolveErrorKind::MissingEnvVar { name } => via(format!("本机环境变量 {name} 未设置")),
             ResolveErrorKind::MissingSecret { name } => {
-                via(format!("敏感变量 {name} 在本机没有保存值，请先填写"))
+                via(Message::MissingSecret { name: name.clone() })
             }
         }
     }
@@ -545,7 +554,7 @@ impl<'a> Resolver<'a> {
 }
 
 /// One row of the P04 effective-value column (IXD-13): the masked value or why it cannot be
-/// resolved, already worded for the user.
+/// resolved.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
@@ -554,7 +563,7 @@ pub struct VariableView {
     pub origin: VariableOrigin,
     pub sensitive: bool,
     pub display: Option<String>,
-    pub error: Option<String>,
+    pub error: Option<Message>,
 }
 
 /// Effective variables of a project in an environment, resolved in a local context. Empty

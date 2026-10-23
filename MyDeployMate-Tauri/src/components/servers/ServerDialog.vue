@@ -18,6 +18,7 @@ import UiTextarea from '@/components/ui/UiTextarea.vue'
 import UiTextInput from '@/components/ui/UiTextInput.vue'
 import { cloneWorkspace, focusFirstInvalid, useIssues } from '@/composables/workspaceDraft'
 import { useT } from '@/i18n'
+import { errorText, issueText, messageText } from '@/i18n/message'
 import {
   call,
   toAppError,
@@ -165,7 +166,7 @@ async function inspectKey() {
     const format = await call('inspect_key_file', { path })
     if (ticket === keyTicket) keyFormat.value = format
   } catch (e) {
-    if (ticket === keyTicket) keyError.value = toAppError(e).message
+    if (ticket === keyTicket) keyError.value = errorText(e)
   }
 }
 watch([keyPath, authChoice], inspectKey, { immediate: true })
@@ -226,7 +227,7 @@ function fieldError(field: string): string | null {
   return index.value < 0 ? null : at(`${prefix.value}.${field}`)
 }
 const tagsError = computed(() =>
-  index.value < 0 ? null : (under(`${prefix.value}.tags`)[0]?.message ?? null),
+  index.value < 0 ? null : issueText(under(`${prefix.value}.tags`)[0]),
 )
 const elsewhere = computed(() =>
   issues.value.filter((i) => i.path !== prefix.value && !i.path.startsWith(`${prefix.value}.`)),
@@ -309,7 +310,7 @@ async function fail(e: unknown) {
     issues.value = err.validation.issues
     await focusFirstInvalid(body.value)
   } else {
-    error.value = err.message
+    error.value = messageText(err.message)
   }
 }
 
@@ -325,7 +326,7 @@ const pendingEnvironment = computed(() =>
       <UiNotice v-if="elsewhere.length" tone="warning">
         {{ t('common.issuesElsewhereShort') }}
         <ul class="issues">
-          <li v-for="issue in elsewhere" :key="issue.path">{{ issue.message }}</li>
+          <li v-for="issue in elsewhere" :key="issue.path">{{ messageText(issue.message) }}</li>
         </ul>
       </UiNotice>
 

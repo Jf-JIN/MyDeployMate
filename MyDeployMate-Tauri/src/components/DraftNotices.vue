@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import UiNotice from '@/components/ui/UiNotice.vue'
 import { useT } from '@/i18n'
+import { messageText } from '@/i18n/message'
 import type { AppError, Issue } from '@/ipc'
 
 const t = useT()
@@ -11,11 +12,11 @@ defineProps<{ error: AppError | null; issues: Issue[] }>()
 </script>
 
 <template>
-  <UiNotice v-if="error" tone="failure">{{ error.message }}</UiNotice>
+  <UiNotice v-if="error" tone="failure">{{ messageText(error.message) }}</UiNotice>
   <UiNotice v-if="issues.length" tone="warning">
     {{ t('drafts.issuesElsewhere', { n: issues.length }) }}
     <ul class="issues">
-      <li v-for="issue in issues" :key="issue.path">{{ issue.message }}</li>
+      <li v-for="issue in issues" :key="issue.path">{{ messageText(issue.message) }}</li>
     </ul>
   </UiNotice>
 </template>

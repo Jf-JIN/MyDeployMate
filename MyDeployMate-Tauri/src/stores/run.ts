@@ -6,6 +6,7 @@ import { RunLogLines } from '@/components/run/runLog'
 import { runFinished, taskFinished } from '@/components/run/runState'
 import {
   call,
+  type Message,
   type ResolvedPlan,
   type Run,
   type RunId,
@@ -36,14 +37,14 @@ export interface RunDetail {
   plan: ResolvedPlan
   run: Run
   tasks: Task[]
-  cancelReason: string | null
+  cancelReason: Message | null
   lines: RunLogLines
   /** Bumped whenever `lines` changes, which is not tracked deeply. */
   logRevision: number
   damagedLines: number
   /** Updates still arrive; false once the run has ended or for a run opened after it ended. */
   live: boolean
-  storageError: string | null
+  storageError: Message | null
   /** The open D02 or D04 request while the run waits for the operator. */
   request: RunRequest | null
 }

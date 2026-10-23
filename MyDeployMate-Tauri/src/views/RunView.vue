@@ -41,7 +41,8 @@ import UiConfirm from '@/components/ui/UiConfirm.vue'
 import UiNotice from '@/components/ui/UiNotice.vue'
 import UiTag from '@/components/ui/UiTag.vue'
 import { useT } from '@/i18n'
-import { toAppError, type TaskStatus } from '@/ipc'
+import { errorText, messageText } from '@/i18n/message'
+import type { TaskStatus } from '@/ipc'
 import { useRunStore, type RunDetail } from '@/stores/run'
 import { useToastStore } from '@/stores/toast'
 
@@ -69,7 +70,7 @@ watch(
     try {
       detail.value = await runs.open(id)
     } catch (e) {
-      loadError.value = toAppError(e).message
+      loadError.value = errorText(e)
     }
   },
   { immediate: true },
@@ -171,7 +172,7 @@ async function proceed() {
   try {
     await runs.answer(d.runId, seq, true)
   } catch (e) {
-    toast.show(toAppError(e).message)
+    toast.show(errorText(e))
   } finally {
     answering.value = false
   }
@@ -207,7 +208,7 @@ async function answerRequest(answer: (d: RunDetail, requestId: number) => Promis
     await answer(d, r.requestId)
     requestOpen.value = false
   } catch (e) {
-    toast.show(toAppError(e).message)
+    toast.show(errorText(e))
   } finally {
     requestBusy.value = false
   }
@@ -233,7 +234,7 @@ async function cancel() {
     await runs.cancel(d.runId)
     askCancel.value = false
   } catch (e) {
-    toast.show(toAppError(e).message)
+    toast.show(errorText(e))
   } finally {
     cancelling.value = false
   }
@@ -254,8 +255,7 @@ function backToPipeline() {
 
 /** The reason line, unless it only repeats the exit code shown above it. */
 function extraReason(task: RunTask['task']) {
-  // The backend's Chinese wording, until reasons become message codes (5b.3).
-  return task.reason && task.reason !== `退出码 ${task.exitCode}` ? task.reason : null
+  return task.reason && task.reason.code !== 'exec.exitCode' ? messageText(task.reason) : null
 }
 
 function select(item: RunTask) {
@@ -336,7 +336,7 @@ function select(item: RunTask) {
           </div>
         </dl>
         <UiNotice v-if="detail.storageError" tone="failure">
-          {{ t('runView.storageError', { error: detail.storageError }) }}
+          {{ t('runView.storageError', { error: messageText(detail.storageError) }) }}
         </UiNotice>
         <UiNotice v-if="run.status === 'cancelling'" tone="warning">
           {{ t('runView.stoppingNotice')
@@ -482,7 +482,9 @@ function select(item: RunTask) {
                         item.task.serverName ? `→ ${item.task.serverName}` : t('common.local')
                       }}</span>
                     </span>
-                    <span v-if="item.task.reason" class="task-reason">{{ item.task.reason }}</span>
+                    <span v-if="item.task.reason" class="task-reason">{{
+                      messageText(item.task.reason)
+                    }}</span>
                   </span>
                   <span class="task-time num">
                     {{ elapsed(item.task.startedAtMs, item.task.finishedAtMs, now) ?? '' }}
@@ -538,7 +540,7 @@ function select(item: RunTask) {
                 'detail-reason--bad': ['failed', 'unknown'].includes(selected.task.status),
               }"
             >
-              {{ selected.task.reason }}
+              {{ extraReason(selected.task) }}
             </p>
           </section>
           <RunLogView :detail="detail" :selected="picked" />

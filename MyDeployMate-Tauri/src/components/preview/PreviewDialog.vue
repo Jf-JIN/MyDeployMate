@@ -14,6 +14,7 @@ import UiSwitch from '@/components/ui/UiSwitch.vue'
 import UiTag from '@/components/ui/UiTag.vue'
 import UiTextInput from '@/components/ui/UiTextInput.vue'
 import { useT } from '@/i18n'
+import { issueText, messageText } from '@/i18n/message'
 import {
   call,
   toAppError,
@@ -111,11 +112,11 @@ async function refresh() {
     if (mine === ticket)
       error.value = issue
         ? t('preview.fieldError', {
-            message: err.message,
+            message: messageText(err.message),
             path: issue.path,
-            detail: issue.message,
+            detail: messageText(issue.message),
           })
-        : err.message
+        : messageText(err.message)
   } finally {
     if (mine === ticket) loading.value = false
   }
@@ -144,7 +145,7 @@ const serverFirst = computed(() => plan.value?.executionOrder === 'serverFirst')
 const groups = computed(() => groupTasks(plan.value?.tasks ?? [], serverFirst.value))
 const issues = computed(() => plan.value?.issues ?? [])
 const fieldIssue = (field: 'version' | 'serverIds') =>
-  issues.value.find((i) => i.path === field || i.path.startsWith(`${field}[`))?.message ?? null
+  issueText(issues.value.find((i) => i.path === field || i.path.startsWith(`${field}[`)))
 
 /** Step issues by step id, to mark the affected tasks. */
 const issueSteps = computed(
@@ -220,7 +221,7 @@ async function start() {
         return
       }
     }
-    startError.value = t('preview.runNotCreated', { message: err.message })
+    startError.value = t('preview.runNotCreated', { message: messageText(err.message) })
   } finally {
     starting.value = false
   }
@@ -326,9 +327,9 @@ async function start() {
             {{ t('preview.issuesTitle', { n: issues.length }) }}
           </h3>
           <ul>
-            <li v-for="issue in issues" :key="issue.path + issue.message">
+            <li v-for="issue in issues" :key="issue.path + issue.code">
               <button type="button" class="issue" @click="onIssue(issue)">
-                {{ issue.message }}
+                {{ messageText(issue.message) }}
               </button>
             </li>
           </ul>

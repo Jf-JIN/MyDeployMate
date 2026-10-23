@@ -16,7 +16,7 @@ mod trust;
 mod workspace;
 
 pub use error::StoreError;
-pub use history::{HistoryStore, INTERRUPTED_REASON, SharedHistory, StoredRun};
+pub use history::{HistoryStore, SharedHistory, StoredRun};
 pub use lock::InstanceLock;
 pub use logs::{RunLog, RunLogFile, read_run_log};
 pub use paths::DataDir;

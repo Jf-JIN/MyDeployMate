@@ -2,6 +2,7 @@
 import type { ConnectStage } from "./ConnectStage";
 import type { HostEndpoint } from "./HostEndpoint";
 import type { HostKey } from "./HostKey";
+import type { Message } from "./Message";
 
 /**
  * A classified connection failure.
@@ -10,4 +11,4 @@ export type ConnectError = { stage: ConnectStage,
 /**
  * Safe text for the operator: [`ConnectErrorKind::describe`] plus any technical detail.
  */
-message: string, } & ({ "kind": "keyFileUnreadable", path: string, } | { "kind": "keyFormatUnsupported", path: string, } | { "kind": "passwordEnvMissing", name: string, } | { "kind": "agentUnavailable" } | { "kind": "agentNoIdentities" } | { "kind": "resolveFailed" } | { "kind": "connectionRefused" } | { "kind": "unreachable" } | { "kind": "timeout" } | { "kind": "algorithmNegotiation", legacyRsaOnly: boolean, } | { "kind": "hostKeyUnknown", endpoint: HostEndpoint, presented: HostKey, } | { "kind": "hostKeyChanged", endpoint: HostEndpoint, known: Array<HostKey>, presented: HostKey, } | { "kind": "keyPassphraseWrong" } | { "kind": "authenticationFailed" } | { "kind": "cancelled" } | { "kind": "commandFailed", exitStatus: number | null, } | { "kind": "disconnected" } | { "kind": "protocol" });
+message: Message, } & ({ "kind": "keyFileUnreadable", path: string, } | { "kind": "keyFormatUnsupported", path: string, } | { "kind": "passwordEnvMissing", name: string, } | { "kind": "agentUnavailable" } | { "kind": "agentNoIdentities" } | { "kind": "resolveFailed" } | { "kind": "connectionRefused" } | { "kind": "unreachable" } | { "kind": "timeout" } | { "kind": "algorithmNegotiation", legacyRsaOnly: boolean, } | { "kind": "hostKeyUnknown", endpoint: HostEndpoint, presented: HostKey, } | { "kind": "hostKeyChanged", endpoint: HostEndpoint, known: Array<HostKey>, presented: HostKey, } | { "kind": "keyPassphraseWrong" } | { "kind": "authenticationFailed" } | { "kind": "cancelled" } | { "kind": "commandFailed", exitStatus: number | null, } | { "kind": "disconnected" } | { "kind": "protocol" });

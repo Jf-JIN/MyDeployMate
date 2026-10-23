@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use mdm_core::{
     AgentKind, AuthMethod, ConnectError, ConnectErrorKind, ConnectStage, CredentialPurpose,
-    HostEndpoint, HostKey, PasswordSource,
+    HostEndpoint, HostKey, Message, PasswordSource,
 };
 use mdm_exec::ssh::{SecretFuture, SecretPrompt, SecretSource, SshTarget, connect, fetch_host_key};
 use secrecy::SecretString;
@@ -318,7 +318,7 @@ async fn legacy_rsa_needs_the_server_toggle() {
         ConnectErrorKind::AlgorithmNegotiation {
             legacy_rsa_only: true
         },
-        "{}",
+        "{:?}",
         err.message
     );
     assert_eq!(err.stage, ConnectStage::Handshake);
@@ -412,7 +412,11 @@ async fn prepare_errors_come_before_the_network() {
         .err()
         .unwrap();
     assert_eq!(err.stage, ConnectStage::Prepare);
-    assert!(err.message.contains("重启应用"), "{}", err.message);
+    assert!(
+        matches!(err.message, Message::PasswordEnvMissing { .. }),
+        "{:?}",
+        err.message
+    );
 }
 
 #[tokio::test]

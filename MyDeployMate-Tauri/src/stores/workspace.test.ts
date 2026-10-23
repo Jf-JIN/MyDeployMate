@@ -38,7 +38,11 @@ describe('workspace store', () => {
   })
 
   it('keeps the error when loading fails', async () => {
-    call.mockRejectedValue({ kind: 'locked', message: '已被占用', validation: null })
+    call.mockRejectedValue({
+      kind: 'locked',
+      message: { code: 'store.locked', params: { path: 'workspace.json' } },
+      validation: null,
+    })
     const store = useWorkspaceStore()
     await store.load()
     expect(store.workspace).toBeNull()

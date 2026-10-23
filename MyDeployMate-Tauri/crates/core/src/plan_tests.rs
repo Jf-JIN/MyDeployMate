@@ -53,6 +53,25 @@ fn plan(demo: &DemoWorkspace, req: &PlanRequest) -> ResolvedPlan {
     build_plan(&demo.workspace, req, &NoValues).unwrap()
 }
 
+/// "步骤 {step} · {label}：{reason}"
+fn step_issue(step: u32, label: Label, reason: Message) -> Message {
+    Message::StepIssue {
+        step,
+        label,
+        reason: Box::new(reason),
+    }
+}
+
+/// "步骤 2 · 远端目标（{server}）：必须是远端绝对路径（以 / 开头）"
+fn target_issue(server: &str) -> Message {
+    Message::StepServerIssue {
+        step: 2,
+        label: Label::Target,
+        server: server.into(),
+        reason: Box::new(Message::MustBeRemoteAbsolute),
+    }
+}
+
 /// "step name @ server" for each task, the way AC-14 reads.
 fn order(plan: &ResolvedPlan) -> Vec<String> {
     plan.tasks
@@ -143,7 +162,16 @@ fn ac09_undefined_variable_blocks_start_with_field() {
     assert_eq!(issue.code, IssueCode::UndefinedVariable);
     assert_eq!(issue.path, "projects[0].pipelines[0].steps[0].spec.command");
     assert_eq!(issue.field, "spec.command");
-    assert_eq!(issue.message, "步骤 1 · 命令：变量 artifact 未定义");
+    assert_eq!(
+        issue.message,
+        step_issue(
+            1,
+            Label::Command,
+            Message::Undefined {
+                name: "artifact".into()
+            }
+        )
+    );
     let step_id = demo.workspace.projects[0].pipelines[0].steps[0].id;
     assert_eq!(issue.object.as_ref().unwrap().id, step_id.to_string());
 }
@@ -163,7 +191,13 @@ fn ac09_cycle_reports_reference_chain() {
     assert_eq!(plan.issues[0].code, IssueCode::VariableCycle);
     assert_eq!(
         plan.issues[0].message,
-        "步骤 1 · 命令：变量循环引用：a → b → c → a"
+        step_issue(
+            1,
+            Label::Command,
+            Message::Cycle {
+                chain: "a → b → c → a".into()
+            }
+        )
     );
 }
 
@@ -178,7 +212,16 @@ fn undefined_inside_a_variable_names_the_chain() {
     let plan = plan(&demo, &request(&demo, 0, demo.staging));
     assert_eq!(
         plan.issues[0].message,
-        "步骤 1 · 命令：变量 dist 未定义（引用链：out）"
+        step_issue(
+            1,
+            Label::Command,
+            Message::Via {
+                reason: Box::new(Message::Undefined {
+                    name: "dist".into()
+                }),
+                chain: "out".into(),
+            }
+        )
     );
 }
 
@@ -253,7 +296,10 @@ fn server_variable_reached_through_user_variable_is_still_rejected_locally() {
     }
     let plan = plan(&demo, &request(&demo, 0, demo.staging));
     assert_eq!(plan.issues[0].code, IssueCode::ServerContext);
-    assert!(plan.issues[0].message.contains("引用链：url"));
+    let Message::StepIssue { reason, .. } = &plan.issues[0].message else {
+        panic!("{:?}", plan.issues[0].message);
+    };
+    assert!(matches!(&**reason, Message::Via { chain, .. } if chain == "url"));
 }
 
 #[test]
@@ -357,10 +403,7 @@ fn ac17_local_only_needs_no_targets() {
     let full = plan(&demo, &req);
     assert!(!full.can_start());
     assert_eq!(full.issues[0].code, IssueCode::NoTargets);
-    assert_eq!(
-        full.issues[0].message,
-        "此流程包含远程操作，请至少选择一台目标服务器。"
-    );
+    assert_eq!(full.issues[0].message, Message::NoTargets);
 
     req.scope = RunScope::LocalOnly;
     let local = plan(&demo, &req);
@@ -560,12 +603,12 @@ fn paths_are_checked_after_resolution() {
         r.cwd = Some("${deploy_dir}".into());
     }
     let plan = plan(&demo, &request(&demo, 0, demo.staging));
-    let issues: Vec<_> = plan.issues.iter().map(|i| i.message.as_str()).collect();
+    let issues: Vec<_> = plan.issues.iter().map(|i| i.message.clone()).collect();
     assert_eq!(
         issues,
         [
-            "步骤 2 · 远端目标（staging-api-01）：必须是远端绝对路径（以 / 开头）",
-            "步骤 2 · 远端目标（staging-api-02）：必须是远端绝对路径（以 / 开头）",
+            target_issue("staging-api-01"),
+            target_issue("staging-api-02"),
         ]
     );
 }
@@ -578,7 +621,10 @@ fn file_upload_target_must_name_a_file() {
     }
     let plan = plan(&demo, &request(&demo, 0, demo.staging));
     assert_eq!(plan.issues.len(), 2);
-    assert!(plan.issues[0].message.contains("完整文件路径"));
+    let Message::StepServerIssue { reason, .. } = &plan.issues[0].message else {
+        panic!("{:?}", plan.issues[0].message);
+    };
+    assert_eq!(**reason, Message::UploadFileTarget);
 }
 
 #[test]

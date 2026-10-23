@@ -4,7 +4,7 @@
 use serde::Serialize;
 use ts_rs::TS;
 
-use crate::{CredentialPurpose, HostEndpoint, HostKey, ServerId};
+use crate::{CredentialPurpose, HostEndpoint, HostKey, Message, ServerId};
 
 /// D04: a password or passphrase is needed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, TS)]
@@ -19,8 +19,8 @@ pub struct CredentialPrompt {
     pub user: String,
     /// The key file being unlocked, for a passphrase.
     pub key_path: Option<String>,
-    /// What needs it, e.g. "连接测试" or a task name.
-    pub context: String,
+    /// What needs it: a connection test or a task.
+    pub context: Message,
     pub attempt: u8,
     pub max_attempts: u8,
     /// The previous value was rejected.
