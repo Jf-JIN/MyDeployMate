@@ -30,14 +30,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          fetch-depth: ${{ github.event_name == 'pull_request' && 0 || 1 }}
+          fetch-depth: 0
       - id: detect
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          if [ -n "$BASE_SHA" ]; then
-            changed=$(git diff --name-only "$BASE_SHA...$HEAD_SHA")
+          # 取不到改动列表时按有代码改动处理，照常全跑。
+          if [ -n "$BASE_SHA" ] && changed=$(git diff --name-only "$BASE_SHA...$HEAD_SHA"); then
             code=$(printf '%s\n' "$changed" | grep -v -E '\.md$|(^|/)docs/' || true)
             if [ -n "$changed" ] && [ -z "$code" ]; then
               echo "rust=false" >> "$GITHUB_OUTPUT"
