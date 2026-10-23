@@ -139,31 +139,6 @@ function onClick(event: MouseEvent) {
   cursor: not-allowed;
 }
 
-/* Coloured buttons keep their hue when unavailable, so neighbouring actions stay told apart. */
-.btn--primary:is(:disabled, [aria-disabled='true']),
-.btn--tonal:is(:disabled, [aria-disabled='true']),
-.btn--info:is(:disabled, [aria-disabled='true']) {
-  opacity: 0.5;
-}
-
-.btn--primary:is(:disabled, [aria-disabled='true']) {
-  border-color: var(--action-primary);
-  background: var(--action-primary);
-  color: var(--text-on-action);
-}
-
-.btn--tonal:is(:disabled, [aria-disabled='true']) {
-  border-color: color-mix(in srgb, var(--action-primary) 45%, transparent);
-  background: var(--surface-selected);
-  color: var(--action-primary);
-}
-
-.btn--info:is(:disabled, [aria-disabled='true']) {
-  border-color: color-mix(in srgb, var(--state-running) 45%, transparent);
-  background: var(--state-running-bg);
-  color: var(--state-running);
-}
-
 .btn--busy {
   cursor: progress;
 }
