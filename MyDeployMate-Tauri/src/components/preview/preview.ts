@@ -1,4 +1,5 @@
-import type { Issue, PlannedTask, PrivilegePolicy, ResolvedCommand, TaskAction } from '@/ipc'
+import { SHELL_LABEL } from '@/composables/shellPrograms'
+import type { Issue, PlannedTask, PrivilegePolicy, ResolvedCommand, Shell, TaskAction } from '@/ipc'
 
 /** Where clicking a preflight issue leads (IXD-24). */
 export type IssueTarget =
@@ -100,4 +101,30 @@ export function taskCommand(action: TaskAction): { text: string; sensitive: bool
     case 'confirm':
       return { text: action.prompt.display, sensitive: action.prompt.sensitive }
   }
+}
+
+const POLICY = { stop: '失败停止', continue: '失败继续', skipServer: '跳过该服务器' }
+
+/**
+ * Directory, shell, conflict policy, privilege, timeout and failure policy of a task, as short
+ * facts. `programPath` names the shell's executable when it is known.
+ */
+export function taskDetails(
+  task: PlannedTask,
+  programPath?: (shell: Shell) => string | null | undefined,
+): string[] {
+  const out: string[] = []
+  const a = task.action
+  if ((a.type === 'local' || a.type === 'remote') && a.cwd) out.push(`目录 ${a.cwd.display}`)
+  if (a.type === 'local') {
+    const shell = a.shell === 'wsl' ? `WSL ${a.wslDistro ?? ''}` : SHELL_LABEL[a.shell]
+    const path = programPath?.(a.shell)
+    out.push(path === null ? `${shell}（本机未找到）` : path ? `${shell} · ${path}` : shell)
+  }
+  if (a.type === 'upload')
+    out.push(a.conflict === 'overwrite' ? '覆盖已有目标' : '目标已存在时报错')
+  if (a.type === 'remote') out.push(privilegeLabel(a.privilege))
+  if (task.timeoutSec !== null) out.push(`超时 ${task.timeoutSec} 秒`)
+  if (a.type !== 'confirm') out.push(POLICY[task.failurePolicy])
+  return out
 }

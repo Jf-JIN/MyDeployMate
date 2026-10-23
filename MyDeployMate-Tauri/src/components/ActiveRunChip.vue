@@ -13,6 +13,7 @@ const view = computed(() => {
   if (!active) return null
   if (active.waiting === 'confirm') return { icon: PauseCircle, text: '等待确认', tone: 'warning' }
   if (active.waiting === 'credential') return { icon: KeyRound, text: '等待凭据', tone: 'warning' }
+  if (active.stopping) return { icon: LoaderCircle, text: '正在取消', tone: 'warning' }
   return { icon: LoaderCircle, text: '运行中', tone: 'running' }
 })
 </script>
@@ -22,7 +23,7 @@ const view = computed(() => {
     v-if="run.active && view"
     class="run-chip"
     :class="`run-chip--${view.tone}`"
-    :to="{ name: 'history' }"
+    :to="{ name: 'run', params: { runId: run.active.runId } }"
     :title="`${run.active.projectName} · ${run.active.pipelineName} · ${run.active.environmentName}`"
   >
     <component

@@ -17,18 +17,21 @@ import {
   call,
   toAppError,
   type Issue,
+  type PlanRequest,
   type PlannedTask,
   type ResolvedPlan,
   type RunScope,
   type Workspace,
 } from '@/ipc'
-import { SHELL_LABEL, useShellPrograms } from '@/composables/shellPrograms'
+import { useShellPrograms } from '@/composables/shellPrograms'
+import { useRunStore } from '@/stores/run'
 import { useToastStore } from '@/stores/toast'
 
-import { groupTasks, issueTarget, privilegeLabel, taskCommand, type IssueTarget } from './preview'
+import { groupTasks, issueTarget, taskCommand, taskDetails, type IssueTarget } from './preview'
 
-// D03 publish preview (IXD-21 – IXD-24). Everything is resolved locally by Rust: no network,
-// no password prompt. Starting a run arrives with the execution engine in phase 4.
+// D03 publish preview (IXD-21 – IXD-25). Everything is resolved locally by Rust: no network,
+// no password prompt. Start sends the same request; Rust rebuilds the plan from the saved
+// workspace and refuses it if the configuration changed since this preview.
 const props = defineProps<{
   open: boolean
   /** The workspace to preview: the editor's draft when it has unsaved changes. */
@@ -38,9 +41,14 @@ const props = defineProps<{
   pipelineId: string
   environmentId: string
 }>()
-const emit = defineEmits<{ cancel: []; jump: [target: IssueTarget, issues: Issue[]] }>()
+const emit = defineEmits<{
+  cancel: []
+  jump: [target: IssueTarget, issues: Issue[]]
+  started: [runId: string]
+}>()
 
 const toast = useToastStore()
+const run = useRunStore()
 const plan = ref<ResolvedPlan | null>(null)
 const error = ref<string | null>(null)
 const loading = ref(false)
@@ -67,9 +75,22 @@ watch(
     version.value = null
     typed.value = ''
     plan.value = null
+    startError.value = null
+    key.value = crypto.randomUUID()
     void refresh()
   },
 )
+
+function request(): PlanRequest {
+  return {
+    projectId: props.projectId,
+    pipelineId: props.pipelineId,
+    environmentId: props.environmentId,
+    scope: scope.value,
+    serverIds: serverIds.value,
+    version: version.value,
+  }
+}
 
 let ticket = 0
 async function refresh() {
@@ -78,17 +99,7 @@ async function refresh() {
   loading.value = true
   error.value = null
   try {
-    const result = await call('preview_run', {
-      draft: props.workspace,
-      request: {
-        projectId: props.projectId,
-        pipelineId: props.pipelineId,
-        environmentId: props.environmentId,
-        scope: scope.value,
-        serverIds: serverIds.value,
-        version: version.value,
-      },
-    })
+    const result = await call('preview_run', { draft: props.workspace, request: request() })
     if (mine === ticket) plan.value = result
   } catch (e) {
     // An unsaved draft with a mistyped field cannot be planned; say which field.
@@ -105,6 +116,7 @@ async function refresh() {
 let timer: ReturnType<typeof setTimeout> | undefined
 watch([scope, serverIds, version], () => {
   typed.value = ''
+  key.value = crypto.randomUUID()
   clearTimeout(timer)
   timer = setTimeout(refresh, 200)
 })
@@ -133,25 +145,9 @@ const issueSteps = computed(
 
 const { programPath } = useShellPrograms()
 
-const POLICY = { stop: '失败停止', continue: '失败继续', skipServer: '跳过该服务器' }
 const ORDER = { stepFirst: '步骤优先', serverFirst: '服务器优先' }
 
-function details(task: PlannedTask): string[] {
-  const out: string[] = []
-  const a = task.action
-  if ((a.type === 'local' || a.type === 'remote') && a.cwd) out.push(`目录 ${a.cwd.display}`)
-  if (a.type === 'local') {
-    const shell = a.shell === 'wsl' ? `WSL ${a.wslDistro ?? ''}` : SHELL_LABEL[a.shell]
-    const path = programPath(a.shell)
-    out.push(path === null ? `${shell}（本机未找到）` : path ? `${shell} · ${path}` : shell)
-  }
-  if (a.type === 'upload')
-    out.push(a.conflict === 'overwrite' ? '覆盖已有目标' : '目标已存在时报错')
-  if (a.type === 'remote') out.push(privilegeLabel(a.privilege))
-  if (task.timeoutSec !== null) out.push(`超时 ${task.timeoutSec} 秒`)
-  if (a.type !== 'confirm') out.push(POLICY[task.failurePolicy])
-  return out
-}
+const details = (task: PlannedTask) => taskDetails(task, programPath)
 
 async function copy(text: string) {
   try {
@@ -186,14 +182,60 @@ const startReason = computed(() => {
   if (plan.value.protected && typed.value !== plan.value.environmentName) {
     return `请键入“${plan.value.environmentName}”以确认`
   }
-  return '执行引擎尚未接入（阶段 4）'
+  if (run.activeId) return '已有运行正在进行，同一时间只能有一个运行'
+  return null
 })
+
+// IXD-25: one key per previewed plan, so a repeated click returns the run already started.
+const key = ref('')
+const starting = ref(false)
+const startError = ref<string | null>(null)
+async function start() {
+  if (!plan.value || starting.value) return
+  starting.value = true
+  startError.value = null
+  try {
+    const id = await run.start({
+      request: request(),
+      revision: plan.value.revision,
+      confirmation: plan.value.protected ? typed.value : null,
+      key: key.value,
+    })
+    emit('started', id)
+  } catch (e) {
+    const err = toAppError(e)
+    if (err.kind === 'internal') {
+      // The outcome is unknown: look for the run instead of starting again.
+      const id = await run.checkActive().catch(() => null)
+      if (id) {
+        toast.show('运行已创建')
+        emit('started', id)
+        return
+      }
+    }
+    startError.value = `运行未创建：${err.message}`
+  } finally {
+    starting.value = false
+  }
+}
 </script>
 
 <template>
-  <UiDialog :open="open" title="发布预览" width="preview" @cancel="emit('cancel')">
+  <UiDialog
+    :open="open"
+    title="发布预览"
+    width="preview"
+    :cancellable="!starting"
+    @cancel="emit('cancel')"
+  >
     <div ref="body" class="preview">
       <UiNotice v-if="error" tone="failure">{{ error }}</UiNotice>
+      <UiNotice v-if="run.activeId" tone="warning">
+        已有运行正在进行。
+        <RouterLink :to="{ name: 'run', params: { runId: run.activeId } }" @click="emit('cancel')">
+          查看运行
+        </RouterLink>
+      </UiNotice>
       <template v-if="plan">
         <header class="summary">
           <UiTag v-if="unsaved" tone="warning">未保存预览</UiTag>
@@ -337,13 +379,23 @@ const startReason = computed(() => {
     </div>
 
     <template #footer>
-      <UiButton @click="emit('cancel')">取消</UiButton>
-      <UiButton variant="primary" :disabled-reason="startReason">开始</UiButton>
+      <p v-if="startError" class="start-error" role="alert">{{ startError }}</p>
+      <UiButton :disabled="starting" @click="emit('cancel')">取消</UiButton>
+      <UiButton variant="primary" :busy="starting" :disabled-reason="startReason" @click="start">
+        开始
+      </UiButton>
     </template>
   </UiDialog>
 </template>
 
 <style scoped>
+.start-error {
+  flex: 1;
+  margin: 0;
+  color: var(--state-failure);
+  font: var(--font-caption);
+}
+
 .preview {
   display: flex;
   flex-direction: column;

@@ -1,0 +1,766 @@
+<script setup lang="ts">
+import {
+  ArrowLeft,
+  CircleCheck,
+  CircleDashed,
+  CircleHelp,
+  CircleMinus,
+  CircleSlash,
+  CircleX,
+  KeyRound,
+  LoaderCircle,
+  OctagonX,
+  PauseCircle,
+  Shield,
+} from '@lucide/vue'
+import { computed, onBeforeUnmount, ref, shallowRef, watch, type Component } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+
+import EmptyState from '@/components/EmptyState.vue'
+import PageLayout from '@/components/PageLayout.vue'
+import { taskCommand, taskDetails } from '@/components/preview/preview'
+import RunLogView from '@/components/run/RunLogView.vue'
+import {
+  RUN_STATUS,
+  TASK_STATUS,
+  dateTime,
+  elapsed,
+  groupRunTasks,
+  outcomeText,
+  runFinished,
+  skippedServerCount,
+  taskFinished,
+  taskLabel,
+  type RunTask,
+} from '@/components/run/runState'
+import UiButton from '@/components/ui/UiButton.vue'
+import UiConfirm from '@/components/ui/UiConfirm.vue'
+import UiNotice from '@/components/ui/UiNotice.vue'
+import UiTag from '@/components/ui/UiTag.vue'
+import { toAppError, type TaskStatus } from '@/ipc'
+import { useRunStore, type RunDetail } from '@/stores/run'
+import { useToastStore } from '@/stores/toast'
+
+// P07 run detail (IXD-26 – IXD-30): summary with a cancel button that never scrolls away, the
+// pending confirmation, the task list grouped as in the preview, the selected task and the log.
+const route = useRoute()
+const router = useRouter()
+const runs = useRunStore()
+const toast = useToastStore()
+
+const runId = computed(() => String(route.params.runId ?? ''))
+const detail = shallowRef<RunDetail | null>(null)
+const loadError = ref<string | null>(null)
+/** The task the operator clicked; until then the detail follows the run. */
+const picked = ref<number | null>(null)
+
+watch(
+  runId,
+  async (id) => {
+    detail.value = runs.detail(id)
+    loadError.value = null
+    picked.value = null
+    try {
+      detail.value = await runs.open(id)
+    } catch (e) {
+      loadError.value = toAppError(e).message
+    }
+  },
+  { immediate: true },
+)
+
+const run = computed(() => detail.value?.run ?? null)
+const finished = computed(() => !!run.value && runFinished(run.value.status))
+
+// Elapsed times tick while the run is active.
+const now = ref(Date.now())
+const timer = setInterval(() => (now.value = Date.now()), 1000)
+onBeforeUnmount(() => clearInterval(timer))
+
+const groups = computed(() =>
+  detail.value ? groupRunTasks(detail.value.plan, detail.value.tasks) : [],
+)
+const items = computed(() => groups.value.flatMap((g) => g.tasks))
+
+const selected = computed<RunTask | null>(() => {
+  const list = items.value
+  const by = (pred: (s: TaskStatus) => boolean) => list.find((t) => pred(t.task.status))
+  return (
+    list.find((t) => t.task.seq === picked.value) ??
+    by((s) => ['running', 'waitingConfirmation', 'waitingCredential'].includes(s)) ??
+    by((s) => s === 'failed' || s === 'unknown') ??
+    [...list].reverse().find((t) => t.task.startedAtMs !== null) ??
+    list[0] ??
+    null
+  )
+})
+
+const STATUS_ICON: Record<TaskStatus, Component> = {
+  queued: CircleDashed,
+  running: LoaderCircle,
+  waitingConfirmation: PauseCircle,
+  waitingCredential: KeyRound,
+  succeeded: CircleCheck,
+  failed: CircleX,
+  cancelled: CircleSlash,
+  skipped: CircleMinus,
+  unknown: CircleHelp,
+}
+
+const done = computed(() => detail.value?.tasks.filter((t) => taskFinished(t.status)).length ?? 0)
+const targetCount = computed(() =>
+  run.value?.localOnly ? null : (detail.value?.plan.targets.filter((t) => t.selected).length ?? 0),
+)
+const skippedServers = computed(() => skippedServerCount(detail.value?.tasks ?? []))
+const outcome = computed(() =>
+  run.value && detail.value
+    ? outcomeText(run.value.status, detail.value.tasks, detail.value.cancelReason)
+    : null,
+)
+const firstFailure = computed(() =>
+  items.value.find((t) => t.task.status === 'failed' || t.task.status === 'unknown'),
+)
+const unknownTasks = computed(() => items.value.filter((t) => t.task.status === 'unknown'))
+const lastMessage = computed(() => {
+  const d = detail.value
+  if (!d) return null
+  void d.logRevision
+  const lines = d.lines.lines
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const text = lines[i]?.text.trim()
+    if (text) return text
+  }
+  return null
+})
+
+const ORDER = { stepFirst: '步骤优先', serverFirst: '服务器优先' }
+const OUTCOME_TONE = {
+  succeeded: 'success',
+  failed: 'failure',
+  cancelled: 'warning',
+  interrupted: 'unknown',
+} as const
+
+// IXD-28: the confirmation to-do, shown only when the run reaches it.
+const confirming = computed(
+  () => items.value.find((t) => t.task.status === 'waitingConfirmation') ?? null,
+)
+const confirmPrompt = computed(() => {
+  const a = confirming.value?.plan.action
+  return a?.type === 'confirm' ? a.prompt.display : ''
+})
+const before = computed(() => {
+  const seq = confirming.value?.task.seq ?? 0
+  const prior = detail.value?.tasks.filter((t) => t.seq < seq) ?? []
+  return {
+    succeeded: prior.filter((t) => t.status === 'succeeded').length,
+    failed: prior.filter((t) => t.status === 'failed' || t.status === 'unknown'),
+  }
+})
+const answering = ref(false)
+async function proceed() {
+  const d = detail.value
+  const seq = confirming.value?.task.seq
+  if (!d || seq === undefined || answering.value) return
+  answering.value = true
+  try {
+    await runs.answer(d.runId, seq, true)
+  } catch (e) {
+    toast.show(toAppError(e).message)
+  } finally {
+    answering.value = false
+  }
+}
+
+// IXD-29: cancelling asks first, naming the current task and that nothing is undone.
+const askCancel = ref(false)
+const cancelling = ref(false)
+const current = computed(() =>
+  items.value.find((t) =>
+    ['running', 'waitingConfirmation', 'waitingCredential'].includes(t.task.status),
+  ),
+)
+async function cancel() {
+  const d = detail.value
+  if (!d) return
+  cancelling.value = true
+  try {
+    await runs.cancel(d.runId)
+    askCancel.value = false
+  } catch (e) {
+    toast.show(toAppError(e).message)
+  } finally {
+    cancelling.value = false
+  }
+}
+const cancelReason = computed(() => {
+  if (run.value?.status === 'cancelling') return '正在停止'
+  return null
+})
+
+function backToPipeline() {
+  const r = run.value
+  if (!r) return
+  void router.push({
+    name: 'pipeline',
+    params: { projectId: r.projectId, pipelineId: r.pipelineId },
+  })
+}
+
+function select(item: RunTask) {
+  picked.value = item.task.seq
+}
+</script>
+
+<template>
+  <PageLayout title="运行详情">
+    <template #actions>
+      <UiButton v-if="finished" :icon="ArrowLeft" @click="backToPipeline">返回流程</UiButton>
+    </template>
+    <UiNotice v-if="loadError" tone="failure">无法打开运行：{{ loadError }}</UiNotice>
+    <EmptyState v-else-if="!detail || !run" title="正在加载运行…" />
+    <div v-else class="run-page">
+      <header class="summary">
+        <div class="summary-head">
+          <UiTag
+            :tone="RUN_STATUS[run.status].tone"
+            :icon="finished ? undefined : LoaderCircle"
+            :spin="!finished"
+          >
+            {{ RUN_STATUS[run.status].label }}
+          </UiTag>
+          <h2 class="summary-title">{{ run.projectName }} · {{ run.pipelineName }}</h2>
+          <span class="summary-env">
+            {{ run.environmentName }}
+            <UiTag v-if="detail.plan.protected" tone="warning" :icon="Shield">保护环境</UiTag>
+          </span>
+          <span class="spacer" />
+          <UiButton
+            v-if="!finished"
+            variant="danger"
+            :icon="OctagonX"
+            :busy="run.status === 'cancelling'"
+            :disabled-reason="cancelReason"
+            @click="askCancel = true"
+          >
+            取消运行
+          </UiButton>
+        </div>
+        <dl class="facts">
+          <div>
+            <dt>执行顺序</dt>
+            <dd>{{ ORDER[run.executionOrder] }}</dd>
+          </div>
+          <div>
+            <dt>版本</dt>
+            <dd class="mono">{{ run.version || '—' }}</dd>
+          </div>
+          <div>
+            <dt>目标</dt>
+            <dd>{{ targetCount === null ? '仅本地命令' : `${targetCount} 台` }}</dd>
+          </div>
+          <div>
+            <dt>开始时间</dt>
+            <dd class="num">{{ dateTime(run.createdAtMs) }}</dd>
+          </div>
+          <div>
+            <dt>耗时</dt>
+            <dd class="num">{{ elapsed(run.createdAtMs, run.finishedAtMs, now) }}</dd>
+          </div>
+          <div>
+            <dt>进度</dt>
+            <dd class="num">{{ done }}/{{ detail.tasks.length }}</dd>
+          </div>
+        </dl>
+        <UiNotice v-if="detail.storageError" tone="failure">
+          运行记录写入失败：{{ detail.storageError }}
+        </UiNotice>
+        <UiNotice v-if="run.status === 'cancelling'" tone="warning">
+          正在停止，等待当前任务结束…<span v-if="lastMessage" class="last"
+            >最后输出：{{ lastMessage }}</span
+          >
+        </UiNotice>
+        <UiNotice
+          v-if="finished && outcome"
+          :tone="OUTCOME_TONE[run.status as keyof typeof OUTCOME_TONE]"
+        >
+          {{ outcome }}
+          <template v-if="skippedServers">。{{ skippedServers }} 台服务器被跳过</template>
+          <button
+            v-if="firstFailure && run.status === 'failed'"
+            type="button"
+            class="link"
+            @click="select(firstFailure)"
+          >
+            查看失败任务
+          </button>
+          <ul v-if="run.status === 'interrupted' && unknownTasks.length" class="unknown">
+            <li v-for="t in unknownTasks" :key="t.task.seq">
+              {{ taskLabel(t.task) }}：<code>{{ taskCommand(t.plan.action).text }}</code>
+            </li>
+          </ul>
+        </UiNotice>
+        <UiNotice v-if="run.status === 'waitingCredential'" tone="warning">
+          {{ detail.credential?.prompt ?? '任务在等待凭据' }}。当前版本还不能输入凭据，请取消运行。
+        </UiNotice>
+      </header>
+
+      <section v-if="confirming" class="todo" aria-label="待确认">
+        <h3 class="todo-title">
+          <PauseCircle :size="18" :stroke-width="1.75" aria-hidden="true" />
+          任务 {{ confirming.task.seq + 1 }} 等待确认
+        </h3>
+        <p class="todo-prompt">{{ confirmPrompt }}</p>
+        <p class="todo-meta">
+          {{ run.projectName }} · {{ run.environmentName }} · 版本 {{ run.version || '—' }}
+          <template v-if="targetCount">
+            · 目标：{{
+              detail.plan.targets
+                .filter((t) => t.selected)
+                .map((t) => t.name)
+                .join('、')
+            }}
+          </template>
+        </p>
+        <p class="todo-meta">
+          之前的任务：成功 {{ before.succeeded }} 个<template v-if="before.failed.length"
+            >，失败 {{ before.failed.length }} 个（{{
+              before.failed.map((t) => `任务 ${t.seq + 1}`).join('、')
+            }}）</template
+          >
+        </p>
+        <div class="todo-actions">
+          <UiButton variant="primary" :busy="answering" @click="proceed">继续</UiButton>
+          <UiButton variant="danger" :disabled="answering" @click="askCancel = true">
+            取消执行
+          </UiButton>
+        </div>
+      </section>
+
+      <div class="body">
+        <nav class="tasks" aria-label="任务">
+          <div v-for="group in groups" :key="group.key" class="group">
+            <h3 class="group-title" :class="{ 'group-title--server': group.server }">
+              {{ group.title }}
+              <UiTag v-if="group.skipped" tone="warning">{{ group.skipped }}</UiTag>
+            </h3>
+            <ol class="task-list">
+              <li v-for="item in group.tasks" :key="item.task.seq">
+                <button
+                  type="button"
+                  class="task"
+                  :class="[
+                    `task--${TASK_STATUS[item.task.status].tone}`,
+                    { 'task--selected': selected?.task.seq === item.task.seq },
+                  ]"
+                  :aria-current="selected?.task.seq === item.task.seq ? 'true' : undefined"
+                  @click="select(item)"
+                >
+                  <component
+                    :is="STATUS_ICON[item.task.status]"
+                    class="task-icon"
+                    :class="{ spin: item.task.status === 'running' }"
+                    :size="16"
+                    :stroke-width="1.75"
+                    :aria-label="TASK_STATUS[item.task.status].label"
+                  />
+                  <span class="seq num">{{ item.task.seq + 1 }}</span>
+                  <span class="task-main">
+                    <span class="task-head">
+                      <span class="task-name">{{ item.task.stepName }}</span>
+                      <span class="task-target">{{
+                        item.task.serverName ? `→ ${item.task.serverName}` : '本地'
+                      }}</span>
+                    </span>
+                    <span v-if="item.task.reason" class="task-reason">{{ item.task.reason }}</span>
+                  </span>
+                  <span class="task-time num">
+                    {{ elapsed(item.task.startedAtMs, item.task.finishedAtMs, now) ?? '' }}
+                  </span>
+                </button>
+              </li>
+            </ol>
+          </div>
+        </nav>
+
+        <div class="side">
+          <section v-if="selected" class="detail" aria-label="任务详情">
+            <div class="detail-head">
+              <h3 class="detail-title">
+                任务 {{ selected.task.seq + 1 }} · {{ selected.task.stepName }}
+              </h3>
+              <UiTag :tone="TASK_STATUS[selected.task.status].tone">
+                {{ TASK_STATUS[selected.task.status].label }}
+              </UiTag>
+              <span class="task-target">{{
+                selected.task.serverName ? `→ ${selected.task.serverName}` : '本地'
+              }}</span>
+            </div>
+            <code class="detail-command">{{ taskCommand(selected.plan.action).text }}</code>
+            <p class="detail-meta">{{ taskDetails(selected.plan).join(' · ') }}</p>
+            <p class="detail-meta">
+              <template v-if="selected.task.startedAtMs !== null">
+                开始 {{ dateTime(selected.task.startedAtMs) }} · 耗时
+                {{ elapsed(selected.task.startedAtMs, selected.task.finishedAtMs, now) }}
+              </template>
+              <template v-else>尚未开始</template>
+              <template v-if="selected.task.exitCode !== null">
+                ·
+                <span :class="{ 'exit-bad': selected.task.exitCode !== 0 }">
+                  退出码 {{ selected.task.exitCode }}
+                </span>
+              </template>
+            </p>
+            <p
+              v-if="
+                selected.task.reason && selected.task.reason !== `退出码 ${selected.task.exitCode}`
+              "
+              class="detail-reason"
+              :class="{
+                'detail-reason--bad': ['failed', 'unknown'].includes(selected.task.status),
+              }"
+            >
+              {{ selected.task.reason }}
+            </p>
+          </section>
+          <RunLogView :detail="detail" :selected="picked" />
+        </div>
+      </div>
+    </div>
+
+    <UiConfirm
+      :open="askCancel"
+      title="取消运行？"
+      confirm-label="取消执行"
+      cancel-label="返回运行"
+      danger
+      :busy="cancelling"
+      @confirm="cancel"
+      @cancel="askCancel = false"
+    >
+      <p v-if="current" class="cancel-text">当前任务：{{ taskLabel(current.task) }}</p>
+      <p class="cancel-text">
+        取消后不再开始后续任务，正在执行的本地命令会被终止。已完成的操作不会自动撤销。
+      </p>
+    </UiConfirm>
+  </PageLayout>
+</template>
+
+<style scoped>
+.run-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  height: 100%;
+  min-height: 560px;
+}
+
+.summary {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.summary-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.summary-title {
+  margin: 0;
+  overflow: hidden;
+  font: var(--font-section);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.summary-env {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-secondary);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  margin: 0;
+}
+
+.facts dt {
+  color: var(--text-secondary);
+  font: var(--font-caption);
+}
+
+.facts dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+.last {
+  margin-left: var(--space-2);
+  font-family: var(--font-mono);
+}
+
+.link {
+  margin-left: var(--space-2);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.unknown {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-5);
+}
+
+.unknown code {
+  font: var(--font-code);
+}
+
+.todo {
+  flex: none;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--state-warning);
+  border-radius: var(--radius-surface);
+  background: var(--state-warning-bg);
+}
+
+.todo-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--state-warning);
+  font: var(--font-section);
+}
+
+.todo-prompt {
+  margin: var(--space-2) 0;
+  font-weight: 600;
+  white-space: pre-wrap;
+}
+
+.todo-meta {
+  margin: 0;
+  color: var(--text-secondary);
+  font: var(--font-caption);
+}
+
+.todo-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.body {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(280px, 2fr) minmax(420px, 5fr);
+  gap: var(--space-4);
+  min-height: 0;
+}
+
+.tasks {
+  min-height: 0;
+  overflow: auto;
+}
+
+.group + .group {
+  margin-top: var(--space-3);
+}
+
+.group-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-1);
+  color: var(--text-secondary);
+  font: var(--font-label);
+}
+
+.group-title--server {
+  color: var(--text-primary);
+}
+
+.task-list {
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  list-style: none;
+}
+
+.task-list li + li {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.task {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  background: none;
+  color: var(--text-primary);
+  font: var(--font-body);
+  text-align: left;
+  cursor: pointer;
+}
+
+.task:hover {
+  background: var(--surface-hover);
+}
+
+.task--selected {
+  background: var(--surface-selected);
+  box-shadow: inset 3px 0 0 var(--action-primary);
+}
+
+.task-icon {
+  flex: none;
+  margin-top: 3px;
+  color: var(--text-secondary);
+}
+
+.task--success .task-icon {
+  color: var(--state-success);
+}
+
+.task--failure .task-icon,
+.task--failure .task-name {
+  color: var(--state-failure);
+}
+
+.task--running .task-icon {
+  color: var(--state-running);
+}
+
+.task--warning .task-icon {
+  color: var(--state-warning);
+}
+
+.task--unknown .task-icon {
+  color: var(--state-unknown);
+}
+
+.seq {
+  flex: none;
+  width: 20px;
+  color: var(--text-secondary);
+  text-align: right;
+}
+
+.task-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.task-head {
+  display: flex;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.task-name {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-target {
+  flex: none;
+  color: var(--text-secondary);
+}
+
+.task-reason {
+  color: var(--text-secondary);
+  font: var(--font-caption);
+}
+
+.task-time {
+  flex: none;
+  color: var(--text-secondary);
+  font: var(--font-caption);
+}
+
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+  min-height: 0;
+}
+
+.detail {
+  flex: none;
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-surface);
+}
+
+.detail-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.detail-title {
+  margin: 0;
+  font: var(--font-label);
+}
+
+.detail-command {
+  display: block;
+  max-height: 88px;
+  margin-top: var(--space-2);
+  overflow: auto;
+  font: var(--font-code);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.detail-meta {
+  margin: var(--space-1) 0 0;
+  color: var(--text-secondary);
+  font: var(--font-caption);
+}
+
+.exit-bad {
+  color: var(--state-failure);
+  font-weight: 600;
+}
+
+.detail-reason {
+  margin: var(--space-1) 0 0;
+  color: var(--text-secondary);
+  font: var(--font-caption);
+}
+
+.detail-reason--bad {
+  color: var(--state-failure);
+}
+
+.cancel-text {
+  margin: 0;
+}
+</style>

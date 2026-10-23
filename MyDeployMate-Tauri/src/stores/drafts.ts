@@ -24,7 +24,12 @@ export type LeaveChoice = 'save' | 'discard' | 'cancel'
  */
 export const useDraftStore = defineStore('drafts', () => {
   const sources = shallowRef<DraftSource[]>([])
-  const pending = ref<{ labels: string[]; resolve: (choice: LeaveChoice) => void } | null>(null)
+  const pending = ref<{
+    labels: string[]
+    /** False before a run: unsaved changes must be saved or the action dropped (IXD-21). */
+    discardable: boolean
+    resolve: (choice: LeaveChoice) => void
+  } | null>(null)
   const saving = ref(false)
 
   const dirtySources = computed(() => sources.value.filter((s) => s.isDirty()))
@@ -58,11 +63,11 @@ export const useDraftStore = defineStore('drafts', () => {
   }
 
   /** Resolve true when it is fine to leave; asks "保存并继续 / 放弃更改 / 取消" when dirty. */
-  async function confirmLeave(): Promise<boolean> {
+  async function confirmLeave(discardable = true): Promise<boolean> {
     const dirty = dirtySources.value
     if (dirty.length === 0) return true
     const choice = await new Promise<LeaveChoice>((resolve) => {
-      pending.value = { labels: dirty.map((s) => s.label), resolve }
+      pending.value = { labels: dirty.map((s) => s.label), discardable, resolve }
     })
     pending.value = null
     if (choice === 'cancel') return false
@@ -72,6 +77,9 @@ export const useDraftStore = defineStore('drafts', () => {
     }
     return runSave(dirty)
   }
+
+  /** Before running: resolve true once everything is saved; asks "保存并继续 / 取消". */
+  const confirmSave = () => confirmLeave(false)
 
   function answer(choice: LeaveChoice) {
     pending.value?.resolve(choice)
@@ -85,6 +93,7 @@ export const useDraftStore = defineStore('drafts', () => {
     register,
     saveCurrent,
     confirmLeave,
+    confirmSave,
     answer,
   }
 })
