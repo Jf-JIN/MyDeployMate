@@ -78,6 +78,8 @@ export function taskLabel(task: Task): string {
   return `任务 ${task.seq + 1}（${task.stepName}${target}）`
 }
 
+const APP_EXITED_REASON = '应用在运行过程中退出，运行未自动继续'
+
 /** The line under the summary once the run has ended (IXD-26). */
 export function outcomeText(status: RunStatus, tasks: Task[], cancelReason: string | null) {
   const count = (s: TaskStatus) => tasks.filter((t) => t.status === s).length
@@ -95,8 +97,13 @@ export function outcomeText(status: RunStatus, tasks: Task[], cancelReason: stri
       const ran = tasks.filter((t) => t.startedAtMs !== null).length
       return `${cancelReason ?? '已取消'}。已执行 ${ran} 个任务，未执行 ${tasks.length - ran} 个；已完成的操作不会自动撤销`
     }
-    case 'interrupted':
-      return '应用在运行过程中退出，运行没有继续。结果未知的任务需要人工核验'
+    case 'interrupted': {
+      // Set by history recovery (mdm-store INTERRUPTED_REASON) when the app quit mid-run.
+      const appExited = tasks.some((t) => t.reason === APP_EXITED_REASON)
+      return appExited
+        ? '应用在运行过程中退出，运行没有继续。结果未知的任务需要人工核验'
+        : '运行已中断，后续任务不再执行。结果未知的任务需要人工核验'
+    }
     default:
       return null
   }

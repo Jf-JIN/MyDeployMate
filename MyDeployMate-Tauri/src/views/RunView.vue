@@ -521,7 +521,7 @@ function select(item: RunTask) {
     >
       <p v-if="current" class="cancel-text">当前任务：{{ taskLabel(current.task) }}</p>
       <p class="cancel-text">
-        取消后不再开始后续任务，正在执行的本地命令会被终止。已完成的操作不会自动撤销。
+        取消后不再开始后续任务，正在执行的命令会被终止（远程命令会结束其进程组并确认已退出）。已完成的操作不会自动撤销。
       </p>
     </UiConfirm>
   </PageLayout>
