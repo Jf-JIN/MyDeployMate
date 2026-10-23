@@ -1,2 +1,5 @@
 # Generated bindings are compared byte for byte in CI (see .github/workflows/ci.yml).
 src/ipc/bindings/** text eol=lf
+
+# test-env files run inside Linux containers; CRLF breaks the shebang and sshd_config.
+test-env/** text eol=lf
