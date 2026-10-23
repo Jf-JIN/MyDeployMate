@@ -21,7 +21,7 @@ use mdm_core::{Clock, LogEntry, LogSink, LogSource, RunMachine, StorageError};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::coordinator::{Control, CredentialRequest, RunObserver};
+use crate::coordinator::{Control, OperatorRequest, RunObserver};
 use crate::local::{OutputChunk, Stream};
 
 /// How often batched output is pushed (ARC-07: 50–100 ms).
@@ -31,7 +31,7 @@ pub const FLUSH_PERIOD: Duration = Duration::from_millis(80);
 pub trait RunView: Send + Sync {
     fn state(&self, machine: &RunMachine);
     fn logs(&self, entries: Vec<LogEntry>);
-    fn credential_requested(&self, request: &CredentialRequest);
+    fn requested(&self, request: &OperatorRequest);
     fn storage_failed(&self, error: &StorageError);
 }
 
@@ -320,9 +320,9 @@ impl RunObserver for LogPipeline {
         self.push(&mut inner, seq, LogSource::System, format!("{text}\n"));
     }
 
-    fn credential_requested(&self, request: &CredentialRequest) {
+    fn requested(&self, request: &OperatorRequest) {
         self.flush();
-        self.view.credential_requested(request);
+        self.view.requested(request);
     }
 
     fn storage_failed(&self, error: &StorageError) {
@@ -356,7 +356,7 @@ mod tests {
         fn logs(&self, entries: Vec<LogEntry>) {
             self.logs.lock().unwrap().extend(entries);
         }
-        fn credential_requested(&self, _request: &CredentialRequest) {}
+        fn requested(&self, _request: &OperatorRequest) {}
         fn storage_failed(&self, _error: &StorageError) {
             *self.failed.lock().unwrap() = true;
         }
