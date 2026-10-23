@@ -16,6 +16,7 @@ import type { ProjectId } from './bindings/ProjectId'
 import type { Reference } from './bindings/Reference'
 import type { ResolvedPlan } from './bindings/ResolvedPlan'
 import type { RunId } from './bindings/RunId'
+import type { RunSnapshot } from './bindings/RunSnapshot'
 import type { RunUpdate } from './bindings/RunUpdate'
 import type { Server } from './bindings/Server'
 import type { ServerEdit } from './bindings/ServerEdit'
@@ -60,10 +61,12 @@ export interface Commands {
   wsl_distros: [Record<string, never>, string[]]
   shell_programs: [Record<string, never>, ShellProgram[]]
   preview_run: [{ draft: Workspace; request: PlanRequest }, ResolvedPlan]
-  start_run: [{ start: StartRunRequest; onUpdate: Channel<RunUpdate> }, RunId]
+  start_run: [{ start: StartRunRequest }, RunId]
+  open_run: [{ runId: RunId; onUpdate: Channel<RunUpdate> }, RunSnapshot]
   active_run: [Record<string, never>, RunId | null]
   cancel_run: [{ runId: RunId }, null]
   answer_confirmation: [{ runId: RunId; seq: number; proceed: boolean }, null]
+  cancel_and_quit: [Record<string, never>, null]
 }
 
 export type CommandName = keyof Commands

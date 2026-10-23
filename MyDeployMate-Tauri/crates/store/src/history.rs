@@ -141,6 +141,21 @@ impl HistoryStore {
         Ok(self.load_with_meta(id)?.map(|(run, _)| run))
     }
 
+    /// The plan the run was started from, as frozen at its start (IXD-25).
+    pub fn load_plan(&self, id: RunId) -> Result<Option<ResolvedPlan>, StoreError> {
+        let json: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT plan_json FROM runs WHERE id = ?1",
+                [to_text(&id)],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(db)?;
+        json.map(|j| serde_json::from_str(&j).map_err(|e| StoreError::Database(e.to_string())))
+            .transpose()
+    }
+
     fn load_with_meta(&self, id: RunId) -> Result<Option<(StoredRun, Vec<TaskMeta>)>, StoreError> {
         let id_text = to_text(&id);
         let head = self
@@ -599,8 +614,9 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        let back: ResolvedPlan = serde_json::from_str(&json).unwrap();
+        let back = store.load_plan(m.run().id).unwrap().unwrap();
         assert_eq!(back.tasks.len(), m.tasks().len());
+        assert!(store.load_plan(RunId::new()).unwrap().is_none());
         assert!(!json.contains("\"secrets\""));
     }
 }

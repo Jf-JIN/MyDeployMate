@@ -30,6 +30,8 @@ pub enum AppErrorKind {
     StorageUnavailable,
     /// Another run has not finished yet (ARC-08).
     RunActive,
+    /// The requested record does not exist, e.g. a run that was deleted.
+    NotFound,
     Internal,
 }
 
