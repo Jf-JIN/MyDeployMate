@@ -5,15 +5,17 @@
 //! the UI in batches by [`LogPipeline::flush_every`]. State changes go out at once, after the
 //! output that came before them.
 //!
-//! Past the 50 MiB body limit, output is still read but neither kept nor shown, and one marker
-//! entry says so. If the log file cannot be written, the run is cancelled: nothing more is
-//! dispatched without a record of its output (ARC-33).
+//! Past the 50 MiB body limit, one marker entry says so and output is still read and shown, but
+//! not saved: the UI keeps only its newest lines. Each task's last [`LOG_TAIL_LIMIT`] bytes are
+//! saved when the task ends, so the end of the output is on record. If the log file cannot be
+//! written, the run is cancelled: nothing more is dispatched without a record of its output
+//! (ARC-33).
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use mdm_core::log::{Admit, LogBudget};
+use mdm_core::log::{Admit, LOG_BODY_LIMIT, LOG_TAIL_LIMIT, LogBudget, LogTail, size_text};
 use mdm_core::redact::{Redactor, StreamRedactor};
 use mdm_core::{Clock, LogEntry, LogSink, LogSource, RunMachine, StorageError};
 use tokio::sync::mpsc;
@@ -33,6 +35,16 @@ pub trait RunView: Send + Sync {
     fn storage_failed(&self, error: &StorageError);
 }
 
+/// Where an entry goes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Dest {
+    Both,
+    /// Past the body limit: shown only.
+    Ui,
+    /// A saved tail: the UI showed it already.
+    Disk,
+}
+
 pub struct LogPipeline {
     inner: Mutex<Inner>,
     view: Arc<dyn RunView>,
@@ -43,9 +55,12 @@ pub struct LogPipeline {
 struct Inner {
     redactor: Redactor,
     streams: HashMap<(u32, LogSource), StreamRedactor>,
-    pending: Vec<LogEntry>,
+    pending: Vec<(LogEntry, Dest)>,
     next: u64,
     budget: LogBudget,
+    /// Output past the body limit, per task.
+    tails: HashMap<u32, LogTail>,
+    tail_limit: usize,
     /// `None` once a write failed.
     sink: Option<Box<dyn LogSink>>,
 }
@@ -67,6 +82,8 @@ impl LogPipeline {
                 pending: Vec::new(),
                 next: 0,
                 budget,
+                tails: HashMap::new(),
+                tail_limit: LOG_TAIL_LIMIT,
                 sink: Some(sink),
             }),
             view,
@@ -98,29 +115,43 @@ impl LogPipeline {
         if inner.pending.is_empty() {
             return;
         }
-        let mut batch = std::mem::take(&mut inner.pending);
-        if let Some(sink) = &mut inner.sink
-            && let Err(e) = sink.append(&batch)
-        {
-            inner.sink = None;
-            let at_ms = self.clock.now_ms();
-            let task = batch.last().map_or(0, |e| e.task);
-            let n = inner.next;
-            inner.next += 1;
-            batch.push(LogEntry {
-                n,
-                task,
-                source: LogSource::System,
-                text: format!("{e}；之后的输出不再保存，运行已停止\n"),
-                at_ms,
-                truncated: false,
-            });
-            self.view.storage_failed(&e);
-            let _ = self.control.send(Control::Cancel {
-                reason: "日志无法写入磁盘".into(),
-            });
+        let pending = std::mem::take(&mut inner.pending);
+        if let Some(sink) = &mut inner.sink {
+            let saved: Vec<LogEntry> = pending
+                .iter()
+                .filter(|(_, dest)| *dest != Dest::Ui)
+                .map(|(e, _)| e.clone())
+                .collect();
+            if !saved.is_empty()
+                && let Err(e) = sink.append(&saved)
+            {
+                inner.sink = None;
+                let at_ms = self.clock.now_ms();
+                let task = pending.last().map_or(0, |(e, _)| e.task);
+                let mut batch = shown(pending);
+                let n = inner.next;
+                inner.next += 1;
+                batch.push(LogEntry {
+                    n,
+                    task,
+                    source: LogSource::System,
+                    text: format!("{e}；之后的输出不再保存，运行已停止\n"),
+                    at_ms,
+                    truncated: false,
+                    live: false,
+                });
+                self.view.storage_failed(&e);
+                let _ = self.control.send(Control::Cancel {
+                    reason: "日志无法写入磁盘".into(),
+                });
+                self.view.logs(batch);
+                return;
+            }
         }
-        self.view.logs(batch);
+        let batch = shown(pending);
+        if !batch.is_empty() {
+            self.view.logs(batch);
+        }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
@@ -132,31 +163,110 @@ impl LogPipeline {
             return;
         }
         let admit = inner.budget.admit(source, text.len());
+        let tail_limit = inner.tail_limit;
         if admit == Admit::Drop {
-            return;
+            inner
+                .tails
+                .entry(task)
+                .or_insert_with(|| LogTail::new(tail_limit))
+                .push(source, &text);
         }
         let at_ms = self.clock.now_ms();
-        let mut add = |text: String, source, truncated| {
+        let mut add = |text: String, source, truncated, dest| {
             let n = inner.next;
             inner.next += 1;
-            inner.pending.push(LogEntry {
-                n,
-                task,
-                source,
-                text,
-                at_ms,
-                truncated,
-            });
+            inner.pending.push((
+                LogEntry {
+                    n,
+                    task,
+                    source,
+                    text,
+                    at_ms,
+                    truncated,
+                    live: dest == Dest::Ui,
+                },
+                dest,
+            ));
         };
-        add(text, source, false);
-        if admit == Admit::KeepAndMark {
-            add(
-                "\n日志已达到 50 MiB 上限，之后的命令输出不再保存和显示\n".into(),
-                LogSource::System,
-                true,
-            );
+        match admit {
+            Admit::Keep => add(text, source, false, Dest::Both),
+            Admit::KeepAndMark => {
+                add(text, source, false, Dest::Both);
+                add(
+                    format!(
+                        "日志已达到 {} 上限：之后的输出继续显示，但不再完整保存；\
+                         每个任务结束时另存其最后 {}\n",
+                        size_text(LOG_BODY_LIMIT),
+                        size_text(tail_limit as u64),
+                    ),
+                    LogSource::System,
+                    true,
+                    Dest::Both,
+                );
+            }
+            Admit::Drop => add(text, source, false, Dest::Ui),
         }
     }
+
+    /// Save what was kept of `task`'s output past the limit, after it ended.
+    fn save_tail(&self, inner: &mut Inner, task: u32) {
+        let Some(tail) = inner.tails.remove(&task) else {
+            return;
+        };
+        let saved = tail.finish();
+        let at_ms = self.clock.now_ms();
+        for (source, text) in saved.chunks {
+            let n = inner.next;
+            inner.next += 1;
+            inner.pending.push((
+                LogEntry {
+                    n,
+                    task,
+                    source,
+                    text,
+                    at_ms,
+                    truncated: false,
+                    live: false,
+                },
+                Dest::Disk,
+            ));
+        }
+        let text = if saved.kept == saved.total {
+            format!(
+                "本任务超出日志上限后的 {} 输出已全部另存\n",
+                size_text(saved.total)
+            )
+        } else {
+            format!(
+                "本任务超出日志上限后输出了 {}，只另存了最后 {}，中间部分未保存\n",
+                size_text(saved.total),
+                size_text(saved.kept)
+            )
+        };
+        let n = inner.next;
+        inner.next += 1;
+        inner.pending.push((
+            LogEntry {
+                n,
+                task,
+                source: LogSource::System,
+                text,
+                at_ms,
+                truncated: false,
+                live: false,
+            },
+            Dest::Both,
+        ));
+    }
+}
+
+/// The entries the UI gets from a batch.
+fn shown(pending: Vec<(LogEntry, Dest)>) -> Vec<LogEntry> {
+    pending
+        .into_iter()
+        .filter(|(_, dest)| *dest != Dest::Disk)
+        .map(|(e, _)| e)
+        .collect()
 }
 
 impl RunObserver for LogPipeline {
@@ -173,6 +283,16 @@ impl RunObserver for LogPipeline {
             let mut stream = inner.streams.remove(&key).expect("listed");
             let rest = stream.finish();
             self.push(&mut inner, key.0, key.1, rest);
+        }
+        let mut ended: Vec<u32> = inner
+            .tails
+            .keys()
+            .filter(|seq| machine.tasks()[**seq as usize].status.is_terminal())
+            .copied()
+            .collect();
+        ended.sort_unstable();
+        for seq in ended {
+            self.save_tail(&mut inner, seq);
         }
         self.flush_locked(&mut inner);
         drop(inner);
@@ -216,7 +336,6 @@ mod tests {
     use std::sync::atomic::{AtomicI64, Ordering};
 
     use mdm_core::fixtures::demo_workspace;
-    use mdm_core::log::LOG_BODY_LIMIT;
     use mdm_core::resolve::NoValues;
     use mdm_core::*;
     use pretty_assertions::assert_eq;
@@ -358,18 +477,49 @@ mod tests {
     const LOG_BODY_LIMIT_TEST: u64 = 1024;
 
     #[test]
-    fn body_limit_marks_once_and_drops_the_rest() {
+    fn past_the_body_limit_output_is_shown_but_not_saved() {
         let s = setup(&[], 10);
         s.pipeline.output(0, chunk(Stream::Stdout, "12345\n"));
         s.pipeline.output(0, chunk(Stream::Stdout, "67890\n"));
-        s.pipeline.output(0, chunk(Stream::Stdout, "dropped\n"));
+        s.pipeline.output(0, chunk(Stream::Stdout, "live\n"));
         s.pipeline.note(0, "命令结束时仍有进程在运行");
         s.pipeline.flush();
         let ui = s.view.logs.lock().unwrap().clone();
-        assert_eq!(ui.len(), 4);
+        assert_eq!(ui.len(), 5);
         assert!(ui[2].truncated && ui[2].source == LogSource::System);
-        assert_eq!(ui[3].text, "命令结束时仍有进程在运行\n");
-        assert!(!text_of(&ui).contains("dropped"));
+        assert!(ui[3].live && ui[3].text == "live\n");
+        assert_eq!(ui[4].text, "命令结束时仍有进程在运行\n");
+        let disk = s.disk.0.lock().unwrap().0.clone();
+        assert_eq!(disk.iter().map(|e| e.n).collect::<Vec<_>>(), [0, 1, 2, 4]);
+    }
+
+    #[test]
+    fn the_end_of_a_task_past_the_limit_is_saved_when_it_ends() {
+        let s = setup(&[], 4);
+        s.pipeline.lock().tail_limit = 8;
+        for text in ["ab\n", "cd\n", "x1\n", "x2\n", "x3\n", "x4\n"] {
+            s.pipeline.output(0, chunk(Stream::Stdout, text));
+        }
+        s.pipeline.changed(&finished_machine());
+        let disk = s.disk.0.lock().unwrap().0.clone();
+        // x2's line lost its start, so the tail begins at x3.
+        assert_eq!(
+            disk.iter().map(|e| e.text.as_str()).collect::<Vec<_>>()[3..],
+            [
+                "x3\n",
+                "x4\n",
+                "本任务超出日志上限后输出了 12 B，只另存了最后 6 B，中间部分未保存\n"
+            ]
+        );
+        assert!(disk.windows(2).all(|w| w[0].n < w[1].n));
+        assert!(disk.iter().all(|e| !e.live));
+        // The UI showed all of it live and gets only the note again, not the saved copy.
+        let ui = s.view.logs.lock().unwrap().clone();
+        assert_eq!(
+            text_of(&ui[3..]),
+            "x1\nx2\nx3\nx4\n本任务超出日志上限后输出了 12 B，只另存了最后 6 B，中间部分未保存\n"
+        );
+        assert_eq!(ui[3..7].iter().filter(|e| e.live).count(), 4);
     }
 
     #[test]

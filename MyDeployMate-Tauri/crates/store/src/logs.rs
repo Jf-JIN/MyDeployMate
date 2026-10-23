@@ -91,6 +91,7 @@ mod tests {
             text: text.into(),
             at_ms: 1,
             truncated: false,
+            live: false,
         }
     }
 

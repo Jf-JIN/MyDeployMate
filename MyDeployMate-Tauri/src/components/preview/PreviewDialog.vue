@@ -356,6 +356,8 @@ async function start() {
                     <code>{{ taskCommand(task.action).text }}</code>
                     <UiIconButton
                       v-if="!taskCommand(task.action).sensitive"
+                      class="copy"
+                      tonal
                       :icon="Copy"
                       label="复制"
                       @click="copy(taskCommand(task.action).text)"
@@ -577,6 +579,12 @@ async function start() {
   align-items: flex-start;
   gap: var(--space-2);
   margin-top: var(--space-1);
+}
+
+/* Tinted like other field-side actions, at the 32 px size of an inline button. */
+.task-command .copy {
+  width: 32px;
+  height: 32px;
 }
 
 .task-command code {

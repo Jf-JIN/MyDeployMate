@@ -10,7 +10,7 @@ import UiTextInput from '@/components/ui/UiTextInput.vue'
 import type { LogSource } from '@/ipc'
 import type { RunDetail } from '@/stores/run'
 
-import { clockTime, highlight, type LogLine } from './runLog'
+import { clockTime, highlight, LIVE_LINES, type LogLine } from './runLog'
 
 // IXD-27 / UI-26: the run log. Follows new output until the user scrolls up; each task filter
 // keeps its own reading position. Text is always rendered as plain text, never as HTML.
@@ -64,6 +64,11 @@ const filtering = computed(
 const total = computed(() => {
   void props.detail.logRevision
   return props.detail.lines.lines.length
+})
+
+const trimmed = computed(() => {
+  void props.detail.logRevision
+  return props.detail.lines.trimmed
 })
 
 const lines = computed<LogLine[]>(() => {
@@ -257,6 +262,9 @@ const showTask = computed(() => taskFilter.value === 'all')
       <template v-else
         >共 <span class="num">{{ total }}</span> 行</template
       >
+      <template v-if="trimmed">
+        · 超过日志上限的输出只显示最近 <span class="num">{{ LIVE_LINES }}</span> 行
+      </template>
       <template v-if="detail.damagedLines">
         · {{ detail.damagedLines }} 行日志损坏，未显示
       </template>
