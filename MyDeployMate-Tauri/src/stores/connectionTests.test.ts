@@ -45,13 +45,15 @@ describe('connection test store', () => {
     const pending = store.test('s1', { name: 'web-1', user: 'deploy' })
     expect(store.running.s1).toBeDefined()
     channel!.onmessage({
-      type: 'hostTrust',
       requestId: 7,
-      serverId: 's1',
-      serverName: 'web-1',
-      user: 'deploy',
-      endpoint: { host: '10.0.0.5', port: 22 },
-      presented: { algorithm: 'ssh-ed25519', fingerprint: 'SHA256:abc' },
+      prompt: {
+        type: 'hostTrust',
+        serverId: 's1',
+        serverName: 'web-1',
+        user: 'deploy',
+        endpoint: { host: '10.0.0.5', port: 22 },
+        presented: { algorithm: 'ssh-ed25519', fingerprint: 'SHA256:abc' },
+      },
     })
     expect(store.pendingTrust?.requestId).toBe(7)
     await store.answerTrust(true)
@@ -114,19 +116,21 @@ describe('connection test store', () => {
     )
     const pending = store.test('s1', { name: 'web-1', user: 'deploy' })
     channel!.onmessage({
-      type: 'credential',
       requestId: 3,
-      purpose: 'sshPassword',
-      serverName: 'web-1',
-      address: '10.0.0.5:22',
-      user: 'deploy',
-      keyPath: null,
-      context: '连接测试',
-      attempt: 1,
-      maxAttempts: 3,
-      rejected: false,
-      savedRejected: false,
-      rememberDefault: false,
+      prompt: {
+        type: 'credential',
+        purpose: 'sshPassword',
+        serverName: 'web-1',
+        address: '10.0.0.5:22',
+        user: 'deploy',
+        keyPath: null,
+        context: '连接测试',
+        attempt: 1,
+        maxAttempts: 3,
+        rejected: false,
+        savedRejected: false,
+        rememberDefault: false,
+      },
     })
     expect(store.pendingCredential?.requestId).toBe(3)
     await store.answerCredential('pw', true)
@@ -137,19 +141,21 @@ describe('connection test store', () => {
     })
     expect(store.pendingCredential).toBeNull()
     channel!.onmessage({
-      type: 'credential',
       requestId: 4,
-      purpose: 'sshPassword',
-      serverName: 'web-1',
-      address: '10.0.0.5:22',
-      user: 'deploy',
-      keyPath: null,
-      context: '连接测试',
-      attempt: 2,
-      maxAttempts: 3,
-      rejected: true,
-      savedRejected: false,
-      rememberDefault: false,
+      prompt: {
+        type: 'credential',
+        purpose: 'sshPassword',
+        serverName: 'web-1',
+        address: '10.0.0.5:22',
+        user: 'deploy',
+        keyPath: null,
+        context: '连接测试',
+        attempt: 2,
+        maxAttempts: 3,
+        rejected: true,
+        savedRejected: false,
+        rememberDefault: false,
+      },
     })
     finish(ok('s1'))
     await pending

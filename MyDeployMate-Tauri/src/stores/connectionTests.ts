@@ -9,11 +9,12 @@ import {
   type CredentialPrompt,
   type HostEndpoint,
   type HostKey,
+  type HostTrustPrompt,
   type TestEvent,
 } from '@/ipc'
 
 /** A D02 request from a running test: first connection to a server. */
-export type TrustRequest = Extract<TestEvent, { type: 'hostTrust' }>
+export type TrustRequest = HostTrustPrompt & { requestId: number }
 
 /** A D02 notice after a test was blocked because the key changed. */
 export interface KeyChange {
@@ -28,6 +29,7 @@ export interface KeyChange {
 /** A D04 request from a running test, with the server it belongs to. */
 export interface CredentialRequest {
   serverId: string
+  requestId: number
   prompt: CredentialPrompt
 }
 
@@ -72,9 +74,12 @@ export const useConnectionTestStore = defineStore('connectionTests', () => {
     const operationId = `test-${Date.now()}-${nextOperation++}`
     running.value = { ...running.value, [serverId]: { operationId, startedAtMs: Date.now() } }
     const channel = new Channel<TestEvent>()
-    channel.onmessage = (event) => {
-      if (event.type === 'hostTrust') trustRequests.value = [...trustRequests.value, event]
-      else credentialRequests.value = [...credentialRequests.value, { serverId, prompt: event }]
+    channel.onmessage = ({ requestId, prompt }) => {
+      if (prompt.type === 'hostTrust') {
+        trustRequests.value = [...trustRequests.value, { ...prompt, requestId }]
+      } else {
+        credentialRequests.value = [...credentialRequests.value, { serverId, requestId, prompt }]
+      }
     }
     try {
       const result = await call('test_connection', { serverId, operationId, onEvent: channel })
@@ -150,14 +155,14 @@ export const useConnectionTestStore = defineStore('connectionTests', () => {
     if (!request) return
     credentialRequests.value = credentialRequests.value.slice(1)
     try {
-      await call('submit_secret', { requestId: request.prompt.requestId, secret, remember })
+      await call('submit_secret', { requestId: request.requestId, secret, remember })
     } catch (e) {
       error.value = toAppError(e).message
     }
   }
 
   const pendingTrust = computed(() => trustRequests.value[0] ?? null)
-  const pendingCredential = computed(() => credentialRequests.value[0]?.prompt ?? null)
+  const pendingCredential = computed(() => credentialRequests.value[0] ?? null)
 
   return {
     results,

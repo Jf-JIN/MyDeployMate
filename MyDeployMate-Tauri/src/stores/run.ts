@@ -9,6 +9,7 @@ import {
   type ResolvedPlan,
   type Run,
   type RunId,
+  type RunRequest,
   type RunSnapshot,
   type RunUpdate,
   type StartRunRequest,
@@ -25,7 +26,7 @@ export interface ActiveRunSummary {
   /** Finished tasks over all tasks, for example 3/7 (UI-25). */
   done: number
   total: number
-  waiting: 'confirm' | 'credential' | null
+  waiting: 'confirm' | 'credential' | 'trust' | null
   stopping: boolean
 }
 
@@ -43,7 +44,8 @@ export interface RunDetail {
   /** Updates still arrive; false once the run has ended or for a run opened after it ended. */
   live: boolean
   storageError: string | null
-  credential: { requestId: number; task: number; prompt: string } | null
+  /** The open D02 or D04 request while the run waits for the operator. */
+  request: RunRequest | null
 }
 
 /**
@@ -76,7 +78,9 @@ export const useRunStore = defineStore('run', () => {
         status === 'waitingConfirmation'
           ? 'confirm'
           : status === 'waitingCredential'
-            ? 'credential'
+            ? d.request?.prompt.type === 'hostTrust'
+              ? 'trust'
+              : 'credential'
             : null,
       stopping: status === 'cancelling',
     }
@@ -94,7 +98,7 @@ export const useRunStore = defineStore('run', () => {
         d.run = update.run
         d.tasks = update.tasks
         d.cancelReason = update.cancelReason
-        if (update.run.status !== 'waitingCredential') d.credential = null
+        if (update.run.status !== 'waitingCredential') d.request = null
         if (runFinished(update.run.status)) {
           d.live = false
           if (activeId.value === d.runId) activeId.value = null
@@ -103,8 +107,8 @@ export const useRunStore = defineStore('run', () => {
       case 'logs':
         if (d.lines.add(update.entries)) d.logRevision++
         break
-      case 'credential':
-        d.credential = { requestId: update.requestId, task: update.task, prompt: update.prompt }
+      case 'request':
+        d.request = { requestId: update.requestId, task: update.task, prompt: update.prompt }
         break
       case 'storageFailed':
         d.storageError = update.message
@@ -146,7 +150,7 @@ export const useRunStore = defineStore('run', () => {
       damagedLines: snapshot.damagedLines,
       live: snapshot.active && !runFinished(snapshot.run.status),
       storageError: null,
-      credential: null,
+      request: snapshot.request,
     }) as RunDetail
     target = d
     early.forEach((u) => apply(d, u))
@@ -191,5 +195,29 @@ export const useRunStore = defineStore('run', () => {
   const answer = (runId: RunId, seq: number, proceed: boolean) =>
     call('answer_confirmation', { runId, seq, proceed })
 
-  return { activeId, active, live, detail, open, restore, start, checkActive, cancel, answer }
+  /** D04 during a run; `null` cancels the run (IXD-32). */
+  const answerSecret = (
+    runId: RunId,
+    requestId: number,
+    secret: string | null,
+    remember: boolean,
+  ) => call('answer_run_secret', { runId, requestId, secret, remember })
+  /** D02 during a run; declining cancels the run. */
+  const answerTrust = (runId: RunId, requestId: number, trust: boolean) =>
+    call('answer_run_trust', { runId, requestId, trust })
+
+  return {
+    activeId,
+    active,
+    live,
+    detail,
+    open,
+    restore,
+    start,
+    checkActive,
+    cancel,
+    answer,
+    answerSecret,
+    answerTrust,
+  }
 })

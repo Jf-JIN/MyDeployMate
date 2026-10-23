@@ -16,10 +16,13 @@ import {
 import { computed, onBeforeUnmount, ref, shallowRef, watch, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import CredentialDialog from '@/components/credentials/CredentialDialog.vue'
+import { credentialTitle } from '@/components/credentials/credentialLabels'
 import EmptyState from '@/components/EmptyState.vue'
 import PageLayout from '@/components/PageLayout.vue'
 import { taskCommand, taskDetails } from '@/components/preview/preview'
 import RunLogView from '@/components/run/RunLogView.vue'
+import HostTrustDialog from '@/components/servers/HostTrustDialog.vue'
 import {
   RUN_STATUS,
   TASK_STATUS,
@@ -172,6 +175,46 @@ async function proceed() {
   }
 }
 
+// IXD-31, IXD-32, IXD-19: a task waits for a secret (D04) or a first trust (D02). The dialog
+// opens when the request arrives; declining it cancels the whole run.
+const request = computed(() =>
+  run.value?.status === 'waitingCredential' ? (detail.value?.request ?? null) : null,
+)
+const credentialPrompt = computed(() =>
+  request.value?.prompt.type === 'credential' ? request.value.prompt : null,
+)
+const trustPrompt = computed(() =>
+  request.value?.prompt.type === 'hostTrust' ? request.value.prompt : null,
+)
+const requestTitle = computed(() =>
+  credentialPrompt.value ? credentialTitle(credentialPrompt.value) : '',
+)
+const requestOpen = ref(false)
+const requestBusy = ref(false)
+watch(
+  () => request.value?.requestId,
+  (id) => (requestOpen.value = id !== undefined),
+  { immediate: true },
+)
+async function answerRequest(answer: (d: RunDetail, requestId: number) => Promise<unknown>) {
+  const d = detail.value
+  const r = request.value
+  if (!d || !r || requestBusy.value) return
+  requestBusy.value = true
+  try {
+    await answer(d, r.requestId)
+    requestOpen.value = false
+  } catch (e) {
+    toast.show(toAppError(e).message)
+  } finally {
+    requestBusy.value = false
+  }
+}
+const submitSecret = (secret: string | null, remember = false) =>
+  answerRequest((d, id) => runs.answerSecret(d.runId, id, secret, remember))
+const answerTrust = (trust: boolean) =>
+  answerRequest((d, id) => runs.answerTrust(d.runId, id, trust))
+
 // IXD-29: cancelling asks first, naming the current task and that nothing is undone.
 const askCancel = ref(false)
 const cancelling = ref(false)
@@ -227,7 +270,7 @@ function select(item: RunTask) {
             :icon="finished ? undefined : LoaderCircle"
             :spin="!finished"
           >
-            {{ RUN_STATUS[run.status].label }}
+            {{ trustPrompt ? '等待确认身份' : RUN_STATUS[run.status].label }}
           </UiTag>
           <h2 class="summary-title">{{ run.projectName }} · {{ run.pipelineName }}</h2>
           <span class="summary-env">
@@ -300,9 +343,6 @@ function select(item: RunTask) {
             </li>
           </ul>
         </UiNotice>
-        <UiNotice v-if="run.status === 'waitingCredential'" tone="warning">
-          {{ detail.credential?.prompt ?? '任务在等待凭据' }}。当前版本还不能输入凭据，请取消运行。
-        </UiNotice>
       </header>
 
       <section v-if="confirming" class="todo" aria-label="待确认">
@@ -332,6 +372,29 @@ function select(item: RunTask) {
         <div class="todo-actions">
           <UiButton variant="primary" :busy="answering" @click="proceed">继续</UiButton>
           <UiButton variant="danger" :disabled="answering" @click="askCancel = true">
+            取消执行
+          </UiButton>
+        </div>
+      </section>
+
+      <section v-if="request" class="todo" aria-label="待输入">
+        <h3 class="todo-title">
+          <KeyRound :size="18" :stroke-width="1.75" aria-hidden="true" />
+          任务 {{ request.task + 1 }} 等待{{ trustPrompt ? '确认服务器身份' : '凭据' }}
+        </h3>
+        <p v-if="credentialPrompt" class="todo-prompt">{{ requestTitle }}</p>
+        <p v-if="credentialPrompt" class="todo-meta">
+          {{ credentialPrompt.serverName }} · {{ credentialPrompt.address }} · 账号
+          {{ credentialPrompt.user }}
+        </p>
+        <p v-else-if="trustPrompt" class="todo-meta">
+          {{ trustPrompt.serverName }} · 首次连接，需要核对服务器指纹后才能继续
+        </p>
+        <div class="todo-actions">
+          <UiButton variant="primary" @click="requestOpen = true">
+            {{ trustPrompt ? '核对指纹' : '输入凭据' }}
+          </UiButton>
+          <UiButton variant="danger" :disabled="requestBusy" @click="askCancel = true">
             取消执行
           </UiButton>
         </div>
@@ -428,6 +491,24 @@ function select(item: RunTask) {
       </div>
     </div>
 
+    <CredentialDialog
+      :prompt="requestOpen ? credentialPrompt : null"
+      :request-id="request?.requestId ?? null"
+      :busy="requestBusy"
+      @submit="submitSecret"
+      @cancel="submitSecret(null)"
+    />
+    <HostTrustDialog
+      :open="requestOpen && !!trustPrompt"
+      mode="first"
+      :server-name="trustPrompt?.serverName ?? ''"
+      :user="trustPrompt?.user ?? ''"
+      :endpoint="trustPrompt?.endpoint ?? null"
+      :presented="trustPrompt?.presented ?? null"
+      :busy="requestBusy"
+      @trust="answerTrust(true)"
+      @cancel="answerTrust(false)"
+    />
     <UiConfirm
       :open="askCancel"
       title="取消运行？"

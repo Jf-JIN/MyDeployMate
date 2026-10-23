@@ -16,9 +16,11 @@ const props = withDefaults(
     cancelLabel?: string
     danger?: boolean
     requireText?: string | null
+    /** Why the action cannot be confirmed now; the confirm button stays disabled. */
+    blockedReason?: string | null
     busy?: boolean
   }>(),
-  { cancelLabel: '取消', requireText: null },
+  { cancelLabel: '取消', requireText: null, blockedReason: null },
 )
 
 const emit = defineEmits<{ confirm: []; cancel: [] }>()
@@ -30,10 +32,12 @@ watch(
   () => (typed.value = ''),
 )
 
-const reason = computed(() =>
-  props.requireText && typed.value !== props.requireText
-    ? `请键入“${props.requireText}”后继续`
-    : null,
+const reason = computed(
+  () =>
+    props.blockedReason ??
+    (props.requireText && typed.value !== props.requireText
+      ? `请键入“${props.requireText}”后继续`
+      : null),
 )
 </script>
 
