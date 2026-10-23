@@ -103,6 +103,7 @@ const runReason = computed(() => {
     <div class="spacer" />
     <ActiveRunChip />
     <UiButton
+      variant="tonal"
       :icon="Save"
       :busy="drafts.saving"
       :disabled-reason="saveReason"
@@ -111,7 +112,7 @@ const runReason = computed(() => {
       保存
     </UiButton>
     <template v-if="pipeline">
-      <UiButton :icon="Eye" @click="openPreview">预览</UiButton>
+      <UiButton variant="info" :icon="Eye" @click="openPreview">预览</UiButton>
       <UiButton variant="primary" :icon="Play" :disabled-reason="runReason">执行</UiButton>
     </template>
     <PreviewDialog
