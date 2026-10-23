@@ -1,6 +1,6 @@
 // Typed wrapper around Tauri `invoke`. Every command goes through `call`, so errors always
 // arrive as `AppError` and command names and payloads are checked by the compiler.
-import { invoke } from '@tauri-apps/api/core'
+import { type Channel, invoke } from '@tauri-apps/api/core'
 
 import type { AppError } from './bindings/AppError'
 import type { AppInfo } from './bindings/AppInfo'
@@ -15,10 +15,13 @@ import type { Project } from './bindings/Project'
 import type { ProjectId } from './bindings/ProjectId'
 import type { Reference } from './bindings/Reference'
 import type { ResolvedPlan } from './bindings/ResolvedPlan'
+import type { RunId } from './bindings/RunId'
+import type { RunUpdate } from './bindings/RunUpdate'
 import type { Server } from './bindings/Server'
 import type { ServerEdit } from './bindings/ServerEdit'
 import type { ServerId } from './bindings/ServerId'
 import type { ShellProgram } from './bindings/ShellProgram'
+import type { StartRunRequest } from './bindings/StartRunRequest'
 import type { Step } from './bindings/Step'
 import type { StepKind } from './bindings/StepKind'
 import type { ValidationReport } from './bindings/ValidationReport'
@@ -57,6 +60,10 @@ export interface Commands {
   wsl_distros: [Record<string, never>, string[]]
   shell_programs: [Record<string, never>, ShellProgram[]]
   preview_run: [{ draft: Workspace; request: PlanRequest }, ResolvedPlan]
+  start_run: [{ start: StartRunRequest; onUpdate: Channel<RunUpdate> }, RunId]
+  active_run: [Record<string, never>, RunId | null]
+  cancel_run: [{ runId: RunId }, null]
+  answer_confirmation: [{ runId: RunId; seq: number; proceed: boolean }, null]
 }
 
 export type CommandName = keyof Commands

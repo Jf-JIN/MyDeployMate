@@ -298,7 +298,9 @@ pub fn shell_programs() -> Vec<ShellProgram> {
 }
 
 impl AppState {
-    fn store(&self) -> Result<std::sync::MutexGuard<'_, mdm_store::WorkspaceStore>, AppError> {
+    pub(crate) fn store(
+        &self,
+    ) -> Result<std::sync::MutexGuard<'_, mdm_store::WorkspaceStore>, AppError> {
         if let Some(message) = &self.startup_error {
             return Err(AppError::new(self.startup_error_kind, message.clone()));
         }
