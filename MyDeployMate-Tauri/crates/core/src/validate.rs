@@ -9,6 +9,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::history::{MAX_RETENTION_DAYS, MIN_RETENTION_DAYS};
 use crate::message::{Label, Message};
 use crate::model::*;
 
@@ -173,6 +174,7 @@ pub fn validate_workspace(ws: &Workspace) -> ValidationReport {
     v.check_servers(ws);
     v.check_variables("globalVariables", &ws.global_variables);
     v.check_projects(ws);
+    v.check_preferences(&ws.preferences);
     v.finish()
 }
 
@@ -268,6 +270,21 @@ impl Validator {
                 },
             );
         }
+    }
+
+    fn check_preferences(&mut self, prefs: &Preferences) {
+        let at = At {
+            path: "preferences".into(),
+            object: None,
+        };
+        self.range(
+            &at,
+            "historyRetentionDays",
+            Label::RetentionDays,
+            prefs.history_retention_days,
+            MIN_RETENTION_DAYS,
+            MAX_RETENTION_DAYS,
+        );
     }
 
     /// DATA-02: IDs are unique across every object kind.

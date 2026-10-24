@@ -29,6 +29,8 @@ pub enum StoreError {
     HistoryVersion { found: u32, supported: u32 },
     #[error("another run has not finished")]
     RunActive,
+    #[error("the run has not finished")]
+    RunUnfinished,
     #[error("a server key is already recorded for {0}")]
     TrustConflict(String),
     #[error("Windows Credential Manager error: {0}")]
@@ -72,6 +74,7 @@ impl StoreError {
                 supported: *supported,
             },
             StoreError::RunActive => Message::RunActive,
+            StoreError::RunUnfinished => Message::RunUnfinished,
             StoreError::TrustConflict(endpoint) => Message::TrustConflict {
                 endpoint: endpoint.clone(),
             },

@@ -439,3 +439,27 @@ fn wrong_schema_version_is_reported() {
         [IssueCode::UnsupportedVersion]
     );
 }
+
+// ---- NFR-02: history retention ----
+
+#[test]
+fn retention_days_must_be_in_range() {
+    let mut ws = demo_workspace().workspace;
+    assert_eq!(ws.preferences.history_retention_days, 90);
+    for days in [0, 3651] {
+        ws.preferences.history_retention_days = days;
+        assert_eq!(
+            codes_at(&ws, "preferences.historyRetentionDays"),
+            [IssueCode::OutOfRange]
+        );
+    }
+    ws.preferences.history_retention_days = 1;
+    assert!(validate_workspace(&ws).issues.is_empty());
+}
+
+#[test]
+fn missing_retention_reads_as_the_default() {
+    let prefs: Preferences = serde_json::from_str(r#"{"checkUpdates":false}"#).unwrap();
+    assert_eq!(prefs.history_retention_days, 90);
+    assert!(!prefs.check_updates);
+}

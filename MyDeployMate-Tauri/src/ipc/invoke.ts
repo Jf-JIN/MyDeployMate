@@ -19,9 +19,13 @@ import type { Project } from './bindings/Project'
 import type { ProjectId } from './bindings/ProjectId'
 import type { Reference } from './bindings/Reference'
 import type { ResolvedPlan } from './bindings/ResolvedPlan'
+import type { Run } from './bindings/Run'
+import type { RunChoice } from './bindings/RunChoice'
+import type { RunFilter } from './bindings/RunFilter'
 import type { SavedCredential } from './bindings/SavedCredential'
 import type { RunId } from './bindings/RunId'
 import type { RunSnapshot } from './bindings/RunSnapshot'
+import type { RunSummary } from './bindings/RunSummary'
 import type { RunUpdate } from './bindings/RunUpdate'
 import type { Server } from './bindings/Server'
 import type { ServerEdit } from './bindings/ServerEdit'
@@ -69,6 +73,12 @@ export interface Commands {
   wsl_distros: [Record<string, never>, string[]]
   shell_programs: [Record<string, never>, ShellProgram[]]
   preview_run: [{ draft: Workspace; request: PlanRequest }, ResolvedPlan]
+  list_runs: [{ filter: RunFilter }, RunSummary[]]
+  run_choices: [Record<string, never>, RunChoice[]]
+  latest_runs: [Record<string, never>, Run[]]
+  delete_run: [{ runId: RunId }, null]
+  expired_run_count: [{ days: number }, number]
+  purge_history: [Record<string, never>, number]
   start_run: [{ start: StartRunRequest }, RunId]
   open_run: [{ runId: RunId; onUpdate: Channel<RunUpdate> }, RunSnapshot]
   active_run: [Record<string, never>, RunId | null]

@@ -1,5 +1,5 @@
-use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
+use std::sync::{Mutex, Once};
 
 use mdm_core::{Clock, Message};
 use mdm_exec::SystemClock;
@@ -33,6 +33,8 @@ pub struct AppState {
     pub tests: ConnectionTests,
     /// Set by "cancel and quit": the app exits once the active run has stopped (IXD-29).
     pub quit_when_idle: AtomicBool,
+    /// The retention cleanup at the first workspace load of this launch (NFR-02).
+    pub startup_purge: Once,
     /// Held for the life of the process (ARC-08).
     _lock: Option<InstanceLock>,
     /// When the data directory could not be prepared, every workspace command reports this.
@@ -83,6 +85,7 @@ impl AppState {
             history_error,
             active: Mutex::new(None),
             quit_when_idle: AtomicBool::new(false),
+            startup_purge: Once::new(),
             data_dir,
             _lock: lock,
             startup_error,

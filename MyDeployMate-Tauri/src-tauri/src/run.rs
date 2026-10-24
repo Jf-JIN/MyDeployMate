@@ -370,7 +370,7 @@ fn read_snapshot(
     })
 }
 
-fn history(state: &AppState) -> Result<SharedHistory, AppError> {
+pub(crate) fn history(state: &AppState) -> Result<SharedHistory, AppError> {
     state.history.clone().ok_or_else(|| {
         AppError::new(
             AppErrorKind::StorageUnavailable,

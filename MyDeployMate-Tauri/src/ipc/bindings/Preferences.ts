@@ -4,4 +4,8 @@ export type Preferences = {
 /**
  * Check GitHub Releases for updates at startup (NFR-04).
  */
-checkUpdates: boolean, };
+checkUpdates: boolean, 
+/**
+ * Finished runs that started more days ago than this are removed with their logs (NFR-02).
+ */
+historyRetentionDays: number, };

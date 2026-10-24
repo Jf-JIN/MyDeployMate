@@ -75,7 +75,7 @@ impl From<StoreError> for AppError {
             | StoreError::Corrupt { .. }
             | StoreError::Database(_)
             | StoreError::Vault(_) => AppErrorKind::StorageUnavailable,
-            StoreError::RunActive => AppErrorKind::RunActive,
+            StoreError::RunActive | StoreError::RunUnfinished => AppErrorKind::RunActive,
             StoreError::TrustConflict(_) => AppErrorKind::HostKeyChanged,
         };
         Self::new(kind, message)

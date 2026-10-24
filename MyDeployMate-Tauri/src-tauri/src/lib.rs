@@ -5,6 +5,7 @@ mod commands;
 mod connection;
 mod credentials;
 mod error;
+mod history;
 mod run;
 mod state;
 mod trust;
@@ -57,6 +58,12 @@ pub fn run() {
             commands::wsl_distros,
             commands::shell_programs,
             commands::preview_run,
+            history::list_runs,
+            history::run_choices,
+            history::latest_runs,
+            history::delete_run,
+            history::expired_run_count,
+            history::purge_history,
             run::start_run,
             run::open_run,
             run::active_run,

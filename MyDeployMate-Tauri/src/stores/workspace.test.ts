@@ -18,7 +18,7 @@ const workspace: Workspace = {
   servers: [],
   projects: [],
   globalVariables: [],
-  preferences: { checkUpdates: true },
+  preferences: { checkUpdates: true, historyRetentionDays: 90 },
 }
 
 describe('workspace store', () => {

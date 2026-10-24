@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { Check, Copy, FolderKanban, Plus, Search, SearchX, Trash2 } from '@lucide/vue'
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import EmptyState from '@/components/EmptyState.vue'
 import PageLayout from '@/components/PageLayout.vue'
 import ProjectDialog from '@/components/projects/ProjectDialog.vue'
+import RunStatusTag from '@/components/run/RunStatusTag.vue'
+import { dateTime } from '@/components/run/runState'
 import { boundTargetCount } from '@/components/projects/projectStats'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiConfirm from '@/components/ui/UiConfirm.vue'
@@ -15,7 +17,7 @@ import UiTextInput from '@/components/ui/UiTextInput.vue'
 import { cloneWorkspace } from '@/composables/workspaceDraft'
 import { useT } from '@/i18n'
 import { errorText } from '@/i18n/message'
-import type { Project } from '@/ipc'
+import { call, type Project, type Run } from '@/ipc'
 import { useRunStore } from '@/stores/run'
 import { useSessionStore } from '@/stores/session'
 import { useToastStore } from '@/stores/toast'
@@ -23,7 +25,7 @@ import { useWorkspaceStore } from '@/stores/workspace'
 
 const t = useT()
 
-// P01 project list (IXD-06, IXD-07). Run results join with run history in phase 4.
+// P01 project list (IXD-06, IXD-07), with each project's latest run from history.
 const store = useWorkspaceStore()
 const session = useSessionStore()
 const run = useRunStore()
@@ -35,6 +37,20 @@ function openFromRow(event: MouseEvent, project: Project) {
   if ((event.target as Element).closest('a, button')) return
   void router.push({ name: 'project', params: { projectId: project.id } })
 }
+
+// The latest run per project; reloaded when a run starts or ends.
+const latest = ref<Record<string, Run>>({})
+async function loadLatest() {
+  try {
+    const list = await call('latest_runs')
+    latest.value = Object.fromEntries(list.map((r) => [r.projectId, r]))
+  } catch {
+    // History may be unavailable; the column then shows no runs, as before.
+    latest.value = {}
+  }
+}
+onMounted(loadLatest)
+watch(() => run.active?.runId ?? null, loadLatest)
 
 const query = ref('')
 const visible = computed(() => {
@@ -196,7 +212,18 @@ async function applyDelete() {
                     <span class="num">{{ currentTargets(project) }}</span>
                   </template>
                 </i18n-t>
-                <td class="muted">{{ t('projects.list.noRuns') }}</td>
+                <td>
+                  <span v-if="latest[project.id]" class="last-run">
+                    <RunStatusTag :status="latest[project.id]!.status" />
+                    <RouterLink
+                      class="last-run-time num"
+                      :to="{ name: 'run', params: { runId: latest[project.id]!.id } }"
+                    >
+                      {{ dateTime(latest[project.id]!.createdAtMs) }}
+                    </RouterLink>
+                  </span>
+                  <span v-else class="muted">{{ t('projects.list.noRuns') }}</span>
+                </td>
                 <td class="col-actions">
                   <span class="actions">
                     <UiIconButton
@@ -366,6 +393,24 @@ async function applyDelete() {
 
 .muted {
   color: var(--text-secondary);
+}
+
+.last-run {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+.last-run-time {
+  color: var(--text-secondary);
+  font: var(--font-caption);
+  text-decoration: none;
+}
+
+.last-run-time:hover {
+  color: var(--action-primary);
+  text-decoration: underline;
 }
 
 .guide {

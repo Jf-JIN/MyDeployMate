@@ -8,6 +8,7 @@ pub mod defaults;
 pub mod edit;
 #[cfg(any(test, feature = "fixtures"))]
 pub mod fixtures;
+pub mod history;
 pub mod ids;
 pub mod keyfile;
 pub mod log;
@@ -35,6 +36,7 @@ mod tests;
 
 pub use connect::{ConnectError, ConnectErrorKind, ConnectStage};
 pub use edit::{Reference, ServerEdit};
+pub use history::{RunChoice, RunFilter, RunSummary, StatusFilter};
 pub use ids::*;
 pub use keyfile::{KeyFormat, detect_key_format};
 pub use log::{LogEntry, LogSource};
