@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { FolderOpen, Plus, Shield, Trash2 } from '@lucide/vue'
+import { save as saveFileDialog } from '@tauri-apps/plugin-dialog'
+import { Download, FileUp, FolderOpen, Plus, Shield, Trash2 } from '@lucide/vue'
 import { computed, nextTick, onMounted, ref } from 'vue'
 
 import PageLayout from '@/components/PageLayout.vue'
 import { describeReference } from '@/components/references'
+import ImportDialog from '@/components/settings/ImportDialog.vue'
 import SavedCredentialsSection from '@/components/settings/SavedCredentialsSection.vue'
 import SecretValueField from '@/components/variables/SecretValueField.vue'
 import TrustedHostsSection from '@/components/settings/TrustedHostsSection.vue'
@@ -26,19 +28,21 @@ import {
   call,
   type AppInfo,
   type Environment,
+  type ImportApplied,
   type Reference,
   type Variable,
   type VariableValue,
 } from '@/ipc'
 import { LOCALE_NAMES, useT } from '@/i18n'
 import { useLocaleStore, type LocalePreference } from '@/stores/locale'
+import { useRunStore } from '@/stores/run'
 import { useThemeStore, type ThemePreference } from '@/stores/theme'
 import { useToastStore } from '@/stores/toast'
 import { useWorkspaceStore } from '@/stores/workspace'
 
 // P10 configuration center: environments, global variables, host trust, saved credentials,
-// appearance, run history retention and the data directory (IXD-14, IXD-19, IXD-36, UI-02).
-// Import/export and updates join in later phases.
+// appearance, run history retention, import/export and the data directory (IXD-14, IXD-19,
+// IXD-36, IXD-37, UI-02). Updates join in a later phase.
 const page = ref<HTMLElement | null>(null)
 const { draft, dirty, at, issues, error, save, discard } = useWorkspaceDraft(
   'drafts.labels.settings',
@@ -205,6 +209,57 @@ async function addVariable() {
 
 function removeVariable(index: number) {
   draft.value?.globalVariables.splice(index, 1)
+}
+
+// ---- Import / export (IXD-37) -------------------------------------------------------------
+
+const runs = useRunStore()
+const includeLocalPaths = ref(true)
+const exporting = ref(false)
+const importDialog = ref<InstanceType<typeof ImportDialog> | null>(null)
+
+function exportFileName() {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `mydeploymate-config-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}.json`
+}
+
+async function exportConfig() {
+  exporting.value = true
+  try {
+    const path = await saveFileDialog({
+      defaultPath: exportFileName(),
+      filters: [{ name: t('settings.exchange.fileFilter'), extensions: ['json'] }],
+    })
+    if (!path) return
+    await call('export_workspace', { path, includeLocalPaths: includeLocalPaths.value })
+    toast.show(t('settings.exchange.exported'))
+  } catch (e) {
+    infoError.value = errorText(e)
+  } finally {
+    exporting.value = false
+  }
+}
+
+const importReason = computed(() =>
+  runs.active
+    ? t('settings.exchange.importBlocked')
+    : dirty.value
+      ? t('settings.exchange.importDirty')
+      : null,
+)
+
+async function startImport() {
+  try {
+    await importDialog.value?.choose()
+  } catch (e) {
+    infoError.value = errorText(e)
+  }
+}
+
+function onImported(result: ImportApplied) {
+  discard()
+  toast.show(t('settings.import.done', { path: result.backup }))
 }
 
 async function openDataDir() {
@@ -449,6 +504,33 @@ async function openDataDir() {
         </UiField>
       </section>
 
+      <section class="section" aria-labelledby="exchange-title">
+        <header class="section-head">
+          <h2 id="exchange-title">{{ t('settings.exchange.title') }}</h2>
+          <p class="section-hint">{{ t('settings.exchange.hint') }}</p>
+        </header>
+        <div class="exchange">
+          <UiCheckbox v-model="includeLocalPaths" :label="t('settings.exchange.includePaths')" />
+          <p class="exchange-hint">{{ t('settings.exchange.includePathsHint') }}</p>
+          <p v-if="dirty" class="exchange-hint">{{ t('settings.exchange.exportSaved') }}</p>
+          <div class="exchange-actions">
+            <UiButton :icon="Download" :busy="exporting" @click="exportConfig">
+              {{ t('settings.exchange.export') }}
+            </UiButton>
+            <UiButton :icon="FileUp" :disabled-reason="importReason" @click="startImport">
+              {{ t('settings.exchange.import') }}
+            </UiButton>
+            <RouterLink
+              v-if="runs.active"
+              class="exchange-link"
+              :to="{ name: 'run', params: { runId: runs.active.runId } }"
+            >
+              {{ t('settings.exchange.viewRun') }}
+            </RouterLink>
+          </div>
+        </div>
+      </section>
+
       <section class="section" aria-labelledby="data-title">
         <header class="section-head">
           <h2 id="data-title">{{ t('settings.data.title') }}</h2>
@@ -467,6 +549,8 @@ async function openDataDir() {
         </dl>
       </section>
     </div>
+
+    <ImportDialog ref="importDialog" @imported="onImported" />
 
     <UiConfirm
       :open="purgeCount !== null"
@@ -598,6 +682,31 @@ async function openDataDir() {
 
 .retention-unit {
   color: var(--text-secondary);
+}
+
+.exchange {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.exchange-hint {
+  margin: 0;
+  color: var(--text-secondary);
+  font: var(--font-caption);
+}
+
+.exchange-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin-top: var(--space-1);
+}
+
+.exchange-link {
+  color: var(--action-primary);
 }
 
 .section-hint {
