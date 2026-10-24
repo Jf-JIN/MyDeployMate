@@ -27,9 +27,7 @@ pub fn new_workspace() -> Workspace {
         servers: Vec::new(),
         projects: Vec::new(),
         global_variables: Vec::new(),
-        preferences: Preferences {
-            check_updates: true,
-        },
+        preferences: Preferences::default(),
     }
 }
 

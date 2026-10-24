@@ -117,17 +117,33 @@ pub enum PrivilegePolicy {
     SudoPassword { run_as: String },
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct Preferences {
     /// Check GitHub Releases for updates at startup (NFR-04).
     #[serde(default = "default_true")]
     pub check_updates: bool,
+    /// Finished runs that started more days ago than this are removed with their logs (NFR-02).
+    #[serde(default = "default_retention_days")]
+    pub history_retention_days: u32,
+}
+
+impl Default for Preferences {
+    fn default() -> Self {
+        Preferences {
+            check_updates: true,
+            history_retention_days: crate::history::DEFAULT_RETENTION_DAYS,
+        }
+    }
 }
 
 fn default_true() -> bool {
     true
+}
+
+fn default_retention_days() -> u32 {
+    crate::history::DEFAULT_RETENTION_DAYS
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]

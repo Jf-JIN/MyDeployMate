@@ -10,8 +10,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use mdm_core::machine::TaskMeta;
 use mdm_core::{
-    Message, ResolvedPlan, Run, RunEvent, RunId, RunMachine, RunStatus, RunStore, StorageError,
-    Task, TaskId,
+    Message, ResolvedPlan, Run, RunChoice, RunEvent, RunFilter, RunId, RunMachine, RunStatus,
+    RunStore, RunSummary, StatusFilter, StorageError, Task, TaskId,
 };
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use serde::Serialize;
@@ -166,10 +166,7 @@ impl HistoryStore {
         let head = self
             .conn
             .query_row(
-                "SELECT project_id, pipeline_id, environment_id, project_name, pipeline_name,
-                        environment_name, version, execution_order, local_only, status,
-                        cancel_reason, created_at_ms, finished_at_ms
-                 FROM runs WHERE id = ?1",
+                &format!("SELECT {RUN_COLUMNS} FROM runs WHERE id = ?1"),
                 [&id_text],
                 |r| Ok((read_run(id, r), r.get::<_, Option<String>>(10)?)),
             )
@@ -206,6 +203,150 @@ impl HistoryStore {
             },
             meta,
         )))
+    }
+
+    /// Runs matching `filter`, newest first (IXD-34).
+    pub fn list_runs(&self, filter: &RunFilter) -> Result<Vec<RunSummary>, StoreError> {
+        let status = match filter.status {
+            None | Some(StatusFilter::Active) => None,
+            Some(StatusFilter::Succeeded) => Some(RunStatus::Succeeded),
+            Some(StatusFilter::Failed) => Some(RunStatus::Failed),
+            Some(StatusFilter::Cancelled) => Some(RunStatus::Cancelled),
+            Some(StatusFilter::Interrupted) => Some(RunStatus::Interrupted),
+        };
+        let sql = format!(
+            "SELECT {RUN_COLUMNS}, id,
+                    (SELECT COUNT(DISTINCT server_id) FROM tasks WHERE tasks.run_id = runs.id)
+             FROM runs
+             WHERE (?1 IS NULL OR project_id = ?1)
+               AND (?2 IS NULL OR pipeline_id = ?2)
+               AND (?3 IS NULL OR environment_id = ?3)
+               AND (?4 IS NULL OR status = ?4)
+               AND (?5 = 0 OR finished = 0)
+               AND (?6 IS NULL OR created_at_ms >= ?6)
+               AND (?7 IS NULL OR created_at_ms < ?7)
+             ORDER BY created_at_ms DESC"
+        );
+        let mut stmt = self.conn.prepare(&sql).map_err(db)?;
+        let rows = stmt
+            .query_map(
+                params![
+                    filter.project_id.as_ref().map(to_text),
+                    filter.pipeline_id.as_ref().map(to_text),
+                    filter.environment_id.as_ref().map(to_text),
+                    status.as_ref().map(to_text),
+                    filter.status == Some(StatusFilter::Active),
+                    filter.since_ms,
+                    filter.until_ms,
+                ],
+                |r| {
+                    Ok(read_listed_run(r).and_then(|run| {
+                        Ok(RunSummary {
+                            run,
+                            target_count: r.get(14).map_err(db)?,
+                        })
+                    }))
+                },
+            )
+            .map_err(db)?;
+        rows.map(|r| r.map_err(db)?).collect()
+    }
+
+    /// Every project, pipeline and environment combination in history with the names of its
+    /// latest run, most recently used first.
+    pub fn run_choices(&self) -> Result<Vec<RunChoice>, StoreError> {
+        // SQLite takes the bare columns from the row that holds MAX().
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT project_id, project_name, pipeline_id, pipeline_name, environment_id,
+                        environment_name, MAX(created_at_ms) AS latest
+                 FROM runs
+                 GROUP BY project_id, pipeline_id, environment_id
+                 ORDER BY latest DESC",
+            )
+            .map_err(db)?;
+        let rows = stmt
+            .query_map([], |r| {
+                let text = |i: usize| r.get::<_, String>(i).map_err(db);
+                Ok((|| {
+                    Ok(RunChoice {
+                        project_id: from_text(&text(0)?)?,
+                        project_name: text(1)?,
+                        pipeline_id: from_text(&text(2)?)?,
+                        pipeline_name: text(3)?,
+                        environment_id: from_text(&text(4)?)?,
+                        environment_name: text(5)?,
+                    })
+                })())
+            })
+            .map_err(db)?;
+        rows.map(|r| r.map_err(db)?).collect()
+    }
+
+    /// The latest run of each project, for the project list (IXD-06).
+    pub fn latest_runs(&self) -> Result<Vec<Run>, StoreError> {
+        let sql =
+            format!("SELECT {RUN_COLUMNS}, id, MAX(created_at_ms) FROM runs GROUP BY project_id");
+        let mut stmt = self.conn.prepare(&sql).map_err(db)?;
+        let rows = stmt.query_map([], |r| Ok(read_listed_run(r))).map_err(db)?;
+        rows.map(|r| r.map_err(db)?).collect()
+    }
+
+    /// Delete a finished run and its tasks (OBS-02). An unfinished run is refused. Returns
+    /// whether the run existed; the caller removes its log file.
+    pub fn delete_run(&mut self, id: RunId) -> Result<bool, StoreError> {
+        let tx = self.conn.transaction().map_err(db)?;
+        let finished: Option<bool> = tx
+            .query_row(
+                "SELECT finished FROM runs WHERE id = ?1",
+                [to_text(&id)],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(db)?;
+        match finished {
+            None => return Ok(false),
+            Some(false) => return Err(StoreError::RunUnfinished),
+            Some(true) => {}
+        }
+        tx.execute("DELETE FROM runs WHERE id = ?1", [to_text(&id)])
+            .map_err(db)?;
+        tx.commit().map_err(db)?;
+        Ok(true)
+    }
+
+    /// How many finished runs started before `cutoff_ms` (NFR-02).
+    pub fn count_expired(&self, cutoff_ms: i64) -> Result<u32, StoreError> {
+        self.conn
+            .query_row(
+                "SELECT COUNT(*) FROM runs WHERE finished = 1 AND created_at_ms < ?1",
+                [cutoff_ms],
+                |r| r.get(0),
+            )
+            .map_err(db)
+    }
+
+    /// Delete the finished runs that started before `cutoff_ms`; unfinished runs are kept
+    /// whatever their age. Returns the deleted runs, whose log files the caller removes.
+    pub fn purge_expired(&mut self, cutoff_ms: i64) -> Result<Vec<RunId>, StoreError> {
+        let tx = self.conn.transaction().map_err(db)?;
+        let ids: Vec<String> = {
+            let mut stmt = tx
+                .prepare("SELECT id FROM runs WHERE finished = 1 AND created_at_ms < ?1")
+                .map_err(db)?;
+            stmt.query_map([cutoff_ms], |r| r.get(0))
+                .map_err(db)?
+                .collect::<Result<_, _>>()
+                .map_err(db)?
+        };
+        tx.execute(
+            "DELETE FROM runs WHERE finished = 1 AND created_at_ms < ?1",
+            [cutoff_ms],
+        )
+        .map_err(db)?;
+        tx.commit().map_err(db)?;
+        ids.iter().map(|id| from_text(id)).collect()
     }
 
     fn create(&mut self, machine: &RunMachine, plan: &ResolvedPlan) -> Result<(), StoreError> {
@@ -406,6 +547,17 @@ fn insert_task(tx: &Transaction<'_>, t: &Task, meta: &TaskMeta) -> Result<(), St
     Ok(())
 }
 
+/// The run columns in the order [`read_run`] reads them.
+const RUN_COLUMNS: &str = "project_id, pipeline_id, environment_id, project_name, pipeline_name,
+     environment_name, version, execution_order, local_only, status, cancel_reason,
+     created_at_ms, finished_at_ms";
+
+/// A run selected as [`RUN_COLUMNS`] followed by its ID.
+fn read_listed_run(r: &Row<'_>) -> Result<Run, StoreError> {
+    let id: RunId = from_text(&r.get::<_, String>(13).map_err(db)?)?;
+    read_run(id, r)
+}
+
 fn read_run(id: RunId, r: &Row<'_>) -> Result<Run, StoreError> {
     let text = |i: usize| r.get::<_, String>(i).map_err(db);
     Ok(Run {
@@ -578,6 +730,135 @@ mod tests {
         .unwrap();
         store.save_run(&m).unwrap();
         assert_eq!(stored(&store, &m).tasks[seq as usize].detail, Some(detail));
+    }
+
+    /// A run started at `at_ms` and cancelled right away, so it is finished.
+    fn finished_at(store: &mut HistoryStore, plan: &ResolvedPlan, at_ms: i64) -> RunMachine {
+        let mut m = RunMachine::from_plan(plan, RunId::new(), at_ms);
+        store.create_run(&m, plan).unwrap();
+        m.apply(RunEvent::Start, at_ms + 1).unwrap();
+        m.apply(
+            RunEvent::CancelRequested {
+                reason: Message::UserCancelled,
+            },
+            at_ms + 2,
+        )
+        .unwrap();
+        store.save_run(&m).unwrap();
+        assert!(m.run().status.is_terminal());
+        m
+    }
+
+    /// A run started at `at_ms` that is still running.
+    fn active_at(store: &mut HistoryStore, plan: &ResolvedPlan, at_ms: i64) -> RunMachine {
+        let mut m = RunMachine::from_plan(plan, RunId::new(), at_ms);
+        store.create_run(&m, plan).unwrap();
+        m.apply(RunEvent::Start, at_ms + 1).unwrap();
+        store.save_run(&m).unwrap();
+        m
+    }
+
+    fn listed(store: &HistoryStore, filter: RunFilter) -> Vec<RunId> {
+        store
+            .list_runs(&filter)
+            .unwrap()
+            .into_iter()
+            .map(|s| s.run.id)
+            .collect()
+    }
+
+    #[test]
+    fn lists_runs_newest_first_with_filters() {
+        let mut store = HistoryStore::open_in_memory().unwrap();
+        let plan = plan();
+        let old = finished_at(&mut store, &plan, 1_000);
+        let new = finished_at(&mut store, &plan, 5_000);
+        let active = active_at(&mut store, &plan, 9_000);
+        let (old, new, active) = (old.run().id, new.run().id, active.run().id);
+
+        let all = store.list_runs(&RunFilter::default()).unwrap();
+        assert_eq!(
+            all.iter().map(|s| s.run.id).collect::<Vec<_>>(),
+            vec![active, new, old]
+        );
+        let servers: std::collections::HashSet<_> = plan
+            .tasks
+            .iter()
+            .filter_map(|t| t.server.as_ref().map(|s| s.id))
+            .collect();
+        assert_eq!(all[1].target_count as usize, servers.len());
+
+        let since = RunFilter {
+            since_ms: Some(1_000),
+            until_ms: Some(5_000),
+            ..Default::default()
+        };
+        assert_eq!(listed(&store, since), vec![old]);
+        let active_only = RunFilter {
+            status: Some(StatusFilter::Active),
+            ..Default::default()
+        };
+        assert_eq!(listed(&store, active_only), vec![active]);
+        let cancelled = RunFilter {
+            status: Some(StatusFilter::Cancelled),
+            ..Default::default()
+        };
+        assert_eq!(listed(&store, cancelled), vec![new, old]);
+        let other_project = RunFilter {
+            project_id: Some(mdm_core::ProjectId::new()),
+            ..Default::default()
+        };
+        assert_eq!(listed(&store, other_project), vec![]);
+
+        let choices = store.run_choices().unwrap();
+        assert_eq!(choices.len(), 1);
+        assert_eq!(choices[0].project_name, plan.project_name);
+        let latest = store.latest_runs().unwrap();
+        assert_eq!(
+            latest.iter().map(|r| r.id).collect::<Vec<_>>(),
+            vec![active]
+        );
+    }
+
+    #[test]
+    fn deletes_only_finished_runs() {
+        let mut store = HistoryStore::open_in_memory().unwrap();
+        let plan = plan();
+        let done = finished_at(&mut store, &plan, 1_000);
+        let active = active_at(&mut store, &plan, 9_000);
+        assert!(matches!(
+            store.delete_run(active.run().id),
+            Err(StoreError::RunUnfinished)
+        ));
+        assert!(store.delete_run(done.run().id).unwrap());
+        assert!(store.load_run(done.run().id).unwrap().is_none());
+        assert!(!store.delete_run(done.run().id).unwrap());
+        let tasks: i64 = store
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM tasks WHERE run_id = ?1",
+                [to_text(&done.run().id)],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(tasks, 0);
+        assert!(store.load_run(active.run().id).unwrap().is_some());
+    }
+
+    #[test]
+    fn purges_finished_runs_past_the_cutoff() {
+        let mut store = HistoryStore::open_in_memory().unwrap();
+        let plan = plan();
+        let old = finished_at(&mut store, &plan, 1_000);
+        let kept = finished_at(&mut store, &plan, 5_000);
+        // An unfinished run is kept whatever its age.
+        let active = active_at(&mut store, &plan, 500);
+
+        assert_eq!(store.count_expired(5_000).unwrap(), 1);
+        assert_eq!(store.purge_expired(5_000).unwrap(), vec![old.run().id]);
+        assert_eq!(store.count_expired(5_000).unwrap(), 0);
+        assert!(store.load_run(kept.run().id).unwrap().is_some());
+        assert!(store.load_run(active.run().id).unwrap().is_some());
     }
 
     #[test]

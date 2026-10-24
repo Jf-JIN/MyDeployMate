@@ -454,6 +454,8 @@ pub enum Message {
     HistoryVersion { found: u32, supported: u32 },
     #[serde(rename = "store.runActive")]
     RunActive,
+    #[serde(rename = "store.runUnfinished")]
+    RunUnfinished,
     #[serde(rename = "store.trustConflict")]
     TrustConflict { endpoint: String },
     #[serde(rename = "store.vault")]
@@ -567,6 +569,8 @@ pub enum Label {
     Prompt,
     #[serde(rename = "label.version")]
     Version,
+    #[serde(rename = "label.retentionDays")]
+    RetentionDays,
 }
 
 impl Message {

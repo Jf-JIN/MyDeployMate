@@ -81,6 +81,16 @@ pub fn read_run_log(dir: &DataDir, run: RunId) -> Result<RunLog, StoreError> {
     Ok(log)
 }
 
+/// Delete the log of `run`; a missing file is not an error.
+pub fn remove_run_log(dir: &DataDir, run: RunId) -> Result<(), StoreError> {
+    let path = dir.run_log(run);
+    match std::fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(io(&path)(e)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use mdm_core::LogSource;
