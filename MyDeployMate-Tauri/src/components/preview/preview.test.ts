@@ -2,7 +2,14 @@ import { describe, expect, it } from 'vitest'
 
 import type { Issue, PlannedTask } from '@/ipc'
 
-import { editorField, groupTasks, issueTarget, taskCommand, taskDetails } from './preview'
+import {
+  editorField,
+  groupTasks,
+  issueTarget,
+  taskCommand,
+  taskDetails,
+  taskNotes,
+} from './preview'
 
 const text = (display: string, sensitive = false) => ({ display, sensitive })
 
@@ -23,6 +30,7 @@ function task(seq: number, step: number, server: string | null): PlannedTask {
           command: { mode: 'script', script: text('restart') },
           cwd: null,
           privilege: { mode: 'none' },
+          privilegeInherited: false,
           shellElevation: false,
         }
       : {
@@ -96,5 +104,32 @@ describe('preview', () => {
     expect(taskDetails(t).join(' · ')).not.toContain('输出编码')
     if (t.action.type === 'local') t.action.outputEncoding = 'gbk'
     expect(taskDetails(t)).toContain('输出编码 GBK')
+  })
+
+  it('shows where the privilege comes from and what sudo needs (IXD-33)', () => {
+    const t = task(0, 0, 'a')
+    if (t.action.type !== 'remote') throw new Error('remote task expected')
+    expect(taskDetails(t)).toContain('不提权')
+    expect(taskNotes(t.action)).toEqual([])
+    t.action.privilege = { mode: 'sudoPassword', runAs: 'root' }
+    t.action.privilegeInherited = true
+    t.action.shellElevation = true
+    expect(taskDetails(t)).toContain('sudo 输入密码 → root（继承服务器默认）')
+    const notes = taskNotes(t.action)
+    expect(notes).toHaveLength(2)
+    expect(notes[0]).toContain('sudo sh -c')
+    expect(notes[1]).toContain('只在服务器要求时询问密码')
+    t.action.privilege = { mode: 'sudoNonInteractive', runAs: 'app' }
+    t.action.shellElevation = false
+    expect(taskNotes(t.action)).toEqual(['服务器未授予免交互权限时该任务失败，不会改为询问密码'])
+    expect(
+      taskNotes({
+        type: 'upload',
+        source: text('dist'),
+        sourceKind: 'directory',
+        target: text('/srv/www'),
+        conflict: 'overwrite',
+      })[0],
+    ).toContain('不使用 sudo')
   })
 })

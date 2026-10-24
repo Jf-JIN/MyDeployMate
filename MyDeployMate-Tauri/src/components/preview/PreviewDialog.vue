@@ -29,7 +29,14 @@ import { useShellPrograms } from '@/composables/shellPrograms'
 import { useRunStore } from '@/stores/run'
 import { useToastStore } from '@/stores/toast'
 
-import { groupTasks, issueTarget, taskCommand, taskDetails, type IssueTarget } from './preview'
+import {
+  groupTasks,
+  issueTarget,
+  taskCommand,
+  taskDetails,
+  taskNotes,
+  type IssueTarget,
+} from './preview'
 
 const t = useT()
 
@@ -381,6 +388,9 @@ async function start() {
                     />
                   </div>
                   <p class="task-meta">{{ details(task).join(' · ') }}</p>
+                  <p v-for="note in taskNotes(task.action)" :key="note" class="task-note">
+                    {{ note }}
+                  </p>
                 </div>
               </li>
             </ol>
@@ -618,6 +628,12 @@ async function start() {
 
 .task-meta {
   margin: var(--space-1) 0 0;
+  color: var(--text-secondary);
+  font: var(--font-caption);
+}
+
+.task-note {
+  margin: 2px 0 0;
   color: var(--text-secondary);
   font: var(--font-caption);
 }

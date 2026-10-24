@@ -21,6 +21,10 @@ source: ResolvedText, sourceKind: SourceKind, target: ResolvedText, conflict: Co
  */
 privilege: PrivilegePolicy, 
 /**
+ * The step inherits the server default, shown next to the privilege (IXD-33).
+ */
+privilegeInherited: boolean, 
+/**
  * Script mode with sudo: the server must allow a shell (STEP-05, IXD-33).
  */
 shellElevation: boolean, } | { "type": "confirm", prompt: ResolvedText, };
