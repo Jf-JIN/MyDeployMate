@@ -3,7 +3,7 @@
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
-use crate::fixtures::demo_workspace;
+use crate::fixtures::{BASELINE_STEPS, baseline_workspace, demo_workspace};
 use crate::validate::{
     IssueCode, ObjectKind, check_host, check_workspace_json, validate_workspace,
 };
@@ -25,6 +25,30 @@ fn demo_fixture_is_valid() {
     assert!(report.is_ok(), "{:#?}", report.issues);
     assert_eq!(demo.workspace.projects.len(), 4);
     assert_eq!(demo.workspace.servers.len(), 5);
+}
+
+/// The NFR-01 baseline is valid and every pipeline previews without issues (plan task 8.1).
+#[test]
+fn baseline_fixture_is_valid_and_plans() {
+    let demo = baseline_workspace();
+    let ws = &demo.workspace;
+    let report = validate_workspace(ws);
+    assert!(report.is_ok(), "{:#?}", report.issues);
+    assert_eq!((ws.servers.len(), ws.projects.len()), (100, 50));
+    for p in &ws.projects {
+        let req = PlanRequest {
+            project_id: p.id,
+            pipeline_id: p.pipelines[0].id,
+            environment_id: demo.production,
+            scope: RunScope::Full,
+            server_ids: None,
+            version: None,
+        };
+        let plan = build_plan(ws, &req, &resolve::NoValues).unwrap();
+        assert!(plan.can_start(), "{}: {:#?}", p.name, plan.issues);
+        // 5 local steps once, 45 upload and remote steps on 4 servers.
+        assert_eq!(plan.tasks.len(), BASELINE_STEPS / 10 + 45 * 4);
+    }
 }
 
 #[test]

@@ -311,3 +311,94 @@ pub fn demo_workspace() -> DemoWorkspace {
         production,
     }
 }
+
+/// Sizes of the NFR-01 acceptance baseline.
+pub const BASELINE_SERVERS: usize = 100;
+pub const BASELINE_PROJECTS: usize = 50;
+pub const BASELINE_STEPS: usize = 50;
+
+/// The NFR-01 baseline (plan task 8.1): 100 servers, 50 projects with one 50-step pipeline
+/// each. Servers are spread over the three environments; each project deploys to 2 staging
+/// and 4 production servers. Every pipeline previews without issues.
+pub fn baseline_workspace() -> DemoWorkspace {
+    let mut ws = new_workspace();
+    let [development, staging, production] = [0, 1, 2].map(|i| ws.environments[i].id);
+    let envs = [development, staging, production];
+
+    ws.servers = (0..BASELINE_SERVERS)
+        .map(|i| Server {
+            id: ServerId::new(),
+            name: format!("node-{i:03}"),
+            host: format!("10.20.{}.{}", i / 200, i % 200 + 10),
+            port: 22,
+            user: "deploy".into(),
+            environment_id: envs[i % 3],
+            auth: AuthMethod::Agent {
+                agent: AgentKind::Openssh,
+            },
+            privilege: PrivilegePolicy::None,
+            allow_legacy_rsa: false,
+            connect_timeout_sec: 10,
+            tags: vec![format!("group-{}", i % 10)],
+            notes: String::new(),
+        })
+        .collect();
+    let in_env = |env: EnvironmentId| -> Vec<&Server> {
+        ws.servers
+            .iter()
+            .filter(|s| s.environment_id == env)
+            .collect()
+    };
+    let (staging_servers, production_servers) = (in_env(staging), in_env(production));
+
+    let projects = (0..BASELINE_PROJECTS)
+        .map(|p| {
+            let pick = |list: &[&Server], n: usize| -> Vec<Server> {
+                (0..n)
+                    .map(|k| list[(p * n + k) % list.len()].clone())
+                    .collect()
+            };
+            let (stage, prod) = (pick(&staging_servers, 2), pick(&production_servers, 4));
+            let steps = (0..BASELINE_STEPS)
+                .map(|s| match s % 10 {
+                    0 => local(&format!("build {s}"), "cargo build --release"),
+                    1 => upload(
+                        &format!("upload {s}"),
+                        "${project.root}/target/release/app",
+                        SourceKind::File,
+                        "${deploy_dir}/releases/${version}/app",
+                    ),
+                    _ => remote(
+                        &format!("remote {s}"),
+                        "cd ${deploy_dir} && ./bin/check --service ${service_name} --step 1",
+                    ),
+                })
+                .collect();
+            Project {
+                id: ProjectId::new(),
+                name: format!("service-{p:02}"),
+                description: String::new(),
+                root: Some(format!(r"D:\workspace\service-{p:02}")),
+                default_environment_id: staging,
+                targets: vec![
+                    targets(staging, &stage.iter().collect::<Vec<_>>()),
+                    targets(production, &prod.iter().collect::<Vec<_>>()),
+                ],
+                variables: vec![
+                    var("deploy_dir", &format!("/opt/apps/service-{p:02}")),
+                    var("service_name", &format!("service-{p:02}")),
+                    var("version", "v1.0.0"),
+                ],
+                overrides: Vec::new(),
+                pipelines: vec![pipeline("deploy", steps)],
+            }
+        })
+        .collect();
+    ws.projects = projects;
+    DemoWorkspace {
+        workspace: ws,
+        development,
+        staging,
+        production,
+    }
+}
