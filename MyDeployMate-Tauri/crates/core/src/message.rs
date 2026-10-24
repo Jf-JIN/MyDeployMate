@@ -547,6 +547,19 @@ pub enum Message {
     TestRunning,
     #[serde(rename = "app.trustStoreUnavailable")]
     TrustStoreUnavailable { reason: Box<Message> },
+    /// App update (NFR-04, IXD-39).
+    #[serde(rename = "update.checkFailed")]
+    UpdateCheckFailed { detail: String },
+    #[serde(rename = "update.notAvailable")]
+    UpdateNotAvailable,
+    #[serde(rename = "update.runActive")]
+    UpdateRunActive,
+    #[serde(rename = "update.downloadFailed")]
+    UpdateDownloadFailed { detail: String },
+    #[serde(rename = "update.signatureInvalid")]
+    UpdateSignatureInvalid,
+    #[serde(rename = "update.installFailed")]
+    UpdateInstallFailed { detail: String },
 }
 
 /// The name of a field, used inside messages such as "{label}不能为空".

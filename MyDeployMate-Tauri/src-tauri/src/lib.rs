@@ -10,6 +10,7 @@ mod history;
 mod run;
 mod state;
 mod trust;
+mod update;
 mod values;
 
 use tauri::Manager;
@@ -26,6 +27,8 @@ pub fn run() {
         }))
         // Native file picker for key files and paths (UI-14).
         .plugin(tauri_plugin_dialog::init())
+        // App updates from GitHub Releases, verified against the key in tauri.conf.json (NFR-04).
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(state::AppState::init())
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -93,6 +96,9 @@ pub fn run() {
             credentials::forget_credential,
             credentials::set_variable_secret,
             credentials::variable_secret_present,
+            update::check_update,
+            update::install_update,
+            update::cancel_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running MyDeployMate");
