@@ -35,6 +35,8 @@ pub enum AppErrorKind {
     HostKeyChanged,
     /// Reaching a server failed; the message names the stage and the reason.
     Connection,
+    /// Checking for, downloading or installing an app update failed (NFR-04).
+    Update,
     /// The requested record does not exist, e.g. a run that was deleted.
     NotFound,
     Internal,

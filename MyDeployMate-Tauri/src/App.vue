@@ -7,6 +7,7 @@ import DirtyGuardDialog from './components/DirtyGuardDialog.vue'
 import CloseRunDialog from './components/run/CloseRunDialog.vue'
 import UiNotice from './components/ui/UiNotice.vue'
 import UiToasts from './components/ui/UiToasts.vue'
+import UpdateDialog from './components/UpdateDialog.vue'
 import WelcomeDialog from './components/WelcomeDialog.vue'
 import { openLayerCount } from './composables/focus'
 import { useT } from './i18n'
@@ -16,6 +17,7 @@ import { useLocaleStore } from './stores/locale'
 import { useRunStore } from './stores/run'
 import { useSessionStore } from './stores/session'
 import { useThemeStore } from './stores/theme'
+import { useUpdateStore } from './stores/update'
 import { useWelcomeStore } from './stores/welcome'
 import { useWorkspaceStore } from './stores/workspace'
 
@@ -28,6 +30,7 @@ const runs = useRunStore()
 useThemeStore()
 useLocaleStore()
 const welcome = useWelcomeStore()
+const update = useUpdateStore()
 const route = useRoute()
 const router = useRouter()
 
@@ -35,6 +38,8 @@ onMounted(async () => {
   // IXD-02: after a reload the active run's entry point comes back.
   const restored = runs.restore()
   await workspace.load()
+  // IXD-39: a quiet check in the background; only the rail icon shows what it found.
+  update.checkOnStartup(workspace.workspace?.preferences.checkUpdates ?? false)
   await router.isReady()
   // IXD-02: start in the last project and pipeline; a deleted one falls back to the list.
   const last = workspace.projects.find((p) => p.id === session.lastProjectId)
@@ -95,6 +100,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
     <DirtyGuardDialog />
     <CloseRunDialog />
     <WelcomeDialog />
+    <UpdateDialog />
     <UiToasts />
   </div>
 </template>

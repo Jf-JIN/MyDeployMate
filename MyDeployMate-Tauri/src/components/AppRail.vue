@@ -1,10 +1,20 @@
 <script setup lang="ts">
-import { FolderKanban, History, Layers, LayoutTemplate, Server, Settings } from '@lucide/vue'
+import {
+  CircleArrowUp,
+  FolderKanban,
+  History,
+  Layers,
+  LayoutTemplate,
+  Server,
+  Settings,
+} from '@lucide/vue'
 import { computed } from 'vue'
 
 import { useT } from '@/i18n'
+import { useUpdateStore } from '@/stores/update'
 
 const t = useT()
+const update = useUpdateStore()
 
 // UI-10 (v0.3): first-level navigation as a 56 px icon rail; every item has a tooltip and an
 // accessible name, and the current item gets the selected background plus a 3 px edge.
@@ -34,6 +44,18 @@ const bottom = computed(() => [{ to: '/settings', label: t('nav.settings'), icon
     </RouterLink>
     <div class="rail-bottom">
       <slot name="bottom" />
+      <!-- UI-34: a new version shows here with a mark; it opens the update dialog and never pops up by itself. -->
+      <button
+        v-if="update.available"
+        type="button"
+        class="rail-item rail-update"
+        :aria-label="t('update.available', { version: update.available.version })"
+        :title="t('update.available', { version: update.available.version })"
+        @click="update.open()"
+      >
+        <CircleArrowUp :size="20" :stroke-width="1.75" aria-hidden="true" />
+        <span class="badge" aria-hidden="true" />
+      </button>
       <RouterLink
         v-for="item in bottom"
         :key="item.to"
@@ -93,6 +115,26 @@ const bottom = computed(() => [{ to: '/settings', label: t('nav.settings'), icon
   background: var(--surface-selected);
   box-shadow: inset 3px 0 0 var(--action-primary);
   color: var(--action-primary);
+}
+
+.rail-update {
+  position: relative;
+  border: 0;
+  background: none;
+  color: var(--action-primary);
+  cursor: pointer;
+}
+
+.badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--surface-sidebar);
+  border-radius: 50%;
+  background: var(--action-primary);
+  box-sizing: content-box;
 }
 
 .rail-bottom {
