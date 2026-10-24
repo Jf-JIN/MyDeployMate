@@ -660,7 +660,8 @@ async function applyDelete() {
 }
 
 .filter {
-  width: 160px;
+  /* Wide enough for "All environments" in English. */
+  width: 184px;
 }
 
 .count {

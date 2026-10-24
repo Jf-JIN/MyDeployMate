@@ -14,17 +14,15 @@ export const LOCALE_NAMES: Record<Locale, string> = {
   'en-US': 'English',
 }
 
-/** English entries that are not translated yet fall back to Chinese (phase 5b, task 8.4c). */
+/** Both languages have every key (en-US.ts is typed as `MessageSchema`), so nothing falls back. */
 export const i18n = createI18n<[MessageSchema], Locale, false>({
   legacy: false,
   locale: 'zh-CN',
   fallbackLocale: 'zh-CN',
   messages: {
     'zh-CN': zhCN,
-    'en-US': enUS as MessageSchema,
+    'en-US': enUS,
   },
-  // Untranslated English is expected until 8.4c; a key missing from zh-CN still warns.
-  fallbackWarn: false,
 })
 
 /** Dotted paths of every message, e.g. `'settings.look.title'`. */
