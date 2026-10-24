@@ -17,6 +17,7 @@ pub mod message;
 pub mod model;
 pub mod plan;
 pub mod ports;
+pub mod presets;
 pub mod prompt;
 pub mod redact;
 pub mod rerun;
