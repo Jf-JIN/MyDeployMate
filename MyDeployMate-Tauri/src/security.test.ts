@@ -67,7 +67,7 @@ describe('updater', () => {
   })
 
   it('verifies signatures and the signed version, and never downgrades', () => {
-    expect(updater.pubkey).not.toBe('')
+    expect(atob(updater.pubkey)).toMatch(/^untrusted comment: minisign public key: [0-9A-F]{16}\n/)
     expect(updater.requireSignedVersion).toBe(true)
     expect(updater.allowDowngrades ?? false).toBe(false)
   })
