@@ -229,7 +229,7 @@ pub async fn open_session(
         user: server.user.clone(),
         context,
     };
-    let secrets = PromptingSecrets::new(app, &who, operator);
+    let secrets = PromptingSecrets::new(app, who, operator);
     // At most two rounds: the second follows a first trust the operator just confirmed.
     for _ in 0..2 {
         let known = crate::trust::known_keys(&state, &target.endpoint).map_err(storage_error)?;

@@ -14,6 +14,7 @@ pub mod logs;
 pub mod remote;
 pub mod shell;
 pub mod ssh;
+pub mod sudo;
 pub mod upload;
 
 pub use coordinator::{

@@ -15,7 +15,12 @@
 //!
 //! Closing the channel or sending a signal request does not stop the remote process (phase 0),
 //! so cancel and timeout kill the process group from a second channel and then check whether
-//! anything in the group is still alive. Only a confirmed stop counts as stopped.
+//! anything in the group is still alive. Only a confirmed stop counts as stopped. A command
+//! elevated with sudo runs as another user: sudo passes TERM on, but what the login account
+//! cannot signal stays alive and is reported as such, never as stopped.
+//!
+//! With sudo (see [`crate::sudo`]) the elevation words go in front of the command; a password
+//! is written to stdin only when sudo's prompt marker shows up on stderr.
 
 use std::time::Duration;
 
@@ -29,6 +34,7 @@ use crate::decode::OutputDecoder;
 use crate::local::{OutputChunk, Stream};
 use crate::ssh::SshSession;
 use crate::ssh::session::signal_name_text;
+use crate::sudo::{MarkerScan, PasswordFeed, Sudo, SudoReport, classify, sudo_words};
 
 const PGID_MARKER: &[u8] = b"__MDM_PGID__ ";
 /// Stderr lines before the marker (login scripts may print some) are passed through; past this
@@ -38,18 +44,33 @@ const PGID_SCAN_LIMIT: usize = 16 * 1024;
 const TERM_GRACE_CHECKS: u32 = 5;
 /// Upper bound for the whole stop-and-check command.
 const STOP_TIMEOUT: Duration = Duration::from_secs(20);
+/// Start of stderr kept to recognise sudo's error messages.
+const SUDO_STDERR_LIMIT: usize = 8 * 1024;
+/// Prompts answered before stdin is closed; sudo allows three by default (SEC-02).
+pub const SUDO_MAX_ATTEMPTS: u8 = 3;
 
 /// Quote for a POSIX shell: `it's` becomes `'it'\''s'`.
 pub fn sh_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', r"'\''"))
 }
 
-/// The command line sent to the server for `command`, run in `cwd` when given.
-pub fn wrap_command(command: &ResolvedCommand, cwd: Option<&str>) -> String {
-    let inner = match command {
-        ResolvedCommand::Script { script } => script.expose().to_owned(),
-        ResolvedCommand::Program { executable, args } => {
-            let mut words = vec!["exec".to_owned(), sh_quote(executable.expose())];
+/// The command line sent to the server for `command`, run in `cwd` when given and elevated
+/// with `sudo` when given. The directory is entered before sudo (ARC-24).
+pub fn wrap_command(
+    command: &ResolvedCommand,
+    cwd: Option<&str>,
+    sudo: Option<&Sudo<'_>>,
+) -> String {
+    let elevate = sudo.map(|s| sudo_words(s, sh_quote));
+    let inner = match (command, elevate) {
+        (ResolvedCommand::Script { script }, None) => script.expose().to_owned(),
+        (ResolvedCommand::Script { script }, Some(e)) => {
+            format!("exec {e} sh -c {}", sh_quote(script.expose()))
+        }
+        (ResolvedCommand::Program { executable, args }, e) => {
+            let mut words = vec!["exec".to_owned()];
+            words.extend(e);
+            words.push(sh_quote(executable.expose()));
             words.extend(args.iter().map(|a| sh_quote(a.expose())));
             words.join(" ")
         }
@@ -93,6 +114,15 @@ pub struct RemoteOutcome {
     pub end: RemoteEnd,
     /// The process group the command ran in, when the marker arrived.
     pub pgid: Option<u32>,
+    /// Empty unless the command was elevated.
+    pub sudo: SudoReport,
+}
+
+/// sudo as [`run_remote`] sees it: whether the command was elevated, and for password mode the
+/// prompt marker and where the password comes from.
+#[derive(Clone, Copy)]
+pub struct Elevation<'a> {
+    pub password: Option<(&'a str, &'a dyn PasswordFeed)>,
 }
 
 /// Run `wrapped` (from [`wrap_command`]) and stream its output to `on_output`.
@@ -101,12 +131,17 @@ pub async fn run_remote(
     wrapped: &str,
     timeout: Option<Duration>,
     cancel: &CancellationToken,
+    elevation: Option<Elevation<'_>>,
     mut on_output: impl FnMut(OutputChunk),
 ) -> Result<RemoteOutcome, russh::Error> {
     let mut channel = session.exec_channel(wrapped).await?;
     let mut out = StreamDecoder::new(Stream::Stdout);
     let mut err = StreamDecoder::new(Stream::Stderr);
     let mut scan = PgidScan::default();
+    let password = elevation.and_then(|e| e.password);
+    let mut prompts = password.map(|(marker, _)| MarkerScan::new(marker));
+    let mut report = SudoReport::default();
+    let mut stderr_head = Vec::new();
     let mut exit_status = None;
     let mut exit_signal = None;
     let mut refused = false;
@@ -123,8 +158,47 @@ pub async fn run_remote(
             None => break None,
             Some(ChannelMsg::Data { data }) => out.push(&data, &mut on_output),
             Some(ChannelMsg::ExtendedData { data, .. }) => {
-                let pass = scan.push(&data);
+                let mut pass = scan.push(&data);
+                let mut asked = 0;
+                if let Some(p) = &mut prompts {
+                    (pass, asked) = p.push(&pass);
+                }
+                keep_head(&mut stderr_head, &pass);
                 err.push(&pass, &mut on_output);
+                if let Some((_, feed)) = password {
+                    for _ in 0..asked {
+                        report.prompts = report.prompts.saturating_add(1);
+                        if report.prompts > SUDO_MAX_ATTEMPTS {
+                            // Not answered: sudo fails on the closed input.
+                            let _ = channel.eof().await;
+                            continue;
+                        }
+                        let secret = tokio::select! {
+                            biased;
+                            _ = cancel.cancelled() => None,
+                            s = feed.password(report.prompts) => s,
+                        };
+                        let Some(secret) = secret else {
+                            // Declined: the elevated command must not start (SEC-02).
+                            let _ = channel.eof().await;
+                            break;
+                        };
+                        let mut line = secrecy::ExposeSecret::expose_secret(&secret)
+                            .as_bytes()
+                            .to_vec();
+                        line.push(b'\n');
+                        let sent = channel.data(&line[..]).await;
+                        zeroize::Zeroize::zeroize(&mut line);
+                        if sent.is_err() {
+                            break;
+                        }
+                        report.answered += 1;
+                    }
+                    if report.answered < report.prompts.min(SUDO_MAX_ATTEMPTS) {
+                        // Declined or not delivered.
+                        break Some(false);
+                    }
+                }
             }
             Some(ChannelMsg::ExitStatus { exit_status: s }) => exit_status = Some(s),
             Some(ChannelMsg::ExitSignal { signal_name, .. }) => {
@@ -134,11 +208,19 @@ pub async fn run_remote(
             Some(_) => {}
         }
     };
-    let rest = scan.finish();
+    let mut rest = scan.finish();
+    if let Some(p) = &mut prompts {
+        let (shown, _) = p.push(&rest);
+        rest = [shown, p.finish()].concat();
+    }
+    keep_head(&mut stderr_head, &rest);
     err.push(&rest, &mut on_output);
     out.finish(&mut on_output);
     err.finish(&mut on_output);
     let pgid = scan.pgid;
+    if elevation.is_some() {
+        report.failure = classify(&String::from_utf8_lossy(&stderr_head), exit_status);
+    }
 
     let end = match interrupted {
         Some(timed_out) => {
@@ -159,7 +241,16 @@ pub async fn run_remote(
             (None, None) => RemoteEnd::Lost,
         },
     };
-    Ok(RemoteOutcome { end, pgid })
+    Ok(RemoteOutcome {
+        end,
+        pgid,
+        sudo: report,
+    })
+}
+
+fn keep_head(head: &mut Vec<u8>, data: &[u8]) {
+    let room = SUDO_STDERR_LIMIT.saturating_sub(head.len());
+    head.extend_from_slice(&data[..data.len().min(room)]);
 }
 
 async fn sleep_until(deadline: Option<Instant>) {
@@ -177,11 +268,13 @@ async fn stop_group(session: &SshSession, pgid: Option<u32>) -> Stop {
     if session.is_closed() {
         return Stop::Unconfirmed(Message::ConnectionLost);
     }
+    // `kill -0` fails for processes of another user (sudo), so `ps` also looks for them.
     let script = format!(
-        "kill -TERM -- -{pgid} 2>/dev/null; i=0; \
-         while kill -0 -- -{pgid} 2>/dev/null && [ $i -lt {TERM_GRACE_CHECKS} ]; do sleep 1; i=$((i+1)); done; \
-         if kill -0 -- -{pgid} 2>/dev/null; then kill -KILL -- -{pgid} 2>/dev/null; sleep 1; fi; \
-         if kill -0 -- -{pgid} 2>/dev/null; then echo __MDM_ALIVE__; else echo __MDM_GONE__; fi"
+        "alive() {{ kill -0 -- -{pgid} 2>/dev/null || ps -A -o pgid= 2>/dev/null | tr -d ' ' | grep -qx {pgid}; }}; \
+         kill -TERM -- -{pgid} 2>/dev/null; i=0; \
+         while alive && [ $i -lt {TERM_GRACE_CHECKS} ]; do sleep 1; i=$((i+1)); done; \
+         if alive; then kill -KILL -- -{pgid} 2>/dev/null; sleep 1; fi; \
+         if alive; then echo __MDM_ALIVE__; else echo __MDM_GONE__; fi"
     );
     match tokio::time::timeout(STOP_TIMEOUT, session.exec_collect(&script, 4096)).await {
         Err(_) => Stop::Unconfirmed(Message::CheckTimeout),
@@ -303,7 +396,7 @@ mod tests {
             executable: ResolvedText::plain("/opt/app/bin/ctl"),
             args: vec![ResolvedText::plain("restart"), ResolvedText::plain("a b")],
         };
-        let wrapped = wrap_command(&cmd, Some("/srv/app"));
+        let wrapped = wrap_command(&cmd, Some("/srv/app"), None);
         assert!(wrapped.starts_with("exec setsid -w sh -c '"));
         assert!(wrapped.ends_with(
             r#" mdm 'exec '\''/opt/app/bin/ctl'\'' '\''restart'\'' '\''a b'\''' '/srv/app'"#

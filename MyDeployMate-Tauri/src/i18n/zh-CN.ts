@@ -1055,7 +1055,11 @@ const zhCN = {
     },
     exec: {
       noConnection: '没有可用的远程连接',
-      sudoUnsupported: '当前版本尚不支持 sudo 提权，请把该步骤的提权方式改为“不提权”',
+      sudoNotGranted: '服务器未授予该操作的免交互权限。请修改提权方式或服务器授权后重新执行',
+      sudoRequiresTty: '服务器的 sudo 配置要求终端（requiretty），当前不支持',
+      sudoWrongPassword: 'sudo 密码验证未通过，已达到尝试次数上限',
+      sudoNotAllowed: '服务器的 sudo 规则不允许登录账号以 {target} 身份执行该命令',
+      sudoMissing: '服务器上没有 sudo',
       noServer: '远程任务缺少目标服务器',
       startFailed: '无法在服务器上开始命令：{detail}',
       noProcessGroup:

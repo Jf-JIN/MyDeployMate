@@ -16,6 +16,7 @@ use mdm_core::{
     Clock, LogEntry, Message, OperatorPrompt, PlanRequest, ResolvedPlan, Run, RunId, RunMachine,
     Server, ServerId, StorageError, Task, UploadProgress, build_plan,
 };
+use mdm_exec::ssh::{SecretSource, SshTarget};
 use mdm_exec::{
     AppExecutor, ConnectFuture, Control, Coordinator, LogPipeline, OperatorAnswer, OperatorRequest,
     RemoteConnector, RunView, SystemClock, TaskContext, TaskOutcome,
@@ -29,7 +30,7 @@ use tokio_util::sync::CancellationToken;
 use ts_rs::TS;
 
 use crate::connection::{SessionError, open_session};
-use crate::credentials::{AskFuture, Operator, secret_answer};
+use crate::credentials::{AskFuture, Operator, PromptingSecrets, SecretContext, secret_answer};
 use crate::error::{AppError, AppErrorKind};
 use crate::state::AppState;
 
@@ -468,7 +469,29 @@ struct RunConnector {
     plan: Arc<ResolvedPlan>,
 }
 
+impl RunConnector {
+    fn context(&self, ctx: &TaskContext) -> Message {
+        let task = &self.plan.tasks[ctx.seq as usize];
+        Message::TaskContext {
+            n: ctx.seq + 1,
+            step: task.step_name.clone(),
+        }
+    }
+}
+
 impl RemoteConnector for RunConnector {
+    fn secrets<'a>(&'a self, server: ServerId, ctx: &'a TaskContext) -> Box<dyn SecretSource + 'a> {
+        let server = &self.servers[&server];
+        let who = SecretContext {
+            server_id: server.id,
+            server_name: server.name.clone(),
+            address: SshTarget::from_server(server).endpoint.to_string(),
+            user: server.user.clone(),
+            context: self.context(ctx),
+        };
+        Box::new(PromptingSecrets::new(&self.app, who, TaskAsker(ctx)))
+    }
+
     fn connect<'a>(&'a self, server: ServerId, ctx: &'a TaskContext) -> ConnectFuture<'a> {
         Box::pin(async move {
             let Some(server) = self.servers.get(&server) else {
@@ -478,11 +501,7 @@ impl RemoteConnector for RunConnector {
                     reason: Message::ServerMissing,
                 });
             };
-            let task = &self.plan.tasks[ctx.seq as usize];
-            let context = Message::TaskContext {
-                n: ctx.seq + 1,
-                step: task.step_name.clone(),
-            };
+            let context = self.context(ctx);
             match open_session(&self.app, server, context, &TaskAsker(ctx), &ctx.cancel).await {
                 Ok(session) => Ok(session),
                 Err(SessionError::Cancelled) => Err(TaskOutcome::Cancelled),

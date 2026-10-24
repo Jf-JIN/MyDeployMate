@@ -2675,6 +2675,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "windows",
+ "zeroize",
 ]
 
 [[package]]
