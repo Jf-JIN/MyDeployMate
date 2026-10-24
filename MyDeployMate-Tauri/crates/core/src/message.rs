@@ -462,6 +462,39 @@ pub enum Message {
     Vault { detail: String },
     #[serde(rename = "store.invalid")]
     Invalid { n: u32 },
+    #[serde(rename = "rerun.environment")]
+    RerunEnvironment { before: String, after: String },
+    #[serde(rename = "rerun.executionOrder")]
+    RerunExecutionOrder,
+    #[serde(rename = "rerun.failurePolicy")]
+    RerunFailurePolicy,
+    #[serde(rename = "rerun.stepAdded")]
+    RerunStepAdded { step: String },
+    #[serde(rename = "rerun.stepRemoved")]
+    RerunStepRemoved { step: String },
+    #[serde(rename = "rerun.stepRenamed")]
+    RerunStepRenamed { before: String, after: String },
+    #[serde(rename = "rerun.stepOrder")]
+    RerunStepOrder,
+    #[serde(rename = "rerun.stepText")]
+    RerunStepText {
+        step: String,
+        label: Label,
+        before: String,
+        after: String,
+    },
+    #[serde(rename = "rerun.stepSetting")]
+    RerunStepSetting { step: String, label: Label },
+    #[serde(rename = "rerun.targetAdded")]
+    RerunTargetAdded { server: String },
+    #[serde(rename = "rerun.targetRemoved")]
+    RerunTargetRemoved { server: String },
+    #[serde(rename = "rerun.targetChanged")]
+    RerunTargetChanged {
+        server: String,
+        before: String,
+        after: String,
+    },
     #[serde(rename = "app.runStateBroken")]
     RunStateBroken,
     #[serde(rename = "app.workspaceStateBroken")]
@@ -571,6 +604,20 @@ pub enum Label {
     Version,
     #[serde(rename = "label.retentionDays")]
     RetentionDays,
+    #[serde(rename = "label.stepKind")]
+    StepKind,
+    #[serde(rename = "label.shell")]
+    Shell,
+    #[serde(rename = "label.outputEncoding")]
+    OutputEncoding,
+    #[serde(rename = "label.sourceKind")]
+    SourceKind,
+    #[serde(rename = "label.conflictPolicy")]
+    ConflictPolicy,
+    #[serde(rename = "label.privilege")]
+    Privilege,
+    #[serde(rename = "label.failurePolicy")]
+    FailurePolicy,
 }
 
 impl Message {
