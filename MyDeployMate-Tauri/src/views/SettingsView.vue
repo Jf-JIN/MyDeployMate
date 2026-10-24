@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { save as saveFileDialog } from '@tauri-apps/plugin-dialog'
-import { Download, FileUp, FolderOpen, Plus, Shield, Trash2 } from '@lucide/vue'
+import { Download, FileUp, FolderOpen, Plus, Shield, Sparkles, Trash2 } from '@lucide/vue'
 import { computed, nextTick, onMounted, ref } from 'vue'
 
 import PageLayout from '@/components/PageLayout.vue'
@@ -38,6 +38,7 @@ import { useLocaleStore, type LocalePreference } from '@/stores/locale'
 import { useRunStore } from '@/stores/run'
 import { useThemeStore, type ThemePreference } from '@/stores/theme'
 import { useToastStore } from '@/stores/toast'
+import { useWelcomeStore } from '@/stores/welcome'
 import { useWorkspaceStore } from '@/stores/workspace'
 
 // P10 configuration center: environments, global variables, host trust, saved credentials,
@@ -63,6 +64,7 @@ onMounted(async () => {
 // Appearance applies at once and is kept on this machine, outside the workspace draft.
 const t = useT()
 const theme = useThemeStore()
+const welcome = useWelcomeStore()
 const themeOptions = computed<{ value: ThemePreference; label: string }[]>(() => [
   { value: 'system', label: t('settings.look.themeOptions.system') },
   { value: 'light', label: t('settings.look.themeOptions.light') },
@@ -476,6 +478,18 @@ async function openDataDir() {
               {{ t('settings.look.englishPreview') }}
             </p>
           </div>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="help-title">
+        <header class="section-head">
+          <h2 id="help-title">{{ t('settings.help.title') }}</h2>
+          <p class="section-hint">{{ t('settings.help.hint') }}</p>
+        </header>
+        <div>
+          <UiButton :icon="Sparkles" @click="welcome.reopen()">
+            {{ t('settings.help.reopenWelcome') }}
+          </UiButton>
         </div>
       </section>
 
