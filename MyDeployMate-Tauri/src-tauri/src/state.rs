@@ -33,6 +33,8 @@ pub struct AppState {
     pub tests: ConnectionTests,
     /// Set by "cancel and quit": the app exits once the active run has stopped (IXD-29).
     pub quit_when_idle: AtomicBool,
+    /// A validated configuration import waiting for confirmation (IXD-37).
+    pub import: crate::exchange::ImportSlot,
     /// The retention cleanup at the first workspace load of this launch (NFR-02).
     pub startup_purge: Once,
     /// Held for the life of the process (ARC-08).
@@ -85,6 +87,7 @@ impl AppState {
             history_error,
             active: Mutex::new(None),
             quit_when_idle: AtomicBool::new(false),
+            import: Default::default(),
             startup_purge: Once::new(),
             data_dir,
             _lock: lock,

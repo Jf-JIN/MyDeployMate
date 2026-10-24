@@ -5,6 +5,7 @@ mod commands;
 mod connection;
 mod credentials;
 mod error;
+mod exchange;
 mod history;
 mod run;
 mod state;
@@ -59,6 +60,9 @@ pub fn run() {
             commands::wsl_distros,
             commands::shell_programs,
             commands::preview_run,
+            exchange::export_workspace,
+            exchange::import_preview,
+            exchange::import_apply,
             history::list_runs,
             history::run_choices,
             history::latest_runs,

@@ -11,6 +11,8 @@ import type { Environment } from './bindings/Environment'
 import type { EnvironmentId } from './bindings/EnvironmentId'
 import type { HostEndpoint } from './bindings/HostEndpoint'
 import type { HostKey } from './bindings/HostKey'
+import type { ImportApplied } from './bindings/ImportApplied'
+import type { ImportPreview } from './bindings/ImportPreview'
 import type { KeyFormat } from './bindings/KeyFormat'
 import type { LoadedWorkspace } from './bindings/LoadedWorkspace'
 import type { Message } from './bindings/Message'
@@ -84,6 +86,9 @@ export interface Commands {
   purge_history: [Record<string, never>, number]
   plan_changes: [{ runId: RunId; plan: ResolvedPlan }, Message[]]
   write_export: [{ path: string; contents: string }, null]
+  export_workspace: [{ path: string; includeLocalPaths: boolean }, null]
+  import_preview: [{ path: string }, ImportPreview]
+  import_apply: [{ token: number }, ImportApplied]
   start_run: [{ start: StartRunRequest }, RunId]
   open_run: [{ runId: RunId; onUpdate: Channel<RunUpdate> }, RunSnapshot]
   active_run: [Record<string, never>, RunId | null]

@@ -389,7 +389,7 @@ impl AppState {
     /// After a save: delete what Credential Manager still holds for deleted servers and for
     /// sensitive values that no longer exist (IXD-20, ARC-10, ARC-26). Best effort; a failure
     /// leaves an orphan entry, never a broken save.
-    fn drop_orphan_secrets(&self, before: &Workspace, after: &Workspace) {
+    pub(crate) fn drop_orphan_secrets(&self, before: &Workspace, after: &Workspace) {
         let mut secrets = self.secrets.lock().unwrap_or_else(|e| e.into_inner());
         let Ok(store) = secrets.as_mut() else {
             return;

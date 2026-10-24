@@ -6,6 +6,7 @@
 pub mod connect;
 pub mod defaults;
 pub mod edit;
+pub mod exchange;
 #[cfg(any(test, feature = "fixtures"))]
 pub mod fixtures;
 pub mod history;
