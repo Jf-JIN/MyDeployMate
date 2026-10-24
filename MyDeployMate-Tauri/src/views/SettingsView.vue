@@ -1,10 +1,20 @@
 <script setup lang="ts">
 import { save as saveFileDialog } from '@tauri-apps/plugin-dialog'
-import { Download, FileUp, FolderOpen, Plus, Shield, Sparkles, Trash2 } from '@lucide/vue'
+import {
+  Download,
+  FileUp,
+  FolderOpen,
+  Plus,
+  RefreshCw,
+  Shield,
+  Sparkles,
+  Trash2,
+} from '@lucide/vue'
 import { computed, nextTick, onMounted, ref } from 'vue'
 
 import PageLayout from '@/components/PageLayout.vue'
 import { describeReference } from '@/components/references'
+import { dateTime } from '@/components/run/runState'
 import ImportDialog from '@/components/settings/ImportDialog.vue'
 import SavedCredentialsSection from '@/components/settings/SavedCredentialsSection.vue'
 import SecretValueField from '@/components/variables/SecretValueField.vue'
@@ -38,12 +48,13 @@ import { useLocaleStore, type LocalePreference } from '@/stores/locale'
 import { useRunStore } from '@/stores/run'
 import { useThemeStore, type ThemePreference } from '@/stores/theme'
 import { useToastStore } from '@/stores/toast'
+import { useUpdateStore } from '@/stores/update'
 import { useWelcomeStore } from '@/stores/welcome'
 import { useWorkspaceStore } from '@/stores/workspace'
 
 // P10 configuration center: environments, global variables, host trust, saved credentials,
 // appearance, run history retention, import/export and the data directory (IXD-14, IXD-19,
-// IXD-36, IXD-37, UI-02). Updates join in a later phase.
+// IXD-36, IXD-37, UI-02) and app updates (IXD-39).
 const page = ref<HTMLElement | null>(null)
 const { draft, dirty, at, issues, error, save, discard } = useWorkspaceDraft(
   'drafts.labels.settings',
@@ -65,6 +76,7 @@ onMounted(async () => {
 const t = useT()
 const theme = useThemeStore()
 const welcome = useWelcomeStore()
+const update = useUpdateStore()
 const themeOptions = computed<{ value: ThemePreference; label: string }[]>(() => [
   { value: 'system', label: t('settings.look.themeOptions.system') },
   { value: 'light', label: t('settings.look.themeOptions.light') },
@@ -557,6 +569,42 @@ async function openDataDir() {
           <dd class="num">{{ info.version }}</dd>
         </dl>
       </section>
+
+      <section v-if="draft" class="section" aria-labelledby="update-title">
+        <header class="section-head">
+          <h2 id="update-title">{{ t('settings.update.title') }}</h2>
+          <p class="section-hint">{{ t('settings.update.hint') }}</p>
+        </header>
+        <div class="update">
+          <label class="update-switch">
+            <UiSwitch v-model="draft.preferences.checkUpdates" />
+            <span>{{ t('settings.update.onStartup') }}</span>
+          </label>
+          <div class="update-actions">
+            <UiButton :icon="RefreshCw" :busy="update.checking" @click="update.check()">
+              {{ t('settings.update.checkNow') }}
+            </UiButton>
+            <UiButton v-if="update.available" variant="tonal" @click="update.open()">
+              {{ t('settings.update.view', { version: update.available.version }) }}
+            </UiButton>
+            <!-- IXD-39: a failed check is only reported here, never as a dialog. -->
+            <span v-if="update.checking" class="update-status">
+              {{ t('settings.update.checking') }}
+            </span>
+            <span v-else-if="update.lastCheck?.error" class="update-status update-status--failed">
+              {{
+                t('settings.update.failed', {
+                  time: dateTime(update.lastCheck.atMs),
+                  reason: messageText(update.lastCheck.error),
+                })
+              }}
+            </span>
+            <span v-else-if="update.lastCheck && !update.lastCheck.version" class="update-status">
+              {{ t('settings.update.latest', { time: dateTime(update.lastCheck.atMs) }) }}
+            </span>
+          </div>
+        </div>
+      </section>
     </div>
 
     <ImportDialog ref="importDialog" @imported="onImported" />
@@ -763,6 +811,35 @@ async function openDataDir() {
 .refs {
   margin: var(--space-1) 0 0;
   padding-left: var(--space-5);
+}
+
+.update {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.update-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: max-content;
+}
+
+.update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.update-status {
+  color: var(--text-secondary);
+  font: var(--font-caption);
+}
+
+.update-status--failed {
+  color: var(--state-failure);
 }
 
 .facts {
