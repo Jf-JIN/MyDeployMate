@@ -189,7 +189,9 @@ pub enum TaskAction {
         cwd: Option<ResolvedText>,
         /// Step privilege with `Inherit` replaced by the server default (SEC-01).
         privilege: PrivilegePolicy,
-        /// The step inherits the server default, shown next to the privilege (IXD-33).
+        /// The step inherits the server default, shown next to the privilege (IXD-33). Runs
+        /// recorded before this field existed read as `false`.
+        #[serde(default)]
         privilege_inherited: bool,
         /// Script mode with sudo: the server must allow a shell (STEP-05, IXD-33).
         shell_elevation: bool,

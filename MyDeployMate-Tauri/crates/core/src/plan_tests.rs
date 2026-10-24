@@ -787,3 +787,30 @@ fn variable_views_show_overrides_and_messages() {
             .is_empty()
     );
 }
+
+/// Plans recorded before `privilegeInherited` existed still open (runs from phase 5 builds).
+#[test]
+fn remote_action_without_privilege_inherited_reads_as_false() {
+    let demo = demo_workspace();
+    let p = plan(&demo, &request(&demo, 0, demo.production));
+    let remote = p
+        .tasks
+        .iter()
+        .find(|t| matches!(t.action, TaskAction::Remote { .. }))
+        .unwrap();
+    let mut json = serde_json::to_value(&remote.action).unwrap();
+    assert!(
+        json.as_object_mut()
+            .unwrap()
+            .remove("privilegeInherited")
+            .is_some()
+    );
+    let action: TaskAction = serde_json::from_value(json).unwrap();
+    assert!(matches!(
+        action,
+        TaskAction::Remote {
+            privilege_inherited: false,
+            ..
+        }
+    ));
+}
