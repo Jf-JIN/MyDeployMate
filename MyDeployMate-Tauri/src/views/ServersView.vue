@@ -688,7 +688,7 @@ async function applyDelete() {
 
 .col-name {
   min-width: 140px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .col-host {
