@@ -33,6 +33,7 @@ process-wrap = { version = "10.0.1", default-features = false, features = ["toki
 
 [dev-dependencies]
 mdm-core = { version = "0.1.0", path = "../core", features = ["fixtures"] }
+mdm-store = { version = "0.1.0", path = "../store" }
 pretty_assertions = "1.4.1"
 secrecy = "0.10.3"
 tempfile = "3.27.0"

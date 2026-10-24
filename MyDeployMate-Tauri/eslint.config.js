@@ -23,6 +23,8 @@ export default defineConfigWithVueTs(
     rules: {
       // Logs and user input are rendered as text only (OBS-01).
       'vue/no-v-html': 'error',
+      // IPC arguments and answers can hold secrets; nothing goes to the devtools console (8.3).
+      'no-console': 'error',
     },
   },
   {
