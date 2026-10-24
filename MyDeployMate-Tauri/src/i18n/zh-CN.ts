@@ -727,6 +727,12 @@ const zhCN = {
       privNone: '不提权',
       privSudo: 'sudo 免交互 → {user}',
       privPassword: 'sudo 输入密码 → {user}',
+      privInherited: '{privilege}（继承服务器默认）',
+      noteShell: '以 sudo sh -c 运行脚本，需要服务器授权该用户执行 Shell',
+      noteNonInteractive: '服务器未授予免交互权限时该任务失败，不会改为询问密码',
+      notePassword:
+        '只在服务器要求时询问密码；本次运行内同一服务器只问一次，输入密码不代表一定获准',
+      noteUpload: '以登录账号写入，不使用 sudo；需要提权安装时请另加远程命令步骤',
       cwd: '目录 {cwd}',
       shellMissing: '{shell}（本机未找到）',
       encoding: '输出编码 {encoding}',

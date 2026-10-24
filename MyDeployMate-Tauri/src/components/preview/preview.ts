@@ -137,8 +137,25 @@ export function taskDetails(
         ? translate('preview.task.overwrite')
         : translate('preview.task.conflictError'),
     )
-  if (a.type === 'remote') out.push(privilegeLabel(a.privilege))
+  if (a.type === 'remote') {
+    const privilege = privilegeLabel(a.privilege)
+    out.push(
+      a.privilegeInherited ? translate('preview.task.privInherited', { privilege }) : privilege,
+    )
+  }
   if (task.timeoutSec !== null) out.push(translate('preview.task.timeout', { n: task.timeoutSec }))
   if (a.type !== 'confirm') out.push(translate(`pipelines.settings.${task.failurePolicy}`))
+  return out
+}
+
+/** What the server must allow, or how sudo behaves, for a task (IXD-33). */
+export function taskNotes(action: TaskAction): string[] {
+  if (action.type === 'upload') return [translate('preview.task.noteUpload')]
+  if (action.type !== 'remote') return []
+  const out: string[] = []
+  if (action.shellElevation) out.push(translate('preview.task.noteShell'))
+  if (action.privilege.mode === 'sudoNonInteractive')
+    out.push(translate('preview.task.noteNonInteractive'))
+  if (action.privilege.mode === 'sudoPassword') out.push(translate('preview.task.notePassword'))
   return out
 }

@@ -1286,6 +1286,7 @@ mod sudo_run {
                 privilege: PrivilegePolicy::SudoPassword {
                     run_as: "root".into(),
                 },
+                privilege_inherited: false,
                 shell_elevation: true,
             };
         }

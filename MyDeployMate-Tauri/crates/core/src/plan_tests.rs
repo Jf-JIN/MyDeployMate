@@ -666,24 +666,30 @@ fn privilege_and_policy_inheritance() {
             executable: "/usr/bin/systemctl".into(),
             args: vec!["restart".into(), "${service_name}".into()],
         };
+        r.privilege = StepPrivilege::SudoNonInteractive {
+            run_as: "app".into(),
+        };
     }
     let p = plan(&demo, &request(&demo, 0, demo.production));
     assert!(p.can_start(), "{:#?}", p.issues);
     // Local tasks never skip a server.
     assert_eq!(p.tasks[0].failure_policy, PipelineFailurePolicy::Stop);
     assert_eq!(p.tasks[1].failure_policy, PipelineFailurePolicy::SkipServer);
-    // prod-api-01 defaults to sudo with password; prod-api-02 to no elevation.
+    // The program step sets its own privilege; the script step inherits: prod-api-01 defaults
+    // to sudo with password, prod-api-02 to no elevation.
     let privileges: Vec<_> = p
         .tasks
         .iter()
         .filter_map(|t| match &t.action {
             TaskAction::Remote {
                 privilege,
+                privilege_inherited,
                 shell_elevation,
                 ..
             } => Some((
                 t.server.as_ref().unwrap().name.as_str(),
                 privilege.clone(),
+                *privilege_inherited,
                 *shell_elevation,
             )),
             _ => None,
@@ -692,13 +698,16 @@ fn privilege_and_policy_inheritance() {
     let sudo = PrivilegePolicy::SudoPassword {
         run_as: "root".into(),
     };
+    let app = PrivilegePolicy::SudoNonInteractive {
+        run_as: "app".into(),
+    };
     assert_eq!(
         privileges,
         [
-            ("prod-api-01", sudo.clone(), false),
-            ("prod-api-01", sudo, true),
-            ("prod-api-02", PrivilegePolicy::None, false),
-            ("prod-api-02", PrivilegePolicy::None, false),
+            ("prod-api-01", app.clone(), false, false),
+            ("prod-api-01", sudo, true, true),
+            ("prod-api-02", app, false, false),
+            ("prod-api-02", PrivilegePolicy::None, true, false),
         ]
     );
     assert!(p.protected);
