@@ -19,7 +19,7 @@ pub use error::StoreError;
 pub use history::{HistoryStore, SharedHistory, StoredRun};
 pub use lock::InstanceLock;
 pub use logs::{RunLog, RunLogFile, read_run_log, remove_run_log};
-pub use paths::DataDir;
+pub use paths::{DATA_DIR_ENV, DataDir};
 pub use secrets::{
     MemoryVault, SavedCredential, SecretStore, SecretVault, credential_account, platform_vault,
     variable_account,

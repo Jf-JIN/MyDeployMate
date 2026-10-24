@@ -4,6 +4,9 @@ use crate::error::{StoreError, io};
 
 pub const APP_DIR_NAME: &str = "MyDeployMate";
 
+/// Overrides the data directory, for measurements and walkthroughs on a copy (plan task 8.1).
+pub const DATA_DIR_ENV: &str = "MDM_DATA_DIR";
+
 /// The application data directory and the files inside it (ARC-31).
 #[derive(Clone, Debug)]
 pub struct DataDir {
@@ -11,8 +14,12 @@ pub struct DataDir {
 }
 
 impl DataDir {
-    /// `%APPDATA%\MyDeployMate` on Windows (the platform config dir elsewhere, for development).
+    /// `%APPDATA%\MyDeployMate` on Windows (the platform config dir elsewhere, for development),
+    /// or the directory in `MDM_DATA_DIR` when that is set and not empty.
     pub fn default_location() -> Option<Self> {
+        if let Some(dir) = std::env::var_os(DATA_DIR_ENV).filter(|d| !d.is_empty()) {
+            return Some(Self::at(dir));
+        }
         dirs::config_dir().map(|d| Self::at(d.join(APP_DIR_NAME)))
     }
 

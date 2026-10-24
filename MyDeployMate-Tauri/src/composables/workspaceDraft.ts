@@ -50,11 +50,11 @@ export function useWorkspaceDraft(label: MessageKey, root: Ref<HTMLElement | nul
   const error = ref<AppError | null>(null)
   const attempted = ref(false)
 
+  // The saved side changes only when the store replaces it; serialize it once per version
+  // instead of on every keystroke, and without going through the reactive proxy.
+  const saved = computed(() => (store.workspace ? JSON.stringify(toRaw(store.workspace)) : null))
   const dirty = computed(
-    () =>
-      !!draft.value &&
-      !!store.workspace &&
-      JSON.stringify(draft.value) !== JSON.stringify(store.workspace),
+    () => !!draft.value && saved.value !== null && JSON.stringify(draft.value) !== saved.value,
   )
 
   // Pick up the first load and saves made elsewhere while this page has no changes. Compare
@@ -68,11 +68,13 @@ export function useWorkspaceDraft(label: MessageKey, root: Ref<HTMLElement | nul
     },
   )
 
+  // Only after a failed save: a deep watch walks the whole workspace, which at the NFR-01
+  // baseline (50 projects of 50 steps) costs more than the 200 ms a page may take to open.
   let validating = 0
   watch(
-    draft,
+    () => (attempted.value ? draft.value : null),
     async (value) => {
-      if (!attempted.value || !value) return
+      if (!value) return
       const ticket = ++validating
       const report = await call('validate_workspace_draft', { draft: value })
       if (ticket === validating) issues.value = report.issues
