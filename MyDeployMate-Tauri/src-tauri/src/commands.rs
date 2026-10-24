@@ -69,6 +69,15 @@ pub fn app_info(state: State<'_, AppState>) -> AppInfo {
 pub fn load_workspace(state: State<'_, AppState>) -> Result<LoadedWorkspace, AppError> {
     let mut store = state.store()?;
     let (workspace, outcome) = store.load()?;
+    drop(store);
+    // Once per launch, after the first successful load: remove runs past the retention period
+    // (NFR-02). A failure here must not keep the workspace from opening.
+    if let Some(history) = &state.history {
+        let days = workspace.preferences.history_retention_days;
+        state.startup_purge.call_once(|| {
+            let _ = crate::history::purge(&state, history, days);
+        });
+    }
     let notice = match outcome {
         LoadOutcome::Loaded => None,
         LoadOutcome::Created => Some(LoadNotice::Created),

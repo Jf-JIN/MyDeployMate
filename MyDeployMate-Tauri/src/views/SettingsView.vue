@@ -11,8 +11,10 @@ import UiButton from '@/components/ui/UiButton.vue'
 import UiCheckbox from '@/components/ui/UiCheckbox.vue'
 import UiConfirm from '@/components/ui/UiConfirm.vue'
 import UiDialog from '@/components/ui/UiDialog.vue'
+import UiField from '@/components/ui/UiField.vue'
 import UiIconButton from '@/components/ui/UiIconButton.vue'
 import UiNotice from '@/components/ui/UiNotice.vue'
+import UiNumberInput from '@/components/ui/UiNumberInput.vue'
 import UiSegmented from '@/components/ui/UiSegmented.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
 import UiSwitch from '@/components/ui/UiSwitch.vue'
@@ -31,10 +33,12 @@ import {
 import { LOCALE_NAMES, useT } from '@/i18n'
 import { useLocaleStore, type LocalePreference } from '@/stores/locale'
 import { useThemeStore, type ThemePreference } from '@/stores/theme'
+import { useToastStore } from '@/stores/toast'
+import { useWorkspaceStore } from '@/stores/workspace'
 
 // P10 configuration center: environments, global variables, host trust, saved credentials,
-// appearance and the data directory (IXD-14, IXD-19, IXD-36, UI-02). Import/export and updates
-// join in later phases.
+// appearance, run history retention and the data directory (IXD-14, IXD-19, IXD-36, UI-02).
+// Import/export and updates join in later phases.
 const page = ref<HTMLElement | null>(null)
 const { draft, dirty, at, issues, error, save, discard } = useWorkspaceDraft(
   'drafts.labels.settings',
@@ -67,10 +71,41 @@ const localeOptions = computed<{ value: LocalePreference; label: string }[]>(() 
   { value: 'en-US', label: LOCALE_NAMES['en-US'] },
 ])
 
+const workspace = useWorkspaceStore()
+const toast = useToastStore()
+
+// IXD-36: a shorter retention first shows how many runs it removes; history is cleaned only
+// after the operator confirms and the setting is saved, never while the number is typed.
+const purgeCount = ref<number | null>(null)
+
 async function onSave() {
+  const days = draft.value?.preferences.historyRetentionDays
+  const savedDays = workspace.workspace?.preferences.historyRetentionDays
+  if (days !== undefined && days !== savedDays && Number.isInteger(days) && days > 0) {
+    try {
+      const n = await call('expired_run_count', { days })
+      if (n > 0) {
+        purgeCount.value = n
+        return
+      }
+    } catch (e) {
+      infoError.value = errorText(e)
+      return
+    }
+  }
+  await saveAndPurge(false)
+}
+
+async function saveAndPurge(purge: boolean) {
+  purgeCount.value = null
   saving.value = true
   try {
-    await save()
+    if ((await save()) && purge) {
+      const n = await call('purge_history')
+      toast.show(t('settings.retention.purged', { n }))
+    }
+  } catch (e) {
+    infoError.value = errorText(e)
   } finally {
     saving.value = false
   }
@@ -79,7 +114,10 @@ async function onSave() {
 /** Issues outside this page that still block saving the workspace. */
 const elsewhere = computed(() =>
   issues.value.filter(
-    (i) => !i.path.startsWith('environments[') && !i.path.startsWith('globalVariables['),
+    (i) =>
+      !i.path.startsWith('environments[') &&
+      !i.path.startsWith('globalVariables[') &&
+      !i.path.startsWith('preferences.'),
   ),
 )
 
@@ -386,6 +424,31 @@ async function openDataDir() {
         </div>
       </section>
 
+      <section class="section" aria-labelledby="retention-title">
+        <header class="section-head">
+          <h2 id="retention-title">{{ t('settings.retention.title') }}</h2>
+          <p class="section-hint">{{ t('settings.retention.hint') }}</p>
+        </header>
+        <UiField
+          v-slot="{ id, describedBy, invalid }"
+          class="retention"
+          :label="t('settings.retention.days')"
+          :error="at('preferences.historyRetentionDays')"
+        >
+          <span class="retention-control">
+            <UiNumberInput
+              :id="id"
+              v-model="draft.preferences.historyRetentionDays"
+              :min="1"
+              :max="3650"
+              :invalid="invalid"
+              :described-by="describedBy"
+            />
+            <span class="retention-unit">{{ t('settings.retention.unit') }}</span>
+          </span>
+        </UiField>
+      </section>
+
       <section class="section" aria-labelledby="data-title">
         <header class="section-head">
           <h2 id="data-title">{{ t('settings.data.title') }}</h2>
@@ -404,6 +467,25 @@ async function openDataDir() {
         </dl>
       </section>
     </div>
+
+    <UiConfirm
+      :open="purgeCount !== null"
+      :title="t('settings.retention.confirmTitle')"
+      :confirm-label="t('settings.retention.confirm')"
+      danger
+      :busy="saving"
+      @cancel="purgeCount = null"
+      @confirm="saveAndPurge(true)"
+    >
+      <p>
+        {{
+          t('settings.retention.confirmBody', {
+            n: purgeCount ?? 0,
+            days: draft?.preferences.historyRetentionDays ?? 0,
+          })
+        }}
+      </p>
+    </UiConfirm>
 
     <UiConfirm
       :open="!!protectTarget"
@@ -498,6 +580,24 @@ async function openDataDir() {
   margin: 0;
   color: var(--text-secondary);
   font: var(--font-caption);
+}
+
+.retention {
+  max-width: 240px;
+}
+
+.retention-control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.retention-control :deep(.control) {
+  width: 120px;
+}
+
+.retention-unit {
+  color: var(--text-secondary);
 }
 
 .section-hint {
