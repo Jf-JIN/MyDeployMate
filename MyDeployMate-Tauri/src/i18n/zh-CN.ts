@@ -16,7 +16,6 @@ const zhCN = {
       },
       language: '语言',
       languageSystem: '跟随系统',
-      englishPreview: '英语译文尚未完成，未翻译的文字仍显示为中文。',
     },
     help: {
       title: '帮助',
@@ -217,7 +216,7 @@ const zhCN = {
     pages: {
       servers: {
         title: '添加服务器',
-        body: '在“服务器”页添加要部署的 Linux 服务器，填写地址、账号和认证方式，再点“测试连接”。第一次连接时需要核对并信任服务器的主机密钥。',
+        body: '在“服务器”页添加要部署的 Linux 服务器，填写地址、账号和认证方式，再测试连接。第一次连接时需要核对并信任服务器的主机密钥。',
       },
       projects: {
         title: '创建项目和流程',

@@ -14,7 +14,7 @@ MyDeployMate：个人服务器部署桌面工具，Tauri 2 + Rust + Vue 3 / Type
 
 界面支持简体中文和 English（NFR-05、ARC-38），**不要在代码里写死界面文字**：
 
-- 前端：文字写进 `MyDeployMate-Tauri/src/i18n/zh-CN.ts`，组件里用 `useT()`，组件外用 `translate()`；带标记的句子用 `<i18n-t>`。`en-US.ts` 的类型由 zh-CN 推导，英文译文在阶段 8（8.4c）补齐。
+- 前端：文字写进 `MyDeployMate-Tauri/src/i18n/zh-CN.ts`，组件里用 `useT()`，组件外用 `translate()`；带标记的句子用 `<i18n-t>`。新增或修改文字时同时写 `en-US.ts` 的英文：它的类型就是 zh-CN 的结构，缺少 key 时 typecheck 失败，占位符不一致时测试失败。
 - 后端：面向用户的提示一律返回 `mdm_core::Message`（code + params），不拼中文句子；第三方原文放 `detail`，用户内容用 `Message::text`。新增 code 后在 `zh-CN.ts` 的 `backend.*` 下补中文，占位符与参数同名（有测试检查）。前端用 `messageText` / `errorText` 渲染。
 - 不翻译：用户填写的内容、命令输出和日志正文。
 - 检查：ESLint `@intlify/vue-i18n/no-raw-text` 检查模板文字；`scripts/check-ui-text.py` 检查前端和 Rust 非测试代码里的中文（注释、测试、`src/views/dev/` 除外）。

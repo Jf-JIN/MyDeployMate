@@ -59,7 +59,9 @@ describe('backend messages', () => {
 
   it('follows the current language', () => {
     i18n.global.locale.value = 'en-US'
-    // Untranslated until 8.4c: falls back to Chinese rather than showing the key.
-    expect(messageText({ code: 'run.userCancelled' })).toBe(text('run.userCancelled'))
+    expect(messageText({ code: 'run.userCancelled' })).toBe('Cancelled by the user')
+    expect(
+      messageText({ code: 'validate.required', params: { label: { code: 'label.port' } } }),
+    ).toBe('Port cannot be empty')
   })
 })
