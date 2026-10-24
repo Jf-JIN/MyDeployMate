@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 
 import UiButton from '@/components/ui/UiButton.vue'
 import UiDialog from '@/components/ui/UiDialog.vue'
@@ -11,7 +11,12 @@ import UiTextInput from '@/components/ui/UiTextInput.vue'
 import { cloneWorkspace, focusFirstInvalid, useIssues } from '@/composables/workspaceDraft'
 import { useT } from '@/i18n'
 import { messageText } from '@/i18n/message'
-import { call, toAppError, type Project } from '@/ipc'
+import {
+  addTemplateVariables,
+  templateName,
+  templatePipeline,
+} from '@/components/templates/templates'
+import { call, toAppError, type PipelineTemplate, type Project, type TemplateId } from '@/ipc'
 import { useWorkspaceStore } from '@/stores/workspace'
 
 import RootField from './RootField.vue'
@@ -33,7 +38,11 @@ const name = ref('')
 const description = ref('')
 const root = ref('')
 const environmentId = ref('')
-const template = ref<'blank'>('blank')
+const template = ref<TemplateId>('blank')
+const templates = ref<PipelineTemplate[]>([])
+onMounted(async () => {
+  templates.value = await call('pipeline_templates').catch(() => [])
+})
 
 watch(
   () => props.mode,
@@ -41,6 +50,7 @@ watch(
     issues.value = []
     error.value = null
     name.value = ''
+    template.value = 'blank'
     description.value = mode === 'copy' ? (props.source?.description ?? '') : ''
     root.value = mode === 'copy' ? (props.source?.root ?? '') : ''
     environmentId.value =
@@ -59,9 +69,12 @@ const title = computed(() =>
 const environmentOptions = computed(() =>
   store.environments.map((e) => ({ value: e.id, label: e.name })),
 )
-const templateOptions = computed(() => [
-  { value: 'blank' as const, label: t('projects.dialog.blankTemplate') },
-])
+// PRJ-03: the first pipeline can start from a P09 template; blank keeps the usual name.
+const templateOptions = computed(() =>
+  templates.value.length
+    ? templates.value.map((tpl) => ({ value: tpl.id, label: templateName(tpl.id) }))
+    : [{ value: 'blank' as TemplateId, label: t('projects.dialog.blankTemplate') }],
+)
 
 const index = ref(-1)
 function fieldError(field: string) {
@@ -85,6 +98,11 @@ async function build(): Promise<Project | null> {
     defaultEnvironmentId: environmentId.value,
     pipelineName: t('projects.dialog.firstPipeline'),
   })
+  const tpl = templates.value.find((x) => x.id === template.value)
+  if (tpl && tpl.id !== 'blank') {
+    project.pipelines = [templatePipeline(tpl, templateName(tpl.id))]
+    await addTemplateVariables(tpl, project, store.workspace)
+  }
   return {
     ...project,
     name: name.value,

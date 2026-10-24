@@ -15,6 +15,7 @@ import type { KeyFormat } from './bindings/KeyFormat'
 import type { LoadedWorkspace } from './bindings/LoadedWorkspace'
 import type { Message } from './bindings/Message'
 import type { Pipeline } from './bindings/Pipeline'
+import type { PipelineTemplate } from './bindings/PipelineTemplate'
 import type { PlanRequest } from './bindings/PlanRequest'
 import type { Project } from './bindings/Project'
 import type { ProjectId } from './bindings/ProjectId'
@@ -71,6 +72,7 @@ export interface Commands {
   new_step: [{ kind: StepKind; name: string }, Step]
   copy_step: [{ step: Step; name: string }, Step]
   builtin_variables: [Record<string, never>, BuiltinVariable[]]
+  pipeline_templates: [Record<string, never>, PipelineTemplate[]]
   wsl_distros: [Record<string, never>, string[]]
   shell_programs: [Record<string, never>, ShellProgram[]]
   preview_run: [{ draft: Workspace; request: PlanRequest }, ResolvedPlan]
