@@ -1,17 +1,22 @@
 <script setup lang="ts">
-import { ArrowDown, ChevronDown, ChevronUp, WrapText } from '@lucide/vue'
+import { save as saveFileDialog } from '@tauri-apps/plugin-dialog'
+import { ArrowDown, ChevronDown, ChevronUp, Download, WrapText } from '@lucide/vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 
+import UiConfirm from '@/components/ui/UiConfirm.vue'
 import UiIconButton from '@/components/ui/UiIconButton.vue'
 import UiSelect from '@/components/ui/UiSelect.vue'
 import UiSwitch from '@/components/ui/UiSwitch.vue'
 import UiTextInput from '@/components/ui/UiTextInput.vue'
 import { useT } from '@/i18n'
-import type { LogSource } from '@/ipc'
+import { errorText } from '@/i18n/message'
+import { call, type LogSource } from '@/ipc'
 import type { RunDetail } from '@/stores/run'
+import { useToastStore } from '@/stores/toast'
 
 import { clockTime, highlight, LIVE_LINES, type LogLine } from './runLog'
+import { exportFileName, formatRunLog } from './runLogExport'
 
 const t = useT()
 
@@ -205,6 +210,28 @@ function onSearchKey(event: KeyboardEvent) {
 }
 
 const showTask = computed(() => taskFilter.value === 'all')
+
+// IXD-27 / OBS-02: export asks first, with the reminder that redaction is not complete.
+const toast = useToastStore()
+const askExport = ref(false)
+const exporting = ref(false)
+async function exportLog() {
+  exporting.value = true
+  try {
+    const path = await saveFileDialog({
+      defaultPath: exportFileName(props.detail),
+      filters: [{ name: 'Log', extensions: ['log', 'txt'] }],
+    })
+    if (!path) return
+    await call('write_export', { path, contents: formatRunLog(props.detail) })
+    askExport.value = false
+    toast.show(t('log.export.done'))
+  } catch (e) {
+    toast.show(errorText(e))
+  } finally {
+    exporting.value = false
+  }
+}
 </script>
 
 <template>
@@ -255,6 +282,12 @@ const showTask = computed(() => taskFilter.value === 'all')
         />
       </div>
       <UiIconButton :icon="WrapText" :label="t('log.wrap')" :pressed="wrap" @click="wrap = !wrap" />
+      <UiIconButton
+        :icon="Download"
+        :label="t('log.exportButton')"
+        :disabled-reason="detail.live ? t('log.exportLive') : null"
+        @click="askExport = true"
+      />
     </div>
     <p class="count">
       <i18n-t :keypath="filtering ? 'log.countFiltered' : 'log.count'">
@@ -318,10 +351,26 @@ const showTask = computed(() => taskFilter.value === 'all')
         <span v-if="newLines" class="num">{{ t('log.newLines', { n: newLines }) }}</span>
       </button>
     </div>
+    <UiConfirm
+      :open="askExport"
+      :title="t('log.export.title')"
+      :confirm-label="t('log.export.confirm')"
+      :busy="exporting"
+      @cancel="askExport = false"
+      @confirm="exportLog"
+    >
+      <p>{{ t('log.export.body') }}</p>
+      <p class="export-warning">{{ t('log.export.sensitive') }}</p>
+    </UiConfirm>
   </section>
 </template>
 
 <style scoped>
+.export-warning {
+  margin-top: var(--space-2);
+  color: var(--state-warning);
+}
+
 .log {
   display: flex;
   flex-direction: column;

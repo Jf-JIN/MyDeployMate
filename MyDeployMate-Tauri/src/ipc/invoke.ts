@@ -13,6 +13,7 @@ import type { HostEndpoint } from './bindings/HostEndpoint'
 import type { HostKey } from './bindings/HostKey'
 import type { KeyFormat } from './bindings/KeyFormat'
 import type { LoadedWorkspace } from './bindings/LoadedWorkspace'
+import type { Message } from './bindings/Message'
 import type { Pipeline } from './bindings/Pipeline'
 import type { PlanRequest } from './bindings/PlanRequest'
 import type { Project } from './bindings/Project'
@@ -79,6 +80,8 @@ export interface Commands {
   delete_run: [{ runId: RunId }, null]
   expired_run_count: [{ days: number }, number]
   purge_history: [Record<string, never>, number]
+  plan_changes: [{ runId: RunId; plan: ResolvedPlan }, Message[]]
+  write_export: [{ path: string; contents: string }, null]
   start_run: [{ start: StartRunRequest }, RunId]
   open_run: [{ runId: RunId; onUpdate: Channel<RunUpdate> }, RunSnapshot]
   active_run: [Record<string, never>, RunId | null]

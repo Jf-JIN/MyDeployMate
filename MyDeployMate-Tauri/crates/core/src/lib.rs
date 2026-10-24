@@ -19,6 +19,7 @@ pub mod plan;
 pub mod ports;
 pub mod prompt;
 pub mod redact;
+pub mod rerun;
 pub mod resolve;
 pub mod run;
 pub mod template;

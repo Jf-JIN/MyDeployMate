@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Eye, Play, Save, Shield } from '@lucide/vue'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import ActiveRunChip from '@/components/ActiveRunChip.vue'
@@ -13,7 +13,7 @@ import { cloneWorkspace } from '@/composables/workspaceDraft'
 import { useT } from '@/i18n'
 import type { Issue, Pipeline, Project, Workspace } from '@/ipc'
 import { useDraftStore } from '@/stores/drafts'
-import { usePreviewStore } from '@/stores/preview'
+import { usePreviewStore, type RerunSource } from '@/stores/preview'
 import { useRunStore } from '@/stores/run'
 import { useSessionStore } from '@/stores/session'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -61,9 +61,26 @@ function openPreview() {
   previewWorkspace.value = cloneWorkspace(ws)
 }
 
+// FLOW-07: "run again" on a past run lands here and opens the preview compared with that run.
+const compareRun = ref<RerunSource | null>(null)
+watch(
+  () => [previewStore.rerunFrom, props.pipeline?.id] as const,
+  ([source, pipelineId]) => {
+    if (!source || source.pipelineId !== pipelineId) return
+    previewStore.rerunFrom = null
+    compareRun.value = source
+    void openRun()
+  },
+  { immediate: true },
+)
+function closePreview() {
+  previewWorkspace.value = null
+  compareRun.value = null
+}
+
 // IXD-24: a preflight issue leads back to where it can be fixed.
 function onJump(target: IssueTarget, issues: Issue[]) {
-  previewWorkspace.value = null
+  closePreview()
   if (target.kind === 'step') previewStore.jumpToStep(issues, target.stepId)
   if (target.kind === 'step' || target.kind === 'pipeline') {
     void router.push({
@@ -85,7 +102,7 @@ async function openRun() {
 
 // IXD-25: a started run opens its page.
 function onStarted(runId: string) {
-  previewWorkspace.value = null
+  closePreview()
   void router.push({ name: 'run', params: { runId } })
 }
 </script>
@@ -140,7 +157,8 @@ function onStarted(runId: string) {
       :project-id="project.id"
       :pipeline-id="pipeline.id"
       :environment-id="environmentId"
-      @cancel="previewWorkspace = null"
+      :compare-run="compareRun"
+      @cancel="closePreview"
       @jump="onJump"
       @started="onStarted"
     />

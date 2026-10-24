@@ -11,6 +11,7 @@ import {
   LoaderCircle,
   OctagonX,
   PauseCircle,
+  RotateCcw,
   Shield,
 } from '@lucide/vue'
 import { computed, onBeforeUnmount, ref, shallowRef, watch, type Component } from 'vue'
@@ -50,8 +51,11 @@ import {
 import { useT } from '@/i18n'
 import { errorText, messageText } from '@/i18n/message'
 import type { TaskStatus } from '@/ipc'
+import { usePreviewStore } from '@/stores/preview'
 import { useRunStore, type RunDetail } from '@/stores/run'
+import { useSessionStore } from '@/stores/session'
 import { useToastStore } from '@/stores/toast'
+import { useWorkspaceStore } from '@/stores/workspace'
 
 const t = useT()
 
@@ -260,6 +264,33 @@ function backToPipeline() {
   })
 }
 
+// RUN-07 / FLOW-07: run again opens the preview of the same pipeline ID as configured now,
+// compared with this run; never another pipeline, never the old commands.
+const workspace = useWorkspaceStore()
+const session = useSessionStore()
+const previewStore = usePreviewStore()
+/** Why the run's pipeline cannot be opened: it or its project was deleted (RUN-07). */
+const goneReason = computed(() => {
+  const r = run.value
+  if (!r) return null
+  const project = workspace.projects.find((p) => p.id === r.projectId)
+  if (!project) return t('runView.rerunProjectGone')
+  if (!project.pipelines.some((p) => p.id === r.pipelineId)) return t('runView.rerunPipelineGone')
+  return null
+})
+const rerunReason = computed(
+  () => goneReason.value ?? (runs.activeId ? t('runView.rerunActive') : null),
+)
+function rerun() {
+  const r = run.value
+  if (!r || rerunReason.value) return
+  if (workspace.environments.some((e) => e.id === r.environmentId)) {
+    session.selectEnvironment(r.projectId, r.environmentId)
+  }
+  previewStore.rerunFrom = { runId: r.id, pipelineId: r.pipelineId, createdAtMs: r.createdAtMs }
+  backToPipeline()
+}
+
 /** The reason line, unless it only repeats the exit code shown above it. */
 function extraReason(task: RunTask['task']) {
   return task.reason && task.reason.code !== 'exec.exitCode' ? messageText(task.reason) : null
@@ -286,9 +317,14 @@ const uploadStopped = computed(() =>
 <template>
   <PageLayout :title="t('runView.title')">
     <template #actions>
-      <UiButton v-if="finished" :icon="ArrowLeft" @click="backToPipeline">{{
-        t('runView.back')
-      }}</UiButton>
+      <template v-if="finished">
+        <UiButton :icon="ArrowLeft" :disabled-reason="goneReason" @click="backToPipeline">{{
+          t('runView.back')
+        }}</UiButton>
+        <UiButton variant="primary" :icon="RotateCcw" :disabled-reason="rerunReason" @click="rerun">
+          {{ t('runView.rerun') }}
+        </UiButton>
+      </template>
     </template>
     <UiNotice v-if="loadError" tone="failure">{{
       t('runView.loadFailed', { error: loadError })
