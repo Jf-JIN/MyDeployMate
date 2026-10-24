@@ -533,6 +533,10 @@ pub enum Message {
     ProjectMissing,
     #[serde(rename = "app.requestExpired")]
     RequestExpired,
+    #[serde(rename = "app.importRunActive")]
+    ImportRunActive,
+    #[serde(rename = "app.importExpired")]
+    ImportExpired,
     #[serde(rename = "app.savedCredentialUnavailable")]
     SavedCredentialUnavailable { reason: Box<Message> },
     #[serde(rename = "app.valueRequired")]

@@ -25,4 +25,4 @@ pub use secrets::{
     variable_account,
 };
 pub use trust::TrustStore;
-pub use workspace::{LoadOutcome, WorkspaceStore};
+pub use workspace::{LoadOutcome, WorkspaceStore, export_json, parse_import};
