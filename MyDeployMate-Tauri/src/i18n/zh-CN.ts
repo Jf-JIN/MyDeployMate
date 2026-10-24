@@ -293,7 +293,7 @@ const zhCN = {
       copyNote: '复制流程和变量，不复制目标服务器绑定和已保存的凭据。',
       defaultEnvironment: '默认环境',
       template: '初始模板',
-      templateHint: '更多模板将随模板库提供',
+      templateHint: '模板中的变量若项目没有，会加上示例值',
       copy: '复制项目',
       create: '创建项目',
       firstPipeline: '部署',
@@ -571,7 +571,59 @@ const zhCN = {
   },
   templates: {
     title: '流程模板',
-    empty: '模板将在后续版本提供',
+    intro: '模板生成的是独立可编辑的流程副本：之后修改流程不影响模板，模板更新也不会改动已有项目。',
+    stepCount: '{n} 个步骤',
+    noSteps: '不含步骤',
+    preview: '预览',
+    previewItem: '预览 {name}',
+    use: '使用模板',
+    useItem: '使用模板 {name}',
+    previewTitle: '{name} · 步骤预览',
+    previewEmpty: '该模板不含步骤，创建后在流程编辑器中添加。',
+    examples: '命令只是示例，请按项目实际修改。',
+    repoAccess:
+      '服务器需要自己能访问代码仓库（如部署密钥或 HTTPS 凭据），这与本机登录服务器的 SSH 凭据无关，MyDeployMate 无法保证拉取一定成功。',
+    blank: {
+      name: '空白流程',
+      purpose: '不含步骤，从零开始编排。',
+    },
+    localBuildUpload: {
+      name: '本地构建后上传发布',
+      purpose:
+        '在本机构建（示例为 npm），把产物目录上传到服务器，切换版本、重启服务并检查健康状态。',
+      steps: {
+        build: '构建产物',
+        upload: '上传产物',
+        switch: '切换版本',
+        restart: '重启服务',
+        health: '检查服务健康状态',
+        confirm: '确认发布结果',
+        prompt: '确认关键接口和业务指标正常后继续。',
+      },
+    },
+    remotePullDeploy: {
+      name: '远端获取代码后部署',
+      purpose:
+        '服务器从代码仓库拉取指定版本并在服务器上构建（示例为 make），然后重启服务并检查健康状态。',
+      steps: {
+        fetch: '拉取代码',
+        build: '在服务器上构建',
+        restart: '重启服务',
+        health: '检查服务健康状态',
+        confirm: '确认发布结果',
+        prompt: '确认关键接口和业务指标正常后继续。',
+      },
+    },
+    create: {
+      title: '使用模板：{name}',
+      project: '目标项目',
+      name: '新流程名称',
+      noProjects: '还没有项目。请先在“项目”页新建项目，再使用模板。',
+      variables: '项目中没有的变量会加上示例值：{names}。创建后请按实际情况修改。',
+      notRun: '创建后不会自动运行，也不会改动项目的目标服务器。',
+      confirm: '创建流程',
+      created: '已创建流程 {name}',
+    },
   },
   pipelines: {
     empty: {

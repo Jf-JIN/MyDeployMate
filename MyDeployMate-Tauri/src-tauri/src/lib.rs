@@ -55,6 +55,7 @@ pub fn run() {
             commands::new_step,
             commands::copy_step,
             commands::builtin_variables,
+            commands::pipeline_templates,
             commands::wsl_distros,
             commands::shell_programs,
             commands::preview_run,

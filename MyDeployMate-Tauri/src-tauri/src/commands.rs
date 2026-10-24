@@ -11,6 +11,7 @@ use tauri::State;
 use ts_rs::TS;
 
 use mdm_core::keyfile::KEY_HEAD_LEN;
+use mdm_core::presets::{PipelineTemplate, pipeline_templates as builtin_templates};
 use mdm_core::resolve::{VariableView, variable_views as resolve_variable_views};
 use mdm_core::template::{BuiltinVariable, builtin_variables as template_builtins};
 use mdm_core::wsl::parse_wsl_list;
@@ -313,6 +314,12 @@ pub fn copy_step(step: Step, name: String) -> Step {
 }
 
 /// Built-in expressions for the variable menu (IXD-11).
+/// The P09 templates, each with fresh IDs (PRJ-03, IXD-35).
+#[tauri::command]
+pub fn pipeline_templates() -> Vec<PipelineTemplate> {
+    builtin_templates()
+}
+
 #[tauri::command]
 pub fn builtin_variables() -> Vec<BuiltinVariable> {
     template_builtins()
