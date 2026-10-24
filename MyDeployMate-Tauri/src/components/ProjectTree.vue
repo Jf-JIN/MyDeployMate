@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ChevronDown, ChevronRight, PanelLeftClose, Plus, Search } from '@lucide/vue'
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import PipelineDialog from '@/components/pipeline/PipelineDialog.vue'
@@ -72,6 +72,95 @@ function onCreated(pipelineId: string) {
   if (projectId) void router.push({ name: 'pipeline', params: { projectId, pipelineId } })
 }
 
+// ---- Keyboard (IXD-02 v0.6) ------------------------------------------------------------------
+// The tree is one Tab stop: the active item has tabindex 0, the rest -1, and the arrow keys move
+// between the visible projects, pipelines and "新建流程" rows.
+
+const list = ref<HTMLElement | null>(null)
+const activeKey = ref<string | null>(null)
+
+const keys = computed(() => {
+  const out: string[] = []
+  for (const { project, pipelines } of visible.value) {
+    out.push(`p:${project.id}`)
+    if (!isOpen(project)) continue
+    for (const pipeline of pipelines) out.push(`l:${pipeline.id}`)
+    if (!query.value.trim()) out.push(`n:${project.id}`)
+  }
+  return out
+})
+
+/** The item that takes Tab: the last focused one if still shown, else the current route's. */
+const tabKey = computed(() => {
+  const shown = keys.value
+  const candidates = [
+    activeKey.value,
+    currentPipelineId.value ? `l:${currentPipelineId.value}` : null,
+    currentProjectId.value ? `p:${currentProjectId.value}` : null,
+  ]
+  return candidates.find((k) => k && shown.includes(k)) ?? shown[0] ?? null
+})
+
+function tabindex(key: string) {
+  return key === tabKey.value ? 0 : -1
+}
+
+async function focusKey(key: string | undefined) {
+  if (!key) return
+  activeKey.value = key
+  await nextTick()
+  list.value?.querySelector<HTMLElement>(`[data-key="${key}"]`)?.focus()
+}
+
+function onFocusin(event: FocusEvent) {
+  const key = (event.target as HTMLElement).closest<HTMLElement>('[data-key]')?.dataset.key
+  if (key) activeKey.value = key
+}
+
+function projectOf(key: string): Project | undefined {
+  const [kind, id] = [key.slice(0, 1), key.slice(2)]
+  if (kind === 'p' || kind === 'n') return workspace.projects.find((p) => p.id === id)
+  return workspace.projects.find((p) => p.pipelines.some((l) => l.id === id))
+}
+
+function onKeydown(event: KeyboardEvent) {
+  const key = (event.target as HTMLElement).closest<HTMLElement>('[data-key]')?.dataset.key
+  if (!key || event.altKey || event.ctrlKey || event.metaKey) return
+  const shown = keys.value
+  const at = shown.indexOf(key)
+  const project = projectOf(key)
+  let next: string | undefined
+  switch (event.key) {
+    case 'ArrowDown':
+      next = shown[at + 1]
+      break
+    case 'ArrowUp':
+      next = shown[at - 1]
+      break
+    case 'Home':
+      next = shown[0]
+      break
+    case 'End':
+      next = shown[shown.length - 1]
+      break
+    case 'ArrowRight':
+      if (!key.startsWith('p:') || !project) return
+      if (!isOpen(project)) toggle(project)
+      else next = shown[at + 1]
+      break
+    case 'ArrowLeft':
+      if (!project) return
+      if (key.startsWith('p:')) {
+        if (isOpen(project) && !query.value.trim()) toggle(project)
+      } else next = `p:${project.id}`
+      break
+    default:
+      return
+  }
+  event.preventDefault()
+  void focusKey(next)
+}
+
 function environmentLabel(project: Project) {
   const id = session.environment[project.id] ?? project.defaultEnvironmentId
   return workspace.environmentName(id)
@@ -99,7 +188,15 @@ function environmentLabel(project: Project) {
         :aria-label="t('tree.search')"
       />
     </div>
-    <ul v-if="visible.length" class="tree-list" role="tree" :aria-label="t('tree.projects')">
+    <ul
+      v-if="visible.length"
+      ref="list"
+      class="tree-list"
+      role="tree"
+      :aria-label="t('tree.projects')"
+      @keydown="onKeydown"
+      @focusin="onFocusin"
+    >
       <li
         v-for="{ project, pipelines } in visible"
         :key="project.id"
@@ -114,6 +211,7 @@ function environmentLabel(project: Project) {
           <button
             type="button"
             class="tree-toggle"
+            tabindex="-1"
             :aria-label="
               t(isOpen(project) ? 'tree.collapseItem' : 'tree.expandItem', { name: project.name })
             "
@@ -130,6 +228,8 @@ function environmentLabel(project: Project) {
             class="tree-link"
             :to="{ name: 'project', params: { projectId: project.id } }"
             :title="project.name"
+            :data-key="`p:${project.id}`"
+            :tabindex="tabindex(`p:${project.id}`)"
           >
             <span class="tree-name">{{ project.name }}</span>
             <span class="tree-env">{{ environmentLabel(project) }}</span>
@@ -147,6 +247,8 @@ function environmentLabel(project: Project) {
               :class="{ 'is-selected': pipeline.id === currentPipelineId }"
               :to="{ name: 'pipeline', params: { projectId: project.id, pipelineId: pipeline.id } }"
               :title="pipeline.name"
+              :data-key="`l:${pipeline.id}`"
+              :tabindex="tabindex(`l:${pipeline.id}`)"
             >
               <span class="tree-name">{{ pipeline.name }}</span>
             </RouterLink>
@@ -156,6 +258,8 @@ function environmentLabel(project: Project) {
             <button
               type="button"
               class="tree-row tree-pipeline tree-new"
+              :data-key="`n:${project.id}`"
+              :tabindex="tabindex(`n:${project.id}`)"
               @click="createPipeline(project)"
             >
               <Plus :size="14" :stroke-width="1.75" aria-hidden="true" />

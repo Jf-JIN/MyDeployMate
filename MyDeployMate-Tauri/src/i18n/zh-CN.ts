@@ -18,6 +18,11 @@ const zhCN = {
       languageSystem: '跟随系统',
       englishPreview: '英语译文尚未完成，未翻译的文字仍显示为中文。',
     },
+    help: {
+      title: '帮助',
+      hint: '第一次启动时显示的简介，可随时再看。',
+      reopenWelcome: '重新打开欢迎向导',
+    },
     credentials: {
       cleared: '已清除保存的凭据',
       title: '已保存凭据',
@@ -201,7 +206,35 @@ const zhCN = {
     local: '本地',
     start: '开始',
   },
+  welcome: {
+    title: '欢迎使用 MyDeployMate',
+    progress: '第 {n} 页，共 {total} 页',
+    skip: '跳过',
+    back: '上一步',
+    next: '下一步',
+    done: '开始使用',
+    fromTemplate: '从模板创建流程',
+    pages: {
+      servers: {
+        title: '添加服务器',
+        body: '在“服务器”页添加要部署的 Linux 服务器，填写地址、账号和认证方式，再点“测试连接”。第一次连接时需要核对并信任服务器的主机密钥。',
+      },
+      projects: {
+        title: '创建项目和流程',
+        body: '一个项目对应一个要部署的应用。流程由步骤组成，步骤可以是本地命令、上传文件、远程命令或人工确认，并可引用变量。',
+      },
+      preview: {
+        title: '预览后再执行',
+        body: '选择环境后点“预览”，逐台确认解析后的命令和目标服务器，再开始执行。保护环境需要键入环境名确认。',
+      },
+      history: {
+        title: '查看运行和记录',
+        body: '运行详情显示每个任务的状态和日志，可以随时取消。所有运行都保存在“执行记录”里，可以导出日志或再次执行。',
+      },
+    },
+  },
   app: {
+    skipToContent: '跳到主要内容',
     workspace: {
       loadFailed: '无法加载工作区：{error}',
       created: '已创建新的工作区，预置了 development、staging、production 三个环境。',
