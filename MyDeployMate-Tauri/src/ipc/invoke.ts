@@ -40,6 +40,9 @@ import type { Step } from './bindings/Step'
 import type { StepKind } from './bindings/StepKind'
 import type { TestEvent } from './bindings/TestEvent'
 import type { TrustedHost } from './bindings/TrustedHost'
+import type { UpdateInfo } from './bindings/UpdateInfo'
+import type { UpdateOutcome } from './bindings/UpdateOutcome'
+import type { UpdateProgress } from './bindings/UpdateProgress'
 import type { ValidationReport } from './bindings/ValidationReport'
 import type { Variable } from './bindings/Variable'
 import type { VariableId } from './bindings/VariableId'
@@ -123,6 +126,9 @@ export interface Commands {
     { variableId: VariableId; environmentId: EnvironmentId | null },
     boolean,
   ]
+  check_update: [Record<string, never>, UpdateInfo | null]
+  install_update: [{ onProgress: Channel<UpdateProgress> }, UpdateOutcome]
+  cancel_update: [Record<string, never>, null]
 }
 
 export type CommandName = keyof Commands

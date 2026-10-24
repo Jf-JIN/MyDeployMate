@@ -1,0 +1,109 @@
+name: Release
+
+# 发布流程（计划 8.4、8.4b；SRS NFR-04；ADR-11）。
+# - 推送 v* 标签：构建 NSIS 安装包和更新包，签名后建一个草稿 Release，附带 latest.json。
+#   检查无误后在 GitHub 上手动发布；发布后已安装的旧版本才会检查到它。
+# - 手动运行（workflow_dispatch）：只构建并上传为工作流产物，不建 Release，用来试签名和安装包。
+# 更新签名私钥存在仓库 Secrets（TAURI_SIGNING_PRIVATE_KEY、TAURI_SIGNING_PRIVATE_KEY_PASSWORD），
+# 公钥在 src-tauri/tauri.conf.json 的 plugins.updater.pubkey。
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  APP_DIR: MyDeployMate-Tauri
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ env.APP_DIR }}
+    steps:
+      - uses: actions/checkout@v5
+
+      # 标签必须与 Cargo.toml、package.json 里的版本一致，否则更新检查会比错版本。
+      - name: Check version
+        id: version
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
+          npm_version=$(node -p "require('./package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ "$version" != "$npm_version" ]; then
+            echo "::error::Cargo.toml 版本 $version 与 package.json 版本 $npm_version 不一致"
+            exit 1
+          fi
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::标签 $GITHUB_REF_NAME 与版本 v$version 不一致"
+            exit 1
+          fi
+
+      # 发布说明取带注释标签的说明（git tag -a v0.2.0 -m "..."），也写进 latest.json 供更新弹窗显示。
+      - name: Release notes
+        if: github.ref_type == 'tag'
+        run: |
+          git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+          git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > "$RUNNER_TEMP/notes.md"
+          {
+            echo 'RELEASE_NOTES<<__NOTES__'
+            cat "$RUNNER_TEMP/notes.md"
+            echo '__NOTES__'
+          } >> "$GITHUB_ENV"
+
+      - name: Signing keys present
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "::error::缺少 Secret TAURI_SIGNING_PRIVATE_KEY，无法给更新包签名"
+            exit 1
+          fi
+          if grep -q 'REPLACE_WITH_UPDATER_PUBLIC_KEY' src-tauri/tauri.conf.json; then
+            echo "::error::src-tauri/tauri.conf.json 里的更新公钥还没有填写"
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ${{ env.APP_DIR }}/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ env.APP_DIR }}
+      - run: npm ci
+
+      - uses: tauri-apps/tauri-action@v0
+        id: tauri
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: ${{ env.APP_DIR }}
+          # 本地构建不生成更新包（没有私钥），只有这里打开。
+          args: --config src-tauri/tauri.release.conf.json
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          releaseName: MyDeployMate v__VERSION__
+          releaseBody: ${{ env.RELEASE_NOTES }}
+          releaseDraft: true
+          includeUpdaterJson: true
+
+      - name: Upload build output
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: MyDeployMate-${{ steps.version.outputs.version }}
+          path: ${{ env.APP_DIR }}/target/release/bundle/nsis/

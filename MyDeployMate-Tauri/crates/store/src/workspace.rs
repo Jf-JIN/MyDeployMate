@@ -134,13 +134,29 @@ impl WorkspaceStore {
         if self.known_hash.is_some_and(|h| h != sha256(&bytes)) {
             return Err(StoreError::ExternalChange);
         }
-        let backups = self.dir.backups();
-        fs::create_dir_all(&backups).map_err(io(&backups))?;
-        let backup = backups.join(format!("workspace-before-import-{}.json", unix_secs()));
-        fs::write(&backup, &bytes).map_err(io(&backup))?;
+        let backup = self.write_backup("import", &bytes)?;
         imported.revision = expected_revision;
         let saved = self.save(imported)?;
         Ok((saved, backup))
+    }
+
+    /// Copy the current configuration into `backups/` before an app update (NFR-03, NFR-04).
+    /// Returns the backup's path, or `None` when there is no configuration file yet.
+    pub fn backup_before_update(&mut self) -> Result<Option<std::path::PathBuf>, StoreError> {
+        let path = self.dir.workspace_file();
+        match fs::read(&path) {
+            Ok(bytes) => self.write_backup("update", &bytes).map(Some),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(StoreError::Io { path, source: e }),
+        }
+    }
+
+    fn write_backup(&self, reason: &str, bytes: &[u8]) -> Result<std::path::PathBuf, StoreError> {
+        let backups = self.dir.backups();
+        fs::create_dir_all(&backups).map_err(io(&backups))?;
+        let backup = backups.join(format!("workspace-before-{reason}-{}.json", unix_secs()));
+        fs::write(&backup, bytes).map_err(io(&backup))?;
+        Ok(backup)
     }
 
     /// Bump the revision and write.
@@ -278,6 +294,26 @@ mod tests {
         assert_eq!(bak.revision, 1);
         assert_eq!(bak.environments[0].name, "development");
         assert!(!store.dir().workspace_temp().exists());
+    }
+
+    #[test]
+    fn backup_before_update_copies_the_current_file() {
+        let (_tmp, mut store) = store();
+        assert_eq!(store.backup_before_update().unwrap(), None);
+        store.load().unwrap();
+        let backup = store.backup_before_update().unwrap().unwrap();
+        assert!(backup.starts_with(store.dir().backups()));
+        assert!(
+            backup
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("workspace-before-update-")
+        );
+        assert_eq!(
+            fs::read(&backup).unwrap(),
+            fs::read(store.dir().workspace_file()).unwrap()
+        );
     }
 
     #[test]
