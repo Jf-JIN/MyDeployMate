@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { CircleAlert, Copy, Shield } from '@lucide/vue'
+import { CircleAlert, Copy, History, Shield } from '@lucide/vue'
 import { computed, nextTick, ref, useId, watch } from 'vue'
 
+import { dateTime } from '@/components/run/runState'
 import { hostPort } from '@/components/servers/serverForm'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiCheckbox from '@/components/ui/UiCheckbox.vue'
@@ -19,6 +20,7 @@ import {
   call,
   toAppError,
   type Issue,
+  type Message,
   type PlanRequest,
   type PlannedTask,
   type ResolvedPlan,
@@ -26,6 +28,7 @@ import {
   type Workspace,
 } from '@/ipc'
 import { useShellPrograms } from '@/composables/shellPrograms'
+import type { RerunSource } from '@/stores/preview'
 import { useRunStore } from '@/stores/run'
 import { useToastStore } from '@/stores/toast'
 
@@ -51,6 +54,8 @@ const props = defineProps<{
   projectId: string
   pipelineId: string
   environmentId: string
+  /** "Run again": also list what changed since this run (IXD-34, FLOW-07). */
+  compareRun?: RerunSource | null
 }>()
 const emit = defineEmits<{
   cancel: []
@@ -61,6 +66,8 @@ const emit = defineEmits<{
 const toast = useToastStore()
 const run = useRunStore()
 const plan = ref<ResolvedPlan | null>(null)
+/** Differences from the compared run, once known. */
+const changes = ref<Message[] | null>(null)
 const error = ref<string | null>(null)
 const loading = ref(false)
 
@@ -86,6 +93,7 @@ watch(
     version.value = null
     typed.value = ''
     plan.value = null
+    changes.value = null
     startError.value = null
     key.value = crypto.randomUUID()
     void refresh()
@@ -111,7 +119,13 @@ async function refresh() {
   error.value = null
   try {
     const result = await call('preview_run', { draft: props.workspace, request: request() })
-    if (mine === ticket) plan.value = result
+    const diff = props.compareRun
+      ? await call('plan_changes', { runId: props.compareRun.runId, plan: result })
+      : null
+    if (mine === ticket) {
+      plan.value = result
+      changes.value = diff
+    }
   } catch (e) {
     // An unsaved draft with a mistyped field cannot be planned; say which field.
     const err = toAppError(e)
@@ -283,6 +297,42 @@ async function start() {
           </dl>
         </header>
 
+        <section
+          v-if="compareRun && changes"
+          class="changes"
+          :aria-label="t('preview.rerun.label')"
+        >
+          <h3 class="changes-title">
+            <History :size="16" :stroke-width="1.75" aria-hidden="true" />
+            {{ t('preview.rerun.title', { time: dateTime(compareRun.createdAtMs) }) }}
+          </h3>
+          <ul v-if="changes.length" class="changes-list">
+            <li v-for="(change, i) in changes" :key="i">
+              <!-- Text changes show both values in full: commands can span lines. -->
+              <template v-if="change.code === 'rerun.stepText'">
+                {{
+                  t('preview.rerun.field', {
+                    step: change.params.step,
+                    label: messageText(change.params.label),
+                  })
+                }}
+                <dl class="change-values">
+                  <dt>{{ t('preview.rerun.before') }}</dt>
+                  <dd>
+                    <code>{{ change.params.before || t('preview.rerun.empty') }}</code>
+                  </dd>
+                  <dt>{{ t('preview.rerun.after') }}</dt>
+                  <dd>
+                    <code>{{ change.params.after || t('preview.rerun.empty') }}</code>
+                  </dd>
+                </dl>
+              </template>
+              <template v-else>{{ messageText(change) }}</template>
+            </li>
+          </ul>
+          <p v-else class="muted">{{ t('preview.rerun.none') }}</p>
+        </section>
+
         <div class="params">
           <div class="scope">
             <span class="label">{{ t('preview.scope') }}</span>
@@ -422,6 +472,45 @@ async function start() {
 </template>
 
 <style scoped>
+.changes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-surface);
+  background: var(--surface-panel);
+}
+
+.changes-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font: var(--font-label);
+}
+
+.change-values {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-1) var(--space-2);
+  margin: var(--space-1) 0 var(--space-2);
+  color: var(--text-secondary);
+}
+
+.change-values code {
+  color: var(--text-primary);
+}
+
+.changes-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding-left: var(--space-5);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .start-error {
   flex: 1;
   margin: 0;

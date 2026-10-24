@@ -64,6 +64,8 @@ pub fn run() {
             history::delete_run,
             history::expired_run_count,
             history::purge_history,
+            history::plan_changes,
+            history::write_export,
             run::start_run,
             run::open_run,
             run::active_run,
