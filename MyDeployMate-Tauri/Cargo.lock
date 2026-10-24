@@ -2663,6 +2663,7 @@ version = "0.1.0"
 dependencies = [
  "encoding_rs",
  "mdm-core",
+ "mdm-store",
  "pretty_assertions",
  "process-wrap",
  "russh",

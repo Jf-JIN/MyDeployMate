@@ -328,9 +328,11 @@ impl RunObserver for LogPipeline {
         self.push(&mut inner, seq, source, text, None);
     }
 
-    /// Notes are written by the app and never contain variable values, so they skip redaction.
+    /// Notes are written by the app, but their parameters (paths, third-party text) may come
+    /// from resolved fields, so they are masked like output.
     fn note(&self, seq: u32, message: Message) {
         let mut inner = self.lock();
+        let message = inner.redactor.redact_value(message);
         self.push(
             &mut inner,
             seq,
@@ -338,6 +340,14 @@ impl RunObserver for LogPipeline {
             "\n".into(),
             Some(message),
         );
+    }
+
+    fn secret(&self, secret: &str) {
+        let mut inner = self.lock();
+        inner.redactor.add(secret);
+        for stream in inner.streams.values_mut() {
+            stream.add(secret);
+        }
     }
 
     fn requested(&self, request: &OperatorRequest) {

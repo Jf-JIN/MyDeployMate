@@ -14,11 +14,12 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use mdm_core::redact::Redactor;
 use mdm_core::{
     Clock, Message, Next, OperatorPrompt, PlannedTask, ResolvedPlan, RunEvent, RunId, RunMachine,
     RunStatus, RunStore, StepKind, StorageError, TaskDetail, TaskStatus, UploadProgress,
 };
-use secrecy::SecretString;
+use secrecy::{ExposeSecret, SecretString};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
@@ -98,6 +99,8 @@ pub trait RunObserver: Send + Sync {
     /// A task waits for the operator; the run is already recorded as waiting.
     fn requested(&self, request: &OperatorRequest);
     fn storage_failed(&self, error: &StorageError);
+    /// The operator typed `secret` for this run (D04); mask it from now on.
+    fn secret(&self, _secret: &str) {}
     /// Progress of a running upload; may be dropped or coalesced.
     fn progress(&self, _seq: u32, _progress: UploadProgress) {}
 }
@@ -163,6 +166,8 @@ pub struct Coordinator<S: RunStore> {
     control: mpsc::UnboundedReceiver<Control>,
     control_open: bool,
     next_request: u64,
+    /// Masks the run's secrets in reasons and details before they are stored.
+    redactor: Redactor,
 }
 
 impl<S: RunStore> Coordinator<S> {
@@ -178,6 +183,7 @@ impl<S: RunStore> Coordinator<S> {
         observer: Arc<dyn RunObserver>,
         control: mpsc::UnboundedReceiver<Control>,
     ) -> Result<Self, (StorageError, S)> {
+        let redactor = Redactor::new(plan.secrets.0.iter().cloned());
         let mut machine = RunMachine::from_plan(&plan, run_id, clock.now_ms());
         if let Err(e) = store.create_run(&machine, &plan) {
             return Err((e, store));
@@ -195,6 +201,7 @@ impl<S: RunStore> Coordinator<S> {
             control,
             control_open: true,
             next_request: 1,
+            redactor,
         };
         if let Err(e) = c.store.save_run(&c.machine) {
             c.abort(Abort::Storage(e));
@@ -287,6 +294,7 @@ impl<S: RunStore> Coordinator<S> {
         if self.machine.tasks()[seq as usize].status.is_terminal() {
             return Ok(());
         }
+        let detail = self.redactor.redact_value(detail);
         self.step(RunEvent::TaskDetail {
             seq,
             detail: Box::new(detail),
@@ -369,6 +377,10 @@ impl<S: RunStore> Coordinator<S> {
                                 RunEvent::CancelRequested { reason }
                             }
                         };
+                        if let Some(OperatorAnswer::Secret { value, .. }) = &answer {
+                            self.redactor.add(value.expose_secret());
+                            self.observer.secret(value.expose_secret());
+                        }
                         if let Err(abort) = self.step(event) {
                             failed = Some(abort);
                             cancel.cancel();
@@ -410,10 +422,13 @@ impl<S: RunStore> Coordinator<S> {
                 seq,
                 exit_code,
                 exit_signal,
-                reason,
+                reason: self.redactor.redact_value(reason),
             },
             TaskOutcome::Cancelled => RunEvent::TaskCancelled { seq },
-            TaskOutcome::Unknown { reason } => RunEvent::TaskOutcomeUnknown { seq, reason },
+            TaskOutcome::Unknown { reason } => RunEvent::TaskOutcomeUnknown {
+                seq,
+                reason: self.redactor.redact_value(reason),
+            },
         };
         self.step(event)
     }

@@ -1,6 +1,8 @@
 //! Real shells on Windows (runs in the Windows CI job). PowerShell 7 tests are skipped when
 //! `pwsh.exe` is not on PATH.
 #![cfg(windows)]
+// Skip notes from helpers go to the test output.
+#![allow(clippy::print_stderr)]
 
 use std::path::PathBuf;
 use std::time::Duration;

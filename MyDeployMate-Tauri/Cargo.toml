@@ -14,4 +14,8 @@ unsafe_code = "forbid"
 
 [workspace.lints.clippy]
 dbg_macro = "warn"
+# Nothing is written to the console, so command arguments and secrets cannot end up in a
+# terminal or a captured log (plan task 8.3). Tests may print; see clippy.toml.
+print_stdout = "warn"
+print_stderr = "warn"
 todo = "warn"
