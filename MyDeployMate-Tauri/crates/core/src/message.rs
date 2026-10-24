@@ -363,6 +363,46 @@ pub enum Message {
     SpawnFailed { program: String, detail: String },
     #[serde(rename = "exec.waitFailed")]
     WaitFailed { detail: String },
+    #[serde(rename = "upload.sourceMissing")]
+    SourceMissing { path: String },
+    #[serde(rename = "upload.sourceNotFile")]
+    SourceNotFile { path: String },
+    #[serde(rename = "upload.sourceNotDir")]
+    SourceNotDir { path: String },
+    #[serde(rename = "upload.sourceLink")]
+    SourceLink { path: String },
+    #[serde(rename = "upload.sourceSpecial")]
+    SourceSpecial { path: String },
+    #[serde(rename = "upload.sourceRead")]
+    SourceRead { path: String, detail: String },
+    #[serde(rename = "upload.sftpUnavailable")]
+    SftpUnavailable { detail: String },
+    #[serde(rename = "upload.targetIsDir")]
+    TargetIsDir { path: String },
+    #[serde(rename = "upload.targetNotDir")]
+    TargetNotDir { path: String },
+    #[serde(rename = "upload.targetExists")]
+    TargetExists { path: String },
+    #[serde(rename = "upload.noPosixRename")]
+    NoPosixRename,
+    #[serde(rename = "upload.noSpace")]
+    NoSpace {
+        path: String,
+        need: String,
+        avail: String,
+    },
+    #[serde(rename = "upload.permissionDenied")]
+    PermissionDenied { path: String },
+    #[serde(rename = "upload.remoteFailed")]
+    RemoteFailed { path: String, detail: String },
+    #[serde(rename = "upload.contentChanged")]
+    ContentChanged { path: String },
+    #[serde(rename = "upload.sizeMismatch")]
+    SizeMismatch { path: String },
+    #[serde(rename = "upload.commitUnknown")]
+    CommitUnknown { path: String },
+    #[serde(rename = "upload.tempLeft")]
+    TempLeft { path: String, detail: String },
     #[serde(rename = "log.storageFailed")]
     LogStorageFailed { reason: Box<Message> },
     #[serde(rename = "log.limitReached")]

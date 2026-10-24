@@ -631,3 +631,339 @@ mod remote {
         assert_eq!(o.end, RemoteEnd::Cancelled(Stop::Confirmed));
     }
 }
+
+// ---- SFTP upload (ARC-28–30, AT-10) ---------------------------------------------------------
+
+mod upload {
+    use super::*;
+    use std::path::Path;
+
+    use mdm_core::{ConflictPolicy, Message, SourceKind};
+    use mdm_exec::ssh::SshSession;
+    use mdm_exec::upload::{Sftp, UploadEnd, UploadJob, UploadReport, scan, upload};
+
+    async fn session(keys: &Path) -> SshSession {
+        let key = host_key(MODERN, keys).await;
+        let t = key_target(MODERN, "deploy", keys.join("id_ed25519"));
+        try_connect(&t, &[key], &Answers::default()).await.unwrap()
+    }
+
+    /// A fresh remote directory for one test, removed first in case an earlier run left it.
+    async fn remote_dir(s: &SshSession, name: &str) -> String {
+        let dir = format!("/home/deploy/mdm-upload-{name}");
+        sh(s, &format!("chmod -R u+w {dir} 2>/dev/null; rm -rf {dir}")).await;
+        dir
+    }
+
+    async fn sh(s: &SshSession, cmd: &str) -> String {
+        let out = s.exec_collect(cmd, 64 * 1024).await.unwrap();
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    }
+
+    async fn put(
+        sftp: &Sftp,
+        source: &Path,
+        kind: SourceKind,
+        target: &str,
+        conflict: ConflictPolicy,
+    ) -> UploadReport {
+        let manifest = scan(source, kind).unwrap();
+        let job = UploadJob {
+            source,
+            manifest: &manifest,
+            target,
+            conflict,
+            token: "t1",
+        };
+        upload(sftp, &job, &CancellationToken::new(), |_| {}).await
+    }
+
+    #[tokio::test]
+    async fn file_conflict_policies() {
+        let keys = require_test_env!();
+        let s = session(&keys).await;
+        let sftp = Sftp::open(&s).await.unwrap();
+        assert!(sftp.supports_posix_rename());
+        let dir = remote_dir(&s, "file").await;
+        let local = tempfile::tempdir().unwrap();
+        let src = local.path().join("app.jar");
+        std::fs::write(&src, "v1").unwrap();
+
+        // Missing parent directories are created.
+        let target = format!("{dir}/a/b/app.jar");
+        let r = put(
+            &sftp,
+            &src,
+            SourceKind::File,
+            &target,
+            ConflictPolicy::Error,
+        )
+        .await;
+        assert_eq!(r.end, UploadEnd::Completed, "{r:?}");
+        assert_eq!(r.committed, vec![target.clone()]);
+        assert_eq!(sh(&s, &format!("cat {target}")).await, "v1");
+
+        // Policy "error" leaves an existing file alone (AC-13).
+        std::fs::write(&src, "v2").unwrap();
+        let r = put(
+            &sftp,
+            &src,
+            SourceKind::File,
+            &target,
+            ConflictPolicy::Error,
+        )
+        .await;
+        assert_eq!(
+            r.end,
+            UploadEnd::Failed(Message::TargetExists {
+                path: target.clone()
+            })
+        );
+        assert_eq!(sh(&s, &format!("cat {target}")).await, "v1");
+
+        // Overwrite without posix-rename fails and keeps the original (AC-13).
+        let plain = Sftp::open(&s).await.unwrap().without_posix_rename();
+        let r = put(
+            &plain,
+            &src,
+            SourceKind::File,
+            &target,
+            ConflictPolicy::Overwrite,
+        )
+        .await;
+        assert_eq!(r.end, UploadEnd::Failed(Message::NoPosixRename));
+        assert_eq!(sh(&s, &format!("cat {target}")).await, "v1");
+
+        let r = put(
+            &sftp,
+            &src,
+            SourceKind::File,
+            &target,
+            ConflictPolicy::Overwrite,
+        )
+        .await;
+        assert_eq!(r.end, UploadEnd::Completed, "{r:?}");
+        assert_eq!(sh(&s, &format!("cat {target}")).await, "v2");
+
+        // A directory as the target of a file upload.
+        let r = put(
+            &sftp,
+            &src,
+            SourceKind::File,
+            &dir,
+            ConflictPolicy::Overwrite,
+        )
+        .await;
+        assert_eq!(
+            r.end,
+            UploadEnd::Failed(Message::TargetIsDir { path: dir.clone() })
+        );
+        assert_eq!(sh(&s, &format!("find {dir} -name '*.mdm-*'")).await, "");
+    }
+
+    #[tokio::test]
+    async fn directory_keeps_hidden_files_and_extra_remote_files() {
+        let keys = require_test_env!();
+        let s = session(&keys).await;
+        let sftp = Sftp::open(&s).await.unwrap();
+        let dir = remote_dir(&s, "dir").await;
+        sh(
+            &s,
+            &format!("mkdir -p {dir} && echo keep > {dir}/extra.txt"),
+        )
+        .await;
+        let local = tempfile::tempdir().unwrap();
+        let root = local.path();
+        std::fs::create_dir_all(root.join("css/empty")).unwrap();
+        std::fs::write(root.join(".env"), "secret=1").unwrap();
+        std::fs::write(root.join("css/site.css"), "body{}").unwrap();
+        // Larger than the in-flight window, so writes overlap.
+        let big: Vec<u8> = (0..2_000_000u32).map(|i| (i % 251) as u8).collect();
+        std::fs::write(root.join("big.bin"), &big).unwrap();
+
+        let manifest = scan(root, SourceKind::Directory).unwrap();
+        let job = UploadJob {
+            source: root,
+            manifest: &manifest,
+            target: &dir,
+            conflict: ConflictPolicy::Error,
+            token: "t2",
+        };
+        let mut last = None;
+        let r = upload(&sftp, &job, &CancellationToken::new(), |p| last = Some(p)).await;
+        assert_eq!(r.end, UploadEnd::Completed, "{r:?}");
+        assert_eq!(r.committed.len(), 3);
+        let last = last.unwrap();
+        assert_eq!((last.files_done, last.files_total), (3, 3));
+        assert_eq!(last.bytes_done, last.bytes_total);
+
+        let listing = sh(&s, &format!("cd {dir} && find . | sort")).await;
+        assert_eq!(
+            listing,
+            ".\n./.env\n./big.bin\n./css\n./css/empty\n./css/site.css\n./extra.txt\n"
+        );
+        let sum = sh(&s, &format!("sha256sum {dir}/big.bin | cut -d' ' -f1")).await;
+        let want = manifest.files.iter().find(|f| f.path == "big.bin").unwrap();
+        assert_eq!(sum.trim(), want.sha256);
+    }
+
+    #[tokio::test]
+    async fn stops_at_the_first_failure_and_lists_the_rest() {
+        let keys = require_test_env!();
+        let s = session(&keys).await;
+        let sftp = Sftp::open(&s).await.unwrap();
+        let dir = remote_dir(&s, "partial").await;
+        sh(
+            &s,
+            &format!("mkdir -p {dir}/locked && chmod 555 {dir}/locked"),
+        )
+        .await;
+        let local = tempfile::tempdir().unwrap();
+        let root = local.path();
+        std::fs::create_dir(root.join("locked")).unwrap();
+        for f in ["a", "locked/x", "z"] {
+            std::fs::write(root.join(f), f).unwrap();
+        }
+        let r = put(
+            &sftp,
+            root,
+            SourceKind::Directory,
+            &dir,
+            ConflictPolicy::Error,
+        )
+        .await;
+        assert_eq!(
+            r.end,
+            UploadEnd::Failed(Message::PermissionDenied {
+                path: format!("{dir}/locked/.x.mdm-t1.tmp")
+            })
+        );
+        assert_eq!(r.committed, vec![format!("{dir}/a")]);
+        assert_eq!(r.stopped_at, Some(format!("{dir}/locked/x")));
+        assert_eq!(r.unprocessed, vec![format!("{dir}/z")]);
+        assert!(r.temp_left.is_empty());
+    }
+
+    #[tokio::test]
+    async fn no_sudo_for_protected_directories() {
+        let keys = require_test_env!();
+        let s = session(&keys).await;
+        let sftp = Sftp::open(&s).await.unwrap();
+        let local = tempfile::tempdir().unwrap();
+        let src = local.path().join("f");
+        std::fs::write(&src, "x").unwrap();
+        let r = put(
+            &sftp,
+            &src,
+            SourceKind::File,
+            "/opt/protected/sub/f",
+            ConflictPolicy::Error,
+        )
+        .await;
+        assert_eq!(
+            r.end,
+            UploadEnd::Failed(Message::PermissionDenied {
+                path: "/opt/protected/sub".into()
+            })
+        );
+        assert!(r.committed.is_empty());
+    }
+
+    #[tokio::test]
+    async fn content_changed_after_scan_is_not_committed() {
+        let keys = require_test_env!();
+        let s = session(&keys).await;
+        let sftp = Sftp::open(&s).await.unwrap();
+        let dir = remote_dir(&s, "changed").await;
+        let local = tempfile::tempdir().unwrap();
+        let src = local.path().join("app.jar");
+        std::fs::write(&src, "built").unwrap();
+        let manifest = scan(&src, SourceKind::File).unwrap();
+        std::fs::write(&src, "rebuilt").unwrap();
+        let target = format!("{dir}/app.jar");
+        let job = UploadJob {
+            source: &src,
+            manifest: &manifest,
+            target: &target,
+            conflict: ConflictPolicy::Error,
+            token: "t3",
+        };
+        let r = upload(&sftp, &job, &CancellationToken::new(), |_| {}).await;
+        assert!(
+            matches!(r.end, UploadEnd::Failed(Message::ContentChanged { .. })),
+            "{r:?}"
+        );
+        assert_eq!(sh(&s, &format!("ls -A {dir}")).await, "");
+    }
+
+    #[tokio::test]
+    async fn cancel_before_start_uploads_nothing() {
+        let keys = require_test_env!();
+        let s = session(&keys).await;
+        let sftp = Sftp::open(&s).await.unwrap();
+        let dir = remote_dir(&s, "cancel").await;
+        let local = tempfile::tempdir().unwrap();
+        let src = local.path().join("f");
+        std::fs::write(&src, "x").unwrap();
+        let manifest = scan(&src, SourceKind::File).unwrap();
+        let target = format!("{dir}/f");
+        let job = UploadJob {
+            source: &src,
+            manifest: &manifest,
+            target: &target,
+            conflict: ConflictPolicy::Error,
+            token: "t4",
+        };
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let r = upload(&sftp, &job, &cancel, |_| {}).await;
+        assert_eq!(r.end, UploadEnd::Cancelled);
+        assert_eq!(r.unprocessed, vec![target]);
+        assert_eq!(sh(&s, &format!("ls -A {dir}")).await, "");
+    }
+}
+
+mod upload_cancel {
+    use super::*;
+
+    use mdm_core::{ConflictPolicy, SourceKind};
+    use mdm_exec::upload::{Sftp, UploadEnd, UploadJob, scan, upload};
+
+    #[tokio::test]
+    async fn cancel_mid_file_removes_the_temporary_file() {
+        let keys = require_test_env!();
+        let key = host_key(MODERN, &keys).await;
+        let t = key_target(MODERN, "deploy", keys.join("id_ed25519"));
+        let s = try_connect(&t, &[key], &Answers::default()).await.unwrap();
+        let sftp = Sftp::open(&s).await.unwrap();
+        let dir = "/home/deploy/mdm-upload-cancel-mid";
+        s.exec_collect(&format!("rm -rf {dir}"), 1024)
+            .await
+            .unwrap();
+        let local = tempfile::tempdir().unwrap();
+        let src = local.path().join("big.bin");
+        std::fs::write(&src, vec![7u8; 8_000_000]).unwrap();
+        let manifest = scan(&src, SourceKind::File).unwrap();
+        let target = format!("{dir}/big.bin");
+        let job = UploadJob {
+            source: &src,
+            manifest: &manifest,
+            target: &target,
+            conflict: ConflictPolicy::Error,
+            token: "t5",
+        };
+        let cancel = CancellationToken::new();
+        let r = upload(&sftp, &job, &cancel, |p| {
+            if p.bytes_done > 0 {
+                cancel.cancel();
+            }
+        })
+        .await;
+        assert_eq!(r.end, UploadEnd::Cancelled);
+        assert!(r.committed.is_empty() && r.temp_left.is_empty(), "{r:?}");
+        assert_eq!(r.unprocessed, vec![target]);
+        let out = s.exec_collect(&format!("ls -A {dir}"), 1024).await.unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "");
+        assert_eq!(out.exit_status, Some(0));
+    }
+}

@@ -1069,6 +1069,27 @@ const zhCN = {
       spawnFailed: '无法启动 {program}：{detail}',
       waitFailed: '等待进程结束失败：{detail}',
     },
+    upload: {
+      sourceMissing: '本地源不存在：{path}',
+      sourceNotFile: '本地源不是文件：{path}',
+      sourceNotDir: '本地源不是目录：{path}',
+      sourceLink: '不支持上传符号链接或目录联接：{path}',
+      sourceSpecial: '不支持上传特殊文件：{path}',
+      sourceRead: '无法读取本地文件 {path}：{detail}',
+      sftpUnavailable: '无法打开 SFTP 会话：{detail}',
+      targetIsDir: '远端目标是目录，上传文件时目标须为完整文件路径：{path}',
+      targetNotDir: '远端路径已存在且不是目录：{path}',
+      targetExists: '远端文件已存在，冲突策略为“报错”，未覆盖：{path}',
+      noPosixRename:
+        "服务器不支持安全替换（posix-rename{'@'}openssh.com），无法覆盖已有文件，原文件保持不变",
+      noSpace: '{path} 所在磁盘可用 {avail}，本次上传需要 {need}，未开始上传',
+      permissionDenied: '当前 SSH 账号无权写入 {path}（上传不会使用 sudo）',
+      remoteFailed: '远端操作失败（{path}）：{detail}',
+      contentChanged: '上传过程中本地文件内容发生变化，未提交：{path}',
+      sizeMismatch: '远端临时文件长度与本地文件不一致，未提交：{path}',
+      commitUnknown: '提交 {path} 时连接中断，无法确认文件是否已替换，请登录服务器核验',
+      tempLeft: '临时文件未能清理：{path}（{detail}）',
+    },
     log: {
       storageFailed: '{reason}；之后的输出不再保存，运行已停止',
       limitReached:
