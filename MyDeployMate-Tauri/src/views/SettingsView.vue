@@ -468,16 +468,11 @@ async function openDataDir() {
             :label="t('settings.look.theme')"
           />
           <span class="look-label">{{ t('settings.look.language') }}</span>
-          <div class="look-control">
-            <UiSegmented
-              v-model="locale.preference"
-              :options="localeOptions"
-              :label="t('settings.look.language')"
-            />
-            <p v-if="$i18n.locale === 'en-US'" class="look-hint">
-              {{ t('settings.look.englishPreview') }}
-            </p>
-          </div>
+          <UiSegmented
+            v-model="locale.preference"
+            :options="localeOptions"
+            :label="t('settings.look.language')"
+          />
         </div>
       </section>
 
@@ -665,19 +660,6 @@ async function openDataDir() {
   /* Centred on the 32px segmented control. */
   padding-top: 5px;
   font: var(--font-label);
-}
-
-.look-control {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2) var(--space-3);
-}
-
-.look-hint {
-  margin: 0;
-  color: var(--text-secondary);
-  font: var(--font-caption);
 }
 
 .retention {
