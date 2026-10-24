@@ -842,6 +842,23 @@ const zhCN = {
     stopping: '正在停止当前任务，停止后应用会自动退出。',
     body: '关闭应用前需要先取消运行。取消后不再开始后续任务，已完成的操作不会自动撤销。',
   },
+  upload: {
+    verifying: '校验产物…',
+    progress: '{done}/{total} 个文件 · {sent} / {size}',
+    manifest: '产物清单：{n} 个文件，共 {size}',
+    committed: '已提交 {n} 个文件',
+    failedAt: '失败的文件',
+    unknownAt: '结果未知的文件',
+    unprocessed: '未处理 {n} 个文件',
+    changes: '与第一个目标上传时相比的变化（{n}）',
+    tempLeft: '未能清理的临时文件',
+    noRollback: '目录上传不是整体事务：已提交的文件保留在服务器上，没有回滚。',
+    change: {
+      added: '新增',
+      removed: '删除',
+      modified: '内容变化',
+    },
+  },
   runView: {
     title: '运行详情',
     back: '返回流程',
@@ -1044,7 +1061,6 @@ const zhCN = {
       noProcessGroup:
         '没有收到远端进程组 ID：服务器可能缺少 setsid（util-linux），取消时将无法确认远端进程已停止',
       shellMissing: '本机未找到 {program}',
-      uploadUnsupported: '当前版本尚不支持上传，请选择“仅本地命令”运行或去掉上传步骤',
       exitCode: '退出码 {code}',
       signal: '远端进程被信号 {signal} 终止',
       refused: '服务器拒绝执行命令',
@@ -1088,6 +1104,10 @@ const zhCN = {
       contentChanged: '上传过程中本地文件内容发生变化，未提交：{path}',
       sizeMismatch: '远端临时文件长度与本地文件不一致，未提交：{path}',
       commitUnknown: '提交 {path} 时连接中断，无法确认文件是否已替换，请登录服务器核验',
+      artifactChanged: '产物与本步骤第一个目标上传时不一致（{n} 处变化），未上传',
+      manifestRecorded: '已记录产物清单：{files} 个文件，共 {size}',
+      manifestVerified: '产物与本步骤第一个目标上传时一致',
+      done: '已上传 {files} 个文件，共 {size}',
       tempLeft: '临时文件未能清理：{path}（{detail}）',
     },
     log: {

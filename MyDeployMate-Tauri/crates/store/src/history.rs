@@ -20,7 +20,8 @@ use serde::de::DeserializeOwned;
 use crate::error::StoreError;
 
 /// Schema versions in order; entry `i` upgrades from version `i` to `i + 1`.
-const MIGRATIONS: &[&str] = &[r#"
+const MIGRATIONS: &[&str] = &[
+    r#"
 CREATE TABLE runs (
     id               TEXT PRIMARY KEY,
     project_id       TEXT NOT NULL,
@@ -60,7 +61,12 @@ CREATE TABLE tasks (
     finished_at_ms INTEGER,
     UNIQUE (run_id, seq)
 );
-"#];
+"#,
+    // Phase 6: JSON `TaskDetail`, e.g. an upload's manifest and file lists.
+    r#"
+ALTER TABLE tasks ADD COLUMN detail TEXT;
+"#,
+];
 
 /// A run as stored, with its tasks in plan order.
 #[derive(Clone, Debug, PartialEq)]
@@ -178,7 +184,8 @@ impl HistoryStore {
             .conn
             .prepare(
                 "SELECT id, seq, step_id, step_name, kind, server_id, server_name, failure_policy,
-                        status, exit_code, exit_signal, reason, started_at_ms, finished_at_ms
+                        status, exit_code, exit_signal, reason, started_at_ms, finished_at_ms,
+                        detail
                  FROM tasks WHERE run_id = ?1 ORDER BY seq",
             )
             .map_err(db)?;
@@ -278,7 +285,7 @@ impl HistoryStore {
         for t in &changed {
             tx.execute(
                 "UPDATE tasks SET status = ?2, exit_code = ?3, exit_signal = ?4, reason = ?5,
-                                  started_at_ms = ?6, finished_at_ms = ?7
+                                  started_at_ms = ?6, finished_at_ms = ?7, detail = ?8
                  WHERE id = ?1",
                 params![
                     to_text(&t.id),
@@ -288,6 +295,7 @@ impl HistoryStore {
                     t.reason.as_ref().map(Message::to_stored),
                     t.started_at_ms,
                     t.finished_at_ms,
+                    detail_json(t)?,
                 ],
             )
             .map_err(db)?;
@@ -373,8 +381,8 @@ fn insert_task(tx: &Transaction<'_>, t: &Task, meta: &TaskMeta) -> Result<(), St
     tx.execute(
         "INSERT INTO tasks (id, run_id, seq, step_id, step_name, kind, server_id, server_name,
                             failure_policy, status, exit_code, exit_signal, reason,
-                            started_at_ms, finished_at_ms)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                            started_at_ms, finished_at_ms, detail)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
         params![
             to_text(&t.id),
             to_text(&t.run_id),
@@ -391,6 +399,7 @@ fn insert_task(tx: &Transaction<'_>, t: &Task, meta: &TaskMeta) -> Result<(), St
             t.reason.as_ref().map(Message::to_stored),
             t.started_at_ms,
             t.finished_at_ms,
+            detail_json(t)?,
         ],
     )
     .map_err(db)?;
@@ -434,11 +443,24 @@ fn read_task(run_id: RunId, r: &Row<'_>) -> Result<(Task, TaskMeta), StoreError>
         reason: opt(11)?.map(|s| Message::from_stored(&s)),
         started_at_ms: r.get(12).map_err(db)?,
         finished_at_ms: r.get(13).map_err(db)?,
+        detail: opt(14)?
+            .map(|s| {
+                serde_json::from_str(&s)
+                    .map_err(|e| StoreError::Database(format!("cannot read task detail: {e}")))
+            })
+            .transpose()?,
     };
     let meta = TaskMeta {
         policy: from_text(&text(7)?)?,
     };
     Ok((task, meta))
+}
+
+fn detail_json(t: &Task) -> Result<Option<String>, StoreError> {
+    t.detail
+        .as_ref()
+        .map(|d| serde_json::to_string(d).map_err(|e| StoreError::Database(e.to_string())))
+        .transpose()
 }
 
 /// IDs and enums are stored as their JSON string form, e.g. `waitingConfirmation`.
@@ -529,6 +551,47 @@ mod tests {
                 .iter()
                 .all(|t| t.status == TaskStatus::Skipped)
         );
+    }
+
+    #[test]
+    fn task_detail_round_trips() {
+        use mdm_core::{TaskDetail, UploadDetail};
+        let mut store = HistoryStore::open_in_memory().unwrap();
+        let mut m = started(&mut store);
+        let Next::Dispatch { seq } = m.next() else {
+            panic!()
+        };
+        m.apply(RunEvent::TaskStarted { seq }, 1_010).unwrap();
+        let detail = TaskDetail::Upload(UploadDetail {
+            committed: vec!["/srv/a".into()],
+            stopped_at: Some("/srv/b".into()),
+            unprocessed: vec!["/srv/c".into()],
+            ..Default::default()
+        });
+        m.apply(
+            RunEvent::TaskDetail {
+                seq,
+                detail: Box::new(detail.clone()),
+            },
+            1_011,
+        )
+        .unwrap();
+        store.save_run(&m).unwrap();
+        assert_eq!(stored(&store, &m).tasks[seq as usize].detail, Some(detail));
+    }
+
+    #[test]
+    fn upgrades_a_version_1_database() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history.sqlite");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(MIGRATIONS[0]).unwrap();
+            conn.pragma_update(None, "user_version", 1).unwrap();
+        }
+        let mut store = HistoryStore::open(&path).unwrap();
+        let m = started(&mut store);
+        assert!(stored(&store, &m).tasks.iter().all(|t| t.detail.is_none()));
     }
 
     #[test]

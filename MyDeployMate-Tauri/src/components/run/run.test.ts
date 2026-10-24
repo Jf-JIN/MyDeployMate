@@ -12,6 +12,7 @@ import type {
 
 import { highlight, LIVE_LINES, RunLogLines } from './runLog'
 import { duration, groupRunTasks, outcomeText, skippedServerCount } from './runState'
+import { progressRatio, progressText, sizeText } from './upload'
 
 let n = 0
 const entry = (text: string, source: LogSource = 'stdout', task = 0): LogEntry => ({
@@ -126,6 +127,7 @@ function task(seq: number, status: TaskStatus, server: string | null, reason?: M
     reason: reason ?? null,
     startedAtMs: status === 'queued' || status === 'skipped' ? null : 0,
     finishedAtMs: null,
+    detail: null,
   }
 }
 
@@ -183,5 +185,29 @@ describe('run state', () => {
     expect(duration(42_000)).toBe('42 秒')
     expect(duration(65_000)).toBe('1 分 05 秒')
     expect(duration(7_260_000)).toBe('2 小时 01 分')
+  })
+})
+
+describe('upload progress', () => {
+  it('formats sizes like the backend', () => {
+    expect(sizeText(512)).toBe('512 B')
+    expect(sizeText(3482)).toBe('3.4 KiB')
+    expect(sizeText(12 * 1024 * 1024)).toBe('12.0 MiB')
+  })
+
+  it('shows verifying, then files and bytes', () => {
+    const base = { filesDone: 2, filesTotal: 5, bytesDone: 1024, bytesTotal: 4096 }
+    expect(progressText({ phase: 'verifying', ...base })).toBe('校验产物…')
+    expect(progressRatio({ phase: 'verifying', ...base })).toBe(0)
+    expect(progressText({ phase: 'transferring', ...base })).toBe('2/5 个文件 · 1.0 KiB / 4.0 KiB')
+    expect(progressRatio({ phase: 'transferring', ...base })).toBe(0.25)
+    const empty = {
+      phase: 'transferring' as const,
+      filesDone: 1,
+      filesTotal: 2,
+      bytesDone: 0,
+      bytesTotal: 0,
+    }
+    expect(progressRatio(empty)).toBe(0.5)
   })
 })

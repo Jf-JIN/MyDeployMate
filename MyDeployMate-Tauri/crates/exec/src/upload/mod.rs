@@ -17,7 +17,10 @@ use std::sync::Arc;
 
 use mdm_core::log::size_text;
 use mdm_core::upload::{ancestors, join, parent, remote_path, temp_path};
-use mdm_core::{ArtifactManifest, ConflictPolicy, ManifestEntry, Message, SourceKind};
+use mdm_core::{
+    ArtifactManifest, ConflictPolicy, ManifestEntry, Message, SourceKind, UploadPhase,
+    UploadProgress,
+};
 use russh_sftp::client::RawSftpSession;
 use russh_sftp::client::error::Error as SftpError;
 use russh_sftp::protocol::{FileAttributes, OpenFlags, Packet, StatusCode};
@@ -90,14 +93,6 @@ pub struct UploadJob<'a> {
     pub token: &'a str,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct UploadProgress {
-    pub files_done: u32,
-    pub files_total: u32,
-    pub bytes_done: u64,
-    pub bytes_total: u64,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UploadEnd {
     Completed,
@@ -152,6 +147,7 @@ pub async fn upload(
         return report;
     }
     let mut state = UploadProgress {
+        phase: UploadPhase::Transferring,
         files_done: 0,
         files_total: u32::try_from(files.len()).unwrap_or(u32::MAX),
         bytes_done: 0,
@@ -336,10 +332,14 @@ async fn put_file(
         .await
     {
         Ok(h) => h.handle,
-        // Nothing was created, so there is nothing to clean up.
-        Err(e) => return Put::Failed(remote_error(&tmp, e), Vec::new()),
+        // Nothing was created, so there is nothing to clean up. Errors name the destination,
+        // not the temporary file the operator never configured.
+        Err(e) => return Put::Failed(remote_error(remote, e), Vec::new()),
     };
-    let written = write_all(sftp, &handle, &mut file, &local, entry, cancel, on_bytes).await;
+    let written = write_all(
+        sftp, &handle, &mut file, &local, remote, entry, cancel, on_bytes,
+    )
+    .await;
     let closed = sftp.raw.close(handle).await;
     match (written, closed) {
         (Err(Stop::Cancelled), _) => return Put::Cancelled(remove_temp(sftp, &tmp).await),
@@ -347,7 +347,7 @@ async fn put_file(
             return Put::Failed(reason, remove_temp(sftp, &tmp).await);
         }
         (Ok(()), Err(e)) => {
-            return Put::Failed(remote_error(&tmp, e), remove_temp(sftp, &tmp).await);
+            return Put::Failed(remote_error(remote, e), remove_temp(sftp, &tmp).await);
         }
         (Ok(()), Ok(_)) => {}
     }
@@ -361,7 +361,12 @@ async fn put_file(
                 remove_temp(sftp, &tmp).await,
             );
         }
-        Err(reason) => return Put::Failed(reason, remove_temp(sftp, &tmp).await),
+        Err(_) => {
+            let reason = Message::SizeMismatch {
+                path: remote.into(),
+            };
+            return Put::Failed(reason, remove_temp(sftp, &tmp).await);
+        }
     }
     if cancel.is_cancelled() {
         return Put::Cancelled(remove_temp(sftp, &tmp).await);
@@ -404,11 +409,13 @@ enum Stop {
 
 /// Stream the local file into the open remote handle, hashing what is read; the content must
 /// match the manifest, otherwise the file is not committed (ARC-28).
+#[allow(clippy::too_many_arguments)]
 async fn write_all(
     sftp: &Sftp,
     handle: &str,
     file: &mut tokio::fs::File,
     local: &Path,
+    remote: &str,
     entry: &ManifestEntry,
     cancel: &CancellationToken,
     mut on_bytes: impl FnMut(u64),
@@ -455,7 +462,7 @@ async fn write_all(
             }
             Some(Ok((_, Err(e)))) => {
                 pending.abort_all();
-                return Err(Stop::Failed(remote_error(&entry.path, e)));
+                return Err(Stop::Failed(remote_error(remote, e)));
             }
             Some(Err(e)) => {
                 pending.abort_all();

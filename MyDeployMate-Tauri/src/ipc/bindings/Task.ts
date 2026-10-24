@@ -4,6 +4,7 @@ import type { RunId } from "./RunId";
 import type { ServerId } from "./ServerId";
 import type { StepId } from "./StepId";
 import type { StepKind } from "./StepKind";
+import type { TaskDetail } from "./TaskDetail";
 import type { TaskId } from "./TaskId";
 import type { TaskStatus } from "./TaskStatus";
 
@@ -19,4 +20,8 @@ serverId: ServerId | null, serverName: string | null, status: TaskStatus, exitCo
 /**
  * Why the task ended this way, e.g. which upstream failure caused a skip.
  */
-reason: Message | null, startedAtMs: number | null, finishedAtMs: number | null, };
+reason: Message | null, startedAtMs: number | null, finishedAtMs: number | null, 
+/**
+ * What the executor recorded beyond the status, e.g. an upload's file lists.
+ */
+detail: TaskDetail | null, };

@@ -17,7 +17,9 @@ use std::time::Duration;
 
 use mdm_core::log::{Admit, LOG_BODY_LIMIT, LOG_TAIL_LIMIT, LogBudget, LogTail, size_text};
 use mdm_core::redact::{Redactor, StreamRedactor};
-use mdm_core::{Clock, LogEntry, LogSink, LogSource, Message, RunMachine, StorageError};
+use mdm_core::{
+    Clock, LogEntry, LogSink, LogSource, Message, RunMachine, StorageError, UploadProgress,
+};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -33,6 +35,7 @@ pub trait RunView: Send + Sync {
     fn logs(&self, entries: Vec<LogEntry>);
     fn requested(&self, request: &OperatorRequest);
     fn storage_failed(&self, error: &StorageError);
+    fn progress(&self, seq: u32, progress: UploadProgress);
 }
 
 /// Where an entry goes.
@@ -346,6 +349,10 @@ impl RunObserver for LogPipeline {
         self.flush();
         self.view.storage_failed(error);
     }
+
+    fn progress(&self, seq: u32, progress: UploadProgress) {
+        self.view.progress(seq, progress);
+    }
 }
 
 #[cfg(test)]
@@ -377,6 +384,8 @@ mod tests {
         fn storage_failed(&self, _error: &StorageError) {
             *self.failed.lock().unwrap() = true;
         }
+
+        fn progress(&self, _seq: u32, _progress: UploadProgress) {}
     }
 
     #[derive(Clone, Default)]

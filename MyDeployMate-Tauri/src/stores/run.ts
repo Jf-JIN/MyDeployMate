@@ -15,6 +15,7 @@ import {
   type RunUpdate,
   type StartRunRequest,
   type Task,
+  type UploadProgress,
 } from '@/ipc'
 
 /** What the shell shows about the single active run (SRS-1, IXD-02). */
@@ -47,6 +48,8 @@ export interface RunDetail {
   storageError: Message | null
   /** The open D02 or D04 request while the run waits for the operator. */
   request: RunRequest | null
+  /** Latest progress of running upload tasks by task number; shown only, never stored. */
+  progress: Record<number, UploadProgress>
 }
 
 /**
@@ -114,6 +117,9 @@ export const useRunStore = defineStore('run', () => {
       case 'storageFailed':
         d.storageError = update.message
         break
+      case 'progress':
+        d.progress = { ...d.progress, [update.task]: update.progress }
+        break
     }
   }
 
@@ -152,6 +158,7 @@ export const useRunStore = defineStore('run', () => {
       live: snapshot.active && !runFinished(snapshot.run.status),
       storageError: null,
       request: snapshot.request,
+      progress: {},
     }) as RunDetail
     target = d
     early.forEach((u) => apply(d, u))

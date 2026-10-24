@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use mdm_core::log::LogBudget;
 use mdm_core::{
     Clock, LogEntry, Message, OperatorPrompt, PlanRequest, ResolvedPlan, Run, RunId, RunMachine,
-    Server, ServerId, StorageError, Task, build_plan,
+    Server, ServerId, StorageError, Task, UploadProgress, build_plan,
 };
 use mdm_exec::{
     AppExecutor, ConnectFuture, Control, Coordinator, LogPipeline, OperatorAnswer, OperatorRequest,
@@ -84,6 +84,11 @@ pub enum RunUpdate {
     Request(RunRequest),
     StorageFailed {
         message: Message,
+    },
+    /// Progress of the running upload task; not stored.
+    Progress {
+        task: u32,
+        progress: UploadProgress,
     },
 }
 
@@ -172,6 +177,13 @@ impl RunView for ChannelView {
     fn storage_failed(&self, error: &StorageError) {
         self.send(RunUpdate::StorageFailed {
             message: error.message(),
+        });
+    }
+
+    fn progress(&self, seq: u32, progress: UploadProgress) {
+        self.send(RunUpdate::Progress {
+            task: seq,
+            progress,
         });
     }
 }

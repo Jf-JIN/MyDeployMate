@@ -45,7 +45,10 @@ pub use plan::{PlanRequest, PlannedTask, ResolvedPlan, RunScope, TaskAction, bui
 pub use ports::{Clock, LogSink, RunStore, StorageError};
 pub use prompt::{CredentialPrompt, HostTrustPrompt, OperatorPrompt};
 pub use resolve::{ResolvedText, Resolver, ValueSource};
-pub use run::{Run, RunStatus, Task, TaskStatus};
+pub use run::{Run, RunStatus, Task, TaskDetail, TaskStatus};
 pub use trust::{HostEndpoint, HostKey, TrustCheck, TrustedHost, check_host_key};
-pub use upload::{ArtifactChange, ArtifactManifest, ManifestEntry, compare_manifests};
+pub use upload::{
+    ArtifactChange, ArtifactManifest, ManifestEntry, UploadDetail, UploadPhase, UploadProgress,
+    compare_manifests,
+};
 pub use validate::{ValidationReport, check_workspace_json, parse_workspace, validate_workspace};

@@ -318,8 +318,6 @@ pub enum Message {
     NoProcessGroup,
     #[serde(rename = "exec.shellMissing")]
     ShellMissing { program: String },
-    #[serde(rename = "exec.uploadUnsupported")]
-    UploadUnsupported,
     #[serde(rename = "exec.exitCode")]
     ExitCode {
         #[ts(type = "number")]
@@ -401,6 +399,14 @@ pub enum Message {
     SizeMismatch { path: String },
     #[serde(rename = "upload.commitUnknown")]
     CommitUnknown { path: String },
+    #[serde(rename = "upload.artifactChanged")]
+    ArtifactChanged { n: u32 },
+    #[serde(rename = "upload.manifestRecorded")]
+    ManifestRecorded { files: u32, size: String },
+    #[serde(rename = "upload.manifestVerified")]
+    ManifestVerified,
+    #[serde(rename = "upload.done")]
+    UploadDone { files: u32, size: String },
     #[serde(rename = "upload.tempLeft")]
     TempLeft { path: String, detail: String },
     #[serde(rename = "log.storageFailed")]

@@ -1,13 +1,18 @@
-//! The task executor the app uses: local commands, and remote commands over SSH (phase 5).
-//! Uploads and sudo arrive in phase 6.
+//! The task executor the app uses: local commands, remote commands over SSH (phase 5) and
+//! SFTP uploads (phase 6). sudo arrives with 6.2.
 
 use std::collections::HashMap;
 use std::future::Future;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use mdm_core::{Message, PlannedTask, PrivilegePolicy, ServerId, Shell, TaskAction};
+use mdm_core::log::size_text;
+use mdm_core::{
+    ArtifactManifest, Message, PlannedTask, PrivilegePolicy, ServerId, Shell, StepId, TaskAction,
+    TaskDetail, TaskId, UploadDetail, UploadProgress, compare_manifests,
+};
 use tokio::sync::Mutex;
 
 use crate::coordinator::{TaskContext, TaskExecutor, TaskFuture, TaskOutcome};
@@ -15,6 +20,10 @@ use crate::local::{LocalCommand, LocalEnd, LocalOutcome, run_local};
 use crate::remote::{RemoteEnd, Stop, run_remote, wrap_command};
 use crate::shell::{Invocation, program_name, resolve_shell};
 use crate::ssh::SshSession;
+use crate::upload::{Sftp, UploadEnd, UploadJob, scan, upload};
+
+/// Upload progress goes to the UI at most this often, plus at every file boundary.
+const PROGRESS_PERIOD: Duration = Duration::from_millis(200);
 
 pub type ConnectFuture<'a> =
     Pin<Box<dyn Future<Output = Result<SshSession, TaskOutcome>> + Send + 'a>>;
@@ -33,13 +42,15 @@ pub trait RemoteConnector: Send + Sync {
 pub struct AppExecutor {
     remote: Option<Arc<dyn RemoteConnector>>,
     sessions: Mutex<HashMap<ServerId, Arc<SshSession>>>,
+    /// The manifest each upload step recorded at its first target (ARC-28).
+    manifests: Mutex<HashMap<StepId, ArtifactManifest>>,
 }
 
 impl AppExecutor {
     pub fn new(remote: Arc<dyn RemoteConnector>) -> Self {
         Self {
             remote: Some(remote),
-            sessions: Mutex::default(),
+            ..Self::default()
         }
     }
 
@@ -116,6 +127,130 @@ impl AppExecutor {
     }
 }
 
+impl AppExecutor {
+    /// Upload one source to one server (STEP-03/04). The source is checked when the task
+    /// starts, so an earlier build step may create it. The step's first target records the
+    /// manifest; later targets must find the same files and content (ARC-28).
+    async fn upload(&self, task: &PlannedTask, ctx: &TaskContext) -> TaskOutcome {
+        let TaskAction::Upload {
+            source,
+            source_kind,
+            target,
+            conflict,
+        } = &task.action
+        else {
+            unreachable!("only upload tasks")
+        };
+        let Some(server) = &task.server else {
+            return failed(Message::NoServer);
+        };
+        ctx.progress(UploadProgress::default());
+        let path = PathBuf::from(source.expose());
+        let kind = *source_kind;
+        let scanned = {
+            let path = path.clone();
+            tokio::task::spawn_blocking(move || scan(&path, kind)).await
+        };
+        let manifest = match scanned {
+            Ok(Ok(m)) => m,
+            Ok(Err(reason)) => return failed(reason),
+            Err(e) => {
+                return failed(Message::Internal {
+                    detail: e.to_string(),
+                });
+            }
+        };
+        if ctx.cancel.is_cancelled() {
+            return TaskOutcome::Cancelled;
+        }
+        let mut detail = UploadDetail::default();
+        {
+            let mut manifests = self.manifests.lock().await;
+            match manifests.get(&task.step_id) {
+                None => {
+                    manifests.insert(task.step_id, manifest.clone());
+                    ctx.note(Message::ManifestRecorded {
+                        files: count(manifest.files.len()),
+                        size: size_text(manifest.total_bytes()),
+                    });
+                    detail.manifest = Some(manifest.clone());
+                }
+                Some(recorded) => {
+                    let changes = compare_manifests(recorded, &manifest);
+                    if !changes.is_empty() {
+                        let n = count(changes.len());
+                        detail.changes = changes;
+                        ctx.detail(TaskDetail::Upload(detail));
+                        return failed(Message::ArtifactChanged { n });
+                    }
+                    ctx.note(Message::ManifestVerified);
+                }
+            }
+        }
+        // The manifest is on record before anything is transferred.
+        ctx.detail(TaskDetail::Upload(detail.clone()));
+
+        let session = match self.session(server.id, ctx).await {
+            Ok(s) => s,
+            Err(outcome) => return outcome,
+        };
+        if ctx.cancel.is_cancelled() {
+            return TaskOutcome::Cancelled;
+        }
+        let sftp = match Sftp::open(&session).await {
+            Ok(s) => s,
+            Err(reason) => return failed(reason),
+        };
+        let token = TaskId::new().to_string();
+        let job = UploadJob {
+            source: &path,
+            manifest: &manifest,
+            target: target.expose(),
+            conflict: *conflict,
+            token: &token,
+        };
+        let mut last: Option<(Instant, u32)> = None;
+        let report = upload(&sftp, &job, &ctx.cancel, |p| {
+            let due = match last {
+                None => true,
+                Some((at, files)) => files != p.files_done || at.elapsed() >= PROGRESS_PERIOD,
+            };
+            if due || p.bytes_done == p.bytes_total {
+                last = Some((Instant::now(), p.files_done));
+                ctx.progress(p);
+            }
+        })
+        .await;
+        sftp.close();
+
+        for left in &report.temp_left {
+            ctx.note(left.clone());
+        }
+        detail.committed = report.committed;
+        detail.stopped_at = report.stopped_at;
+        detail.unprocessed = report.unprocessed;
+        detail.temp_left = report.temp_left;
+        let committed = count(detail.committed.len());
+        ctx.detail(TaskDetail::Upload(detail));
+        match report.end {
+            UploadEnd::Completed => {
+                ctx.note(Message::UploadDone {
+                    files: committed,
+                    size: size_text(manifest.total_bytes()),
+                });
+                TaskOutcome::Succeeded { exit_code: None }
+            }
+            UploadEnd::Failed(reason) => failed(reason),
+            UploadEnd::Unknown(reason) => TaskOutcome::Unknown { reason },
+            UploadEnd::Cancelled => TaskOutcome::Cancelled,
+        }
+    }
+}
+
+fn count(n: usize) -> u32 {
+    u32::try_from(n).unwrap_or(u32::MAX)
+}
+
 impl TaskExecutor for AppExecutor {
     fn execute<'a>(&'a self, task: &'a PlannedTask, ctx: TaskContext) -> TaskFuture<'a> {
         Box::pin(async move {
@@ -150,7 +285,7 @@ impl TaskExecutor for AppExecutor {
                     }
                 }
                 TaskAction::Remote { .. } => self.remote(task, &ctx).await,
-                TaskAction::Upload { .. } => failed(Message::UploadUnsupported),
+                TaskAction::Upload { .. } => self.upload(task, &ctx).await,
                 TaskAction::Confirm { .. } => unreachable!("confirm tasks are never dispatched"),
             }
         })

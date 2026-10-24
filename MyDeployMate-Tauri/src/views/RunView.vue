@@ -40,6 +40,13 @@ import UiButton from '@/components/ui/UiButton.vue'
 import UiConfirm from '@/components/ui/UiConfirm.vue'
 import UiNotice from '@/components/ui/UiNotice.vue'
 import UiTag from '@/components/ui/UiTag.vue'
+import {
+  changeLabel,
+  progressRatio,
+  progressText,
+  sizeText,
+  uploadDetail,
+} from '@/components/run/upload'
 import { useT } from '@/i18n'
 import { errorText, messageText } from '@/i18n/message'
 import type { TaskStatus } from '@/ipc'
@@ -261,6 +268,19 @@ function extraReason(task: RunTask['task']) {
 function select(item: RunTask) {
   picked.value = item.task.seq
 }
+
+// STEP-04, ARC-28, ARC-30: upload progress while the task runs, and its file lists after.
+function liveProgress(item: RunTask) {
+  return item.task.status === 'running' ? (detail.value?.progress[item.task.seq] ?? null) : null
+}
+const selectedProgress = computed(() => (selected.value ? liveProgress(selected.value) : null))
+const selectedUpload = computed(() => (selected.value ? uploadDetail(selected.value.task) : null))
+const manifestSize = computed(
+  () => selectedUpload.value?.manifest?.files.reduce((sum, f) => sum + f.size, 0) ?? 0,
+)
+const uploadStopped = computed(() =>
+  ['failed', 'unknown'].includes(selected.value?.task.status ?? ''),
+)
 </script>
 
 <template>
@@ -485,6 +505,9 @@ function select(item: RunTask) {
                     <span v-if="item.task.reason" class="task-reason">{{
                       messageText(item.task.reason)
                     }}</span>
+                    <span v-else-if="liveProgress(item)" class="task-reason num">{{
+                      progressText(liveProgress(item)!)
+                    }}</span>
                   </span>
                   <span class="task-time num">
                     {{ elapsed(item.task.startedAtMs, item.task.finishedAtMs, now) ?? '' }}
@@ -542,6 +565,68 @@ function select(item: RunTask) {
             >
               {{ extraReason(selected.task) }}
             </p>
+            <div v-if="selectedProgress" class="upload-progress">
+              <progress
+                :value="progressRatio(selectedProgress)"
+                max="1"
+                :aria-label="progressText(selectedProgress)"
+              />
+              <span class="detail-meta num">{{ progressText(selectedProgress) }}</span>
+            </div>
+            <div v-if="selectedUpload" class="upload">
+              <p v-if="selectedUpload.manifest" class="detail-meta">
+                {{
+                  t('upload.manifest', {
+                    n: selectedUpload.manifest.files.length,
+                    size: sizeText(manifestSize),
+                  })
+                }}
+              </p>
+              <details v-if="selectedUpload.changes.length" open>
+                <summary>{{ t('upload.changes', { n: selectedUpload.changes.length }) }}</summary>
+                <ul class="paths">
+                  <li v-for="c in selectedUpload.changes" :key="c.path">
+                    <span class="change">{{ changeLabel(c) }}</span>
+                    <code>{{ c.path }}</code>
+                  </li>
+                </ul>
+              </details>
+              <details v-if="selectedUpload.committed.length">
+                <summary>
+                  {{ t('upload.committed', { n: selectedUpload.committed.length }) }}
+                </summary>
+                <ul class="paths">
+                  <li v-for="p in selectedUpload.committed" :key="p">
+                    <code>{{ p }}</code>
+                  </li>
+                </ul>
+              </details>
+              <div v-if="selectedUpload.stoppedAt" class="stopped">
+                <span class="change">{{
+                  selected.task.status === 'unknown' ? t('upload.unknownAt') : t('upload.failedAt')
+                }}</span>
+                <code>{{ selectedUpload.stoppedAt }}</code>
+              </div>
+              <details v-if="selectedUpload.unprocessed.length">
+                <summary>
+                  {{ t('upload.unprocessed', { n: selectedUpload.unprocessed.length }) }}
+                </summary>
+                <ul class="paths">
+                  <li v-for="p in selectedUpload.unprocessed" :key="p">
+                    <code>{{ p }}</code>
+                  </li>
+                </ul>
+              </details>
+              <details v-if="selectedUpload.tempLeft.length" open>
+                <summary>{{ t('upload.tempLeft') }}</summary>
+                <ul class="paths">
+                  <li v-for="(m, i) in selectedUpload.tempLeft" :key="i">{{ messageText(m) }}</li>
+                </ul>
+              </details>
+              <p v-if="uploadStopped && selectedUpload.committed.length" class="detail-meta">
+                {{ t('upload.noRollback') }}
+              </p>
+            </div>
           </section>
           <RunLogView :detail="detail" :selected="picked" />
         </div>
@@ -902,5 +987,55 @@ function select(item: RunTask) {
 
 .cancel-text {
   margin: 0;
+}
+
+.upload-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.upload-progress progress {
+  flex: 1;
+  height: 6px;
+  accent-color: var(--action-primary);
+}
+
+.upload-progress .detail-meta {
+  margin: 0;
+}
+
+.upload {
+  margin-top: var(--space-2);
+  font: var(--font-caption);
+}
+
+.upload summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
+.upload details,
+.stopped {
+  margin-top: var(--space-1);
+}
+
+.paths {
+  max-height: 120px;
+  margin: var(--space-1) 0 0;
+  padding-left: var(--space-4);
+  overflow: auto;
+}
+
+.paths code,
+.stopped code {
+  font: var(--font-code);
+  overflow-wrap: anywhere;
+}
+
+.change {
+  margin-right: var(--space-1);
+  color: var(--text-secondary);
 }
 </style>

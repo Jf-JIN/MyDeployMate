@@ -7,6 +7,7 @@ use ts_rs::TS;
 use crate::ids::{EnvironmentId, PipelineId, ProjectId, RunId, ServerId, StepId, TaskId};
 use crate::message::Message;
 use crate::model::{ExecutionOrder, StepKind};
+use crate::upload::UploadDetail;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -110,4 +111,13 @@ pub struct Task {
     pub started_at_ms: Option<i64>,
     #[ts(type = "number | null")]
     pub finished_at_ms: Option<i64>,
+    /// What the executor recorded beyond the status, e.g. an upload's file lists.
+    pub detail: Option<TaskDetail>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "camelCase")]
+#[ts(export)]
+pub enum TaskDetail {
+    Upload(UploadDetail),
 }
