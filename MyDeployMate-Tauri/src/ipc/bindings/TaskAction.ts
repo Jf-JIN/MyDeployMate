@@ -21,7 +21,8 @@ source: ResolvedText, sourceKind: SourceKind, target: ResolvedText, conflict: Co
  */
 privilege: PrivilegePolicy, 
 /**
- * The step inherits the server default, shown next to the privilege (IXD-33).
+ * The step inherits the server default, shown next to the privilege (IXD-33). Runs
+ * recorded before this field existed read as `false`.
  */
 privilegeInherited: boolean, 
 /**
