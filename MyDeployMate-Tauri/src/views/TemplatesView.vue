@@ -250,7 +250,7 @@ async function create() {
             />
           </UiField>
           <p v-if="added.length" class="muted">
-            {{ t('templates.create.variables', { names: added.join('、') }) }}
+            {{ t('templates.create.variables', { names: added.join(t('common.listSeparator')) }) }}
           </p>
           <UiNotice v-if="using.needsRepoAccess" tone="warning">
             {{ t('templates.repoAccess') }}
