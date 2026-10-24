@@ -123,8 +123,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 }
 
 .shell {
+  /* Visually hidden text inside a sideways-scrolling table is positioned against the nearest
+     positioned ancestor; without one it widens the window and adds a horizontal scrollbar (UI-13). */
+  position: relative;
   display: flex;
   height: 100%;
+  overflow: hidden;
 }
 
 .main {
