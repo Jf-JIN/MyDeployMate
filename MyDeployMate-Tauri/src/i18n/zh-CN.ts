@@ -600,6 +600,7 @@ const zhCN = {
       },
     },
     count: '共 {n} 条',
+    showMore: '显示更多（还有 {n} 条）',
     noMatch: '没有符合筛选条件的记录',
     columns: {
       started: '开始时间',

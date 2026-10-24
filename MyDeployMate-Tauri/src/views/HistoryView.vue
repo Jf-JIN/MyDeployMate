@@ -31,6 +31,10 @@ const toast = useToastStore()
 const router = useRouter()
 
 const rows = ref<RunSummary[]>([])
+// NFR-01: a long history renders in pages, so the page opens within 200 ms at 1000 runs.
+const PAGE = 200
+const shown = ref(PAGE)
+const visibleRows = computed(() => rows.value.slice(0, shown.value))
 const choices = ref<RunChoice[]>([])
 const loaded = ref(false)
 const loadError = ref<string | null>(null)
@@ -71,6 +75,7 @@ async function load() {
       call('run_choices'),
     ])
     rows.value = list
+    shown.value = PAGE
     choices.value = names
     loadError.value = null
   } catch (e) {
@@ -260,7 +265,7 @@ async function applyDelete() {
             </thead>
             <tbody>
               <tr
-                v-for="row in rows"
+                v-for="row in visibleRows"
                 :key="row.run.id"
                 class="row"
                 @click="openFromRow($event, row)"
@@ -300,7 +305,12 @@ async function applyDelete() {
               </tr>
             </tbody>
           </table>
-          <EmptyState v-else :title="t('history.noMatch')" :icon="SearchX" compact>
+          <div v-if="rows.length > shown" class="more">
+            <UiButton compact @click="shown += PAGE">
+              {{ t('history.showMore', { n: rows.length - shown }) }}
+            </UiButton>
+          </div>
+          <EmptyState v-if="!rows.length" :title="t('history.noMatch')" :icon="SearchX" compact>
             <UiButton v-if="filtered" compact @click="clearFilters">
               {{ t('history.filters.clear') }}
             </UiButton>
@@ -357,6 +367,12 @@ async function applyDelete() {
 
 .table-wrap {
   overflow-x: auto;
+}
+
+.more {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-3) 0;
 }
 
 .table {

@@ -113,7 +113,8 @@ watch(
   },
   { immediate: true },
 )
-watch(draft, () => preview.clear(), { deep: true })
+// This page edits only its project; watching the whole draft would walk every project.
+watch(project, () => preview.clear(), { deep: true })
 
 // Issues this page cannot show next to a field or a step row.
 const elsewhere = computed(() =>
