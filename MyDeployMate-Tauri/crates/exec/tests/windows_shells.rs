@@ -26,10 +26,15 @@ fn command(shell: Shell, script: &str, timeout: Option<Duration>) -> Option<Loca
 
 async fn run(cmd: &LocalCommand) -> (LocalOutcome, String, String) {
     let (mut out, mut err) = (String::new(), String::new());
-    let outcome = run_local(cmd, &CancellationToken::new(), |c| match c.stream {
-        Stream::Stdout => out.push_str(&c.text),
-        Stream::Stderr => err.push_str(&c.text),
-    })
+    let outcome = run_local(
+        cmd,
+        &CancellationToken::new(),
+        tokio::sync::mpsc::unbounded_channel().1,
+        |c| match c.stream {
+            Stream::Stdout => out.push_str(&c.text),
+            Stream::Stderr => err.push_str(&c.text),
+        },
+    )
     .await
     .unwrap();
     (outcome, out, err)

@@ -19,9 +19,10 @@ use mdm_core::{
 use mdm_exec::ssh::{SecretSource, SshTarget};
 use mdm_exec::{
     AppExecutor, ConnectFuture, Control, Coordinator, LogPipeline, OperatorAnswer, OperatorRequest,
-    RemoteConnector, RunView, SystemClock, TaskContext, TaskOutcome,
+    RemoteConnector, RunView, StdinInput, SystemClock, TaskContext, TaskOutcome,
 };
 use mdm_store::{RunLogFile, SharedHistory, read_run_log};
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -420,6 +421,26 @@ pub fn answer_confirmation(
     proceed: bool,
 ) -> Result<(), AppError> {
     send_control(&state, run_id, Control::Confirm { seq, proceed })
+}
+
+/// Input for the running command task `seq` (RUN-08): one line, or `None` to close its stdin.
+/// A hidden line is masked in the log and the run's records.
+#[tauri::command]
+pub fn send_run_input(
+    state: State<'_, AppState>,
+    run_id: RunId,
+    seq: u32,
+    line: Option<String>,
+    hidden: bool,
+) -> Result<(), AppError> {
+    let input = match line {
+        Some(text) => StdinInput::Line {
+            text: SecretString::from(text),
+            hidden,
+        },
+        None => StdinInput::Close,
+    };
+    send_control(&state, run_id, Control::Stdin { seq, input })
 }
 
 /// D04 answer during a run. `secret: None` cancels the run (IXD-32).

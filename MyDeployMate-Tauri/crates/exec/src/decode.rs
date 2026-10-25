@@ -18,6 +18,24 @@ pub struct Decoded {
     pub lossy: bool,
 }
 
+/// Bytes for one line the operator typed, with its line end (RUN-08). Local Windows programs
+/// read piped input in the ANSI code page, so auto mode writes GBK there, like it reads;
+/// WSL and remote commands get UTF-8.
+pub fn encode_input_line(text: &str, encoding: OutputEncoding, windows_local: bool) -> Vec<u8> {
+    let gbk = match encoding {
+        OutputEncoding::Gbk => true,
+        OutputEncoding::Utf8 => false,
+        OutputEncoding::Auto => windows_local,
+    };
+    let mut bytes = if gbk {
+        GBK.encode(text).0.into_owned()
+    } else {
+        text.as_bytes().to_vec()
+    };
+    bytes.extend_from_slice(if windows_local { b"\r\n" } else { b"\n" });
+    bytes
+}
+
 pub struct OutputDecoder {
     mode: Mode,
     /// Bytes not decoded yet (auto mode only).
@@ -253,6 +271,23 @@ mod tests {
         assert_eq!(
             out.text,
             "There is no distribution with the supplied name.\r\n"
+        );
+    }
+
+    #[test]
+    fn input_lines_follow_the_encoding() {
+        assert_eq!(
+            encode_input_line("中", OutputEncoding::Auto, true),
+            [0xD6, 0xD0, b'\r', b'\n']
+        );
+        assert_eq!(
+            encode_input_line("中", OutputEncoding::Auto, false),
+            "中\n".as_bytes()
+        );
+        assert_eq!(encode_input_line("a", OutputEncoding::Utf8, true), b"a\r\n");
+        assert_eq!(
+            encode_input_line("中", OutputEncoding::Gbk, false),
+            [0xD6, 0xD0, b'\n']
         );
     }
 

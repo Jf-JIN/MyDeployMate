@@ -97,6 +97,7 @@ export interface Commands {
   active_run: [Record<string, never>, RunId | null]
   cancel_run: [{ runId: RunId }, null]
   answer_confirmation: [{ runId: RunId; seq: number; proceed: boolean }, null]
+  send_run_input: [{ runId: RunId; seq: number; line: string | null; hidden: boolean }, null]
   answer_run_secret: [
     { runId: RunId; requestId: number; secret: string | null; remember: boolean },
     null,

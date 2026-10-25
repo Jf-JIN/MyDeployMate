@@ -29,6 +29,10 @@ enum Script {
     AskCredential,
     /// Record a detail and succeed at once, before the coordinator reads the detail.
     Detail,
+    /// Read operator input until stdin closes, then succeed.
+    ReadStdin,
+    /// Refuse input (as an upload does), then wait for cancel.
+    RefuseStdin,
 }
 
 #[derive(Default)]
@@ -41,6 +45,7 @@ struct Shared {
     /// Tasks the executor ran, with the status persisted at that moment.
     executed: Vec<(u32, TaskStatus)>,
     credentials_seen: Vec<Option<String>>,
+    stdin_seen: Vec<String>,
 }
 
 #[derive(Clone, Default)]
@@ -100,6 +105,19 @@ impl TaskExecutor for FakeExecutor {
                     }));
                     TaskOutcome::Succeeded { exit_code: None }
                 }
+                Script::ReadStdin => {
+                    let mut stdin = ctx.take_stdin();
+                    while let Some(StdinInput::Line { text, .. }) = stdin.recv().await {
+                        let text = text.expose_secret().to_owned();
+                        self.shared.lock().unwrap().stdin_seen.push(text);
+                    }
+                    TaskOutcome::Succeeded { exit_code: Some(0) }
+                }
+                Script::RefuseStdin => {
+                    drop(ctx.take_stdin());
+                    ctx.cancel.cancelled().await;
+                    TaskOutcome::Cancelled
+                }
                 Script::UntilCancelled(outcome) => {
                     ctx.cancel.cancelled().await;
                     outcome
@@ -152,6 +170,8 @@ enum Seen {
     Output(u32),
     Credential(Box<OperatorRequest>),
     StorageFailed,
+    Note(u32, Message),
+    Secret(String),
 }
 
 struct Observer(mpsc::UnboundedSender<Seen>);
@@ -163,7 +183,12 @@ impl RunObserver for Observer {
     fn output(&self, seq: u32, _chunk: OutputChunk) {
         let _ = self.0.send(Seen::Output(seq));
     }
-    fn note(&self, _seq: u32, _message: Message) {}
+    fn note(&self, seq: u32, message: Message) {
+        let _ = self.0.send(Seen::Note(seq, message));
+    }
+    fn secret(&self, secret: &str) {
+        let _ = self.0.send(Seen::Secret(secret.to_owned()));
+    }
     fn requested(&self, request: &OperatorRequest) {
         let _ = self.0.send(Seen::Credential(Box::new(request.clone())));
     }
@@ -576,4 +601,84 @@ async fn details_are_recorded_before_the_outcome() {
             .enumerate()
             .all(|(i, t)| i == 1 || t.detail.is_none())
     );
+}
+
+fn line(text: &str, hidden: bool) -> StdinInput {
+    StdinInput::Line {
+        text: text.into(),
+        hidden,
+    }
+}
+
+#[tokio::test]
+async fn operator_input_reaches_the_running_task_and_is_echoed() {
+    let mut h = Harness::start(
+        step_first(PipelineFailurePolicy::Stop),
+        &[(1, Script::ReadStdin)],
+        None,
+    );
+    h.until(|s| matches!(s, Seen::Output(1))).await;
+    let send = |seq, input| h.control.send(Control::Stdin { seq, input }).unwrap();
+    // Input for another task is ignored.
+    send(2, line("wrong task", false));
+    send(1, line("deploy", false));
+    send(1, line("p4ss", true));
+    send(1, StdinInput::Close);
+    let mut notes = Vec::new();
+    let mut secrets = Vec::new();
+    while notes.len() < 3 {
+        match h
+            .until(|s| matches!(s, Seen::Note(..) | Seen::Secret(_)))
+            .await
+        {
+            Seen::Note(seq, m) => notes.push((seq, m)),
+            Seen::Secret(s) => secrets.push(s),
+            _ => unreachable!(),
+        }
+    }
+    assert_eq!(
+        notes,
+        [
+            (
+                1,
+                Message::StdinLine {
+                    text: "deploy".into()
+                }
+            ),
+            (1, Message::StdinHidden),
+            (1, Message::StdinClosed),
+        ]
+    );
+    // A hidden line is masked before it is sent.
+    assert_eq!(secrets, ["p4ss"]);
+    let (status, _, shared) = h.finish().await;
+    assert_eq!(status, RunStatus::Succeeded);
+    assert_eq!(shared.stdin_seen, ["deploy", "p4ss"]);
+}
+
+#[tokio::test]
+async fn input_for_a_task_that_reads_none_is_refused() {
+    let mut h = Harness::start(
+        step_first(PipelineFailurePolicy::Stop),
+        &[(1, Script::RefuseStdin)],
+        None,
+    );
+    h.until(|s| matches!(s, Seen::Output(1))).await;
+    h.control
+        .send(Control::Stdin {
+            seq: 1,
+            input: line("ignored", false),
+        })
+        .unwrap();
+    let Seen::Note(1, m) = h.until(|s| matches!(s, Seen::Note(..))).await else {
+        unreachable!()
+    };
+    assert_eq!(m, Message::StdinRefused);
+    h.control
+        .send(Control::Cancel {
+            reason: Message::text("stop"),
+        })
+        .unwrap();
+    let (status, _, _) = h.finish().await;
+    assert_eq!(status, RunStatus::Cancelled);
 }

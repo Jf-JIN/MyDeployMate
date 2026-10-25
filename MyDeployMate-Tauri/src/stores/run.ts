@@ -203,6 +203,10 @@ export const useRunStore = defineStore('run', () => {
   const answer = (runId: RunId, seq: number, proceed: boolean) =>
     call('answer_confirmation', { runId, seq, proceed })
 
+  /** RUN-08: one line for the running command task `seq`, or `null` to end its input. */
+  const sendInput = (runId: RunId, seq: number, line: string | null, hidden: boolean) =>
+    call('send_run_input', { runId, seq, line, hidden })
+
   /** D04 during a run; `null` cancels the run (IXD-32). */
   const answerSecret = (
     runId: RunId,
@@ -227,5 +231,6 @@ export const useRunStore = defineStore('run', () => {
     answer,
     answerSecret,
     answerTrust,
+    sendInput,
   }
 })

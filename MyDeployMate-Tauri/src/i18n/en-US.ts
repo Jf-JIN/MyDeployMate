@@ -1155,6 +1155,15 @@ const enUS: MessageSchema = {
       modified: 'Content changed',
     },
   },
+  runInput: {
+    label: 'Input for task {n}',
+    placeholder: 'Type and press Enter to send to task {n}',
+    closed: 'Input ended',
+    hidden: 'Hide',
+    send: 'Send',
+    close: 'End input',
+    closeHint: 'Close standard input; the command reads end of input (like Ctrl+D)',
+  },
   runView: {
     title: 'Run details',
     back: 'Back to pipeline',
@@ -1408,6 +1417,10 @@ const enUS: MessageSchema = {
         'Timed out after {limit} seconds. wsl.exe was stopped, but it cannot be confirmed that the processes inside WSL stopped; check by hand',
       wslCancelled:
         'Cancelled. wsl.exe was stopped, but it cannot be confirmed that the processes inside WSL stopped; check by hand',
+      stdinLine: '> Input: {text}',
+      stdinHidden: '> Input: (hidden)',
+      stdinClosed: '> Input ended',
+      stdinRefused: 'Input not sent: this task does not read input, or the command stopped reading',
       cwdMissing: 'The working folder does not exist: {path}',
       spawnFailed: 'Cannot start {program}: {detail}',
       waitFailed: 'Waiting for the process to end failed: {detail}',

@@ -18,8 +18,8 @@ pub mod sudo;
 pub mod upload;
 
 pub use coordinator::{
-    Control, Coordinator, OperatorAnswer, OperatorRequest, RunObserver, SystemClock, TaskContext,
-    TaskExecutor, TaskFuture, TaskOutcome,
+    Control, Coordinator, OperatorAnswer, OperatorRequest, RunObserver, StdinInput, StdinReceiver,
+    SystemClock, TaskContext, TaskExecutor, TaskFuture, TaskOutcome,
 };
 pub use decode::OutputDecoder;
 pub use executor::{AppExecutor, ConnectFuture, RemoteConnector};
