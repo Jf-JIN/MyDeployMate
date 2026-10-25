@@ -1,6 +1,6 @@
 # MyDeployMate
 
-个人服务器部署桌面工具（Tauri 2 + Rust + Vue 3 / TypeScript），只面向 Windows。目前处于阶段 2：工程骨架、领域模型、字段校验、配置存储，以及变量解析、预检、任务展开和运行状态机（纯逻辑）已就绪，界面只有导航骨架。
+个人服务器部署桌面工具（Tauri 2 + Rust + Vue 3 / TypeScript），只面向 Windows。当前版本 v0.2.0：阶段 0–8 的功能已完成并已发布安装包，真机整体验收进行中。功能、进度和下载见[仓库首页 README](../README.md)。
 
 ## 目录
 
@@ -8,7 +8,7 @@
 |---|---|
 | `crates/core`（`mdm-core`） | 配置模型、ID、字段校验、变量解析与脱敏、任务展开与预检（PlanBuilder）、运行状态机；纯逻辑，不做 IO |
 | `crates/store`（`mdm-store`） | 数据目录 `%APPDATA%\MyDeployMate`、`workspace.json` 原子保存与备份、文件锁、版本迁移 |
-| `crates/exec`（`mdm-exec`） | 执行器与调度器，阶段 4 起实现 |
+| `crates/exec`（`mdm-exec`） | 执行器与调度器：本地命令、SSH、SFTP、sudo、运行中输入，基于 russh / russh-sftp |
 | `src-tauri/` | Tauri 外壳：命令、单实例、窗口与安装包配置 |
 | `src/` | Vue 前端；`src/ipc/bindings/` 是从 Rust 类型生成的 TS 类型，不要手改 |
 | `src/styles/tokens.css` | 设计变量（《UI 设计规范》第 2–4 节） |
