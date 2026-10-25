@@ -363,6 +363,16 @@ pub enum Message {
     WslTimeout { limit: u32 },
     #[serde(rename = "exec.wslCancelled")]
     WslCancelled,
+    /// The operator sent this line to the running command (RUN-08).
+    #[serde(rename = "exec.stdinLine")]
+    StdinLine { text: String },
+    #[serde(rename = "exec.stdinHidden")]
+    StdinHidden,
+    #[serde(rename = "exec.stdinClosed")]
+    StdinClosed,
+    /// The task does not read input (an upload), or its command already stopped reading.
+    #[serde(rename = "exec.stdinRefused")]
+    StdinRefused,
     #[serde(rename = "exec.cwdMissing")]
     CwdMissing { path: String },
     #[serde(rename = "exec.spawnFailed")]

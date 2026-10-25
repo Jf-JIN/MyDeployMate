@@ -41,7 +41,32 @@ pub enum Control {
         request: u64,
         answer: Option<OperatorAnswer>,
     },
+    /// Input for the stdin of the command task `seq` while it runs (RUN-08).
+    Stdin {
+        seq: u32,
+        input: StdinInput,
+    },
 }
+
+/// What the operator typed for a running command.
+pub enum StdinInput {
+    /// One line, sent with a line end. A hidden line is masked in the log and the run.
+    Line { text: SecretString, hidden: bool },
+    /// Close stdin: the command reads end of input.
+    Close,
+}
+
+impl fmt::Debug for StdinInput {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Line { hidden, .. } => write!(f, "Line(***, hidden: {hidden})"),
+            Self::Close => f.write_str("Close"),
+        }
+    }
+}
+
+/// Where a command task reads the operator's input from. Lines arrive in the order typed.
+pub type StdinReceiver = mpsc::UnboundedReceiver<StdinInput>;
 
 /// What the operator gave for an [`OperatorPrompt`].
 pub enum OperatorAnswer {
@@ -119,9 +144,20 @@ pub struct TaskContext {
     observer: Arc<dyn RunObserver>,
     requests: mpsc::UnboundedSender<(OperatorPrompt, oneshot::Sender<Option<OperatorAnswer>>)>,
     details: mpsc::UnboundedSender<TaskDetail>,
+    stdin: std::sync::Mutex<Option<StdinReceiver>>,
 }
 
 impl TaskContext {
+    /// The operator's input for this task's command. Taken once; a task that never takes it
+    /// (or drops it) refuses input, and the log says so.
+    pub fn take_stdin(&self) -> StdinReceiver {
+        self.stdin
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+            .unwrap_or_else(|| mpsc::unbounded_channel().1)
+    }
+
     pub fn output(&self, chunk: OutputChunk) {
         self.observer.output(self.seq, chunk);
     }
@@ -301,6 +337,36 @@ impl<S: RunStore> Coordinator<S> {
         })
     }
 
+    /// Hand operator input to the running task and echo it in the log. A hidden line is masked
+    /// from now on, before it can show up in any output.
+    fn forward_stdin(
+        &mut self,
+        seq: u32,
+        tx: &mpsc::UnboundedSender<StdinInput>,
+        input: StdinInput,
+    ) {
+        let echo = match &input {
+            StdinInput::Line { text, hidden: true } => {
+                self.redactor.add(text.expose_secret());
+                self.observer.secret(text.expose_secret());
+                Message::StdinHidden
+            }
+            StdinInput::Line {
+                text,
+                hidden: false,
+            } => Message::StdinLine {
+                text: text.expose_secret().to_owned(),
+            },
+            StdinInput::Close => Message::StdinClosed,
+        };
+        let message = if tx.send(input).is_ok() {
+            echo
+        } else {
+            Message::StdinRefused
+        };
+        self.observer.note(seq, message);
+    }
+
     async fn dispatch(&mut self, seq: u32) -> Result<(), Abort> {
         // The intent is on disk before anything runs (ARC-14).
         self.step(RunEvent::TaskStarted { seq })?;
@@ -311,12 +377,14 @@ impl<S: RunStore> Coordinator<S> {
         let cancel = CancellationToken::new();
         let (req_tx, mut req_rx) = mpsc::unbounded_channel();
         let (detail_tx, mut detail_rx) = mpsc::unbounded_channel();
+        let (stdin_tx, stdin_rx) = mpsc::unbounded_channel();
         let ctx = TaskContext {
             seq,
             cancel: cancel.clone(),
             observer: Arc::clone(&self.observer),
             requests: req_tx,
             details: detail_tx,
+            stdin: std::sync::Mutex::new(Some(stdin_rx)),
         };
         let executor = Arc::clone(&self.executor);
         let mut running = executor.execute(task, ctx);
@@ -387,6 +455,11 @@ impl<S: RunStore> Coordinator<S> {
                             let _ = reply.send(None);
                         } else {
                             let _ = reply.send(answer);
+                        }
+                    }
+                    Some(Control::Stdin { seq: s, input }) => {
+                        if s == seq && !cancel.is_cancelled() {
+                            self.forward_stdin(seq, &stdin_tx, input);
                         }
                     }
                     Some(Control::Confirm { .. }) => {}

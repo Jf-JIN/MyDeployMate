@@ -149,6 +149,7 @@ impl AppExecutor {
             timeout,
             &ctx.cancel,
             elevation,
+            ctx.take_stdin(),
             |chunk| ctx.output(chunk),
         )
         .await
@@ -404,13 +405,21 @@ impl TaskExecutor for AppExecutor {
                         encoding: *output_encoding,
                         timeout: task.timeout_sec.map(|s| Duration::from_secs(s.into())),
                     };
-                    match run_local(&cmd, &ctx.cancel, |chunk| ctx.output(chunk)).await {
+                    match run_local(&cmd, &ctx.cancel, ctx.take_stdin(), |chunk| {
+                        ctx.output(chunk)
+                    })
+                    .await
+                    {
                         Ok(outcome) => local_outcome(&ctx, *shell, task, outcome),
                         Err(e) => failed(e.message()),
                     }
                 }
                 TaskAction::Remote { .. } => self.remote(task, &ctx).await,
-                TaskAction::Upload { .. } => self.upload(task, &ctx).await,
+                TaskAction::Upload { .. } => {
+                    // An upload reads no input; what the operator types is refused.
+                    drop(ctx.take_stdin());
+                    self.upload(task, &ctx).await
+                }
                 TaskAction::Confirm { .. } => unreachable!("confirm tasks are never dispatched"),
             }
         })

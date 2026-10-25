@@ -79,6 +79,7 @@ pub fn run() {
             run::active_run,
             run::cancel_run,
             run::answer_confirmation,
+            run::send_run_input,
             run::answer_run_secret,
             run::answer_run_trust,
             run::active_run_servers,

@@ -497,6 +497,18 @@ mod remote {
         timeout: Option<Duration>,
         cancel: &CancellationToken,
     ) -> (RemoteOutcome, String, String) {
+        let stdin = tokio::sync::mpsc::unbounded_channel().1;
+        run_with_input(session, cmd, cwd, timeout, cancel, stdin).await
+    }
+
+    async fn run_with_input(
+        session: &mdm_exec::ssh::SshSession,
+        cmd: &ResolvedCommand,
+        cwd: Option<&str>,
+        timeout: Option<Duration>,
+        cancel: &CancellationToken,
+        stdin: mdm_exec::StdinReceiver,
+    ) -> (RemoteOutcome, String, String) {
         let mut out = String::new();
         let mut err = String::new();
         let outcome = run_remote(
@@ -505,6 +517,7 @@ mod remote {
             timeout,
             cancel,
             None,
+            stdin,
             |c: OutputChunk| match c.stream {
                 mdm_exec::Stream::Stdout => out.push_str(&c.text),
                 mdm_exec::Stream::Stderr => err.push_str(&c.text),
@@ -513,6 +526,33 @@ mod remote {
         .await
         .unwrap();
         (outcome, out, err)
+    }
+
+    #[tokio::test]
+    async fn operator_input_reaches_stdin_and_no_input_reads_as_end() {
+        let keys = require_test_env!();
+        let s = session(&keys).await;
+        let none = CancellationToken::new();
+        let limit = Some(Duration::from_secs(10));
+
+        // RUN-08: lines arrive as typed; closing stdin ends `cat`.
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        for text in ["deploy", "中文"] {
+            tx.send(mdm_exec::StdinInput::Line {
+                text: text.into(),
+                hidden: false,
+            })
+            .unwrap();
+        }
+        tx.send(mdm_exec::StdinInput::Close).unwrap();
+        let cmd = script("read a; echo \"got $a\"; cat; echo end");
+        let (o, out, _) = run_with_input(&s, &cmd, None, limit, &none, rx).await;
+        assert_eq!(o.end, RemoteEnd::Exited(0));
+        assert_eq!(out, "got deploy\n中文\nend\n");
+
+        // Without an input source a reading command ends instead of waiting for the timeout.
+        let (o, out, _) = run(&s, &script("read a || echo eof"), None, limit, &none).await;
+        assert_eq!((o.end, out.as_str()), (RemoteEnd::Exited(0), "eof\n"));
     }
 
     #[tokio::test]
@@ -1365,6 +1405,18 @@ mod sudo {
         password: Option<&Feed>,
         cancel: &CancellationToken,
     ) -> (RemoteOutcome, String, String) {
+        let stdin = tokio::sync::mpsc::unbounded_channel().1;
+        run_with_input(s, cmd, cwd, password, cancel, stdin).await
+    }
+
+    async fn run_with_input(
+        s: &SshSession,
+        cmd: &ResolvedCommand,
+        cwd: Option<&str>,
+        password: Option<&Feed>,
+        cancel: &CancellationToken,
+        stdin: mdm_exec::StdinReceiver,
+    ) -> (RemoteOutcome, String, String) {
         let marker = prompt_marker("t1");
         let sudo = match password {
             None => Sudo::NonInteractive { run_as: "root" },
@@ -1383,6 +1435,7 @@ mod sudo {
             Some(Duration::from_secs(20)),
             cancel,
             Some(elevation),
+            stdin,
             |c: OutputChunk| match c.stream {
                 mdm_exec::Stream::Stdout => out.push_str(&c.text),
                 mdm_exec::Stream::Stderr => err.push_str(&c.text),
@@ -1461,6 +1514,27 @@ mod sudo {
         assert_eq!((o.end, out.as_str()), (RemoteEnd::Exited(0), "root\n"));
         assert!(feed.asked().is_empty());
         assert!(!o.sudo.accepted());
+    }
+
+    #[tokio::test]
+    async fn input_waits_until_sudo_hands_stdin_over() {
+        let keys = require_test_env!();
+        let s = session(&keys, "deploy").await;
+        let feed = Feed::new(&[Some("deploy-pass")]);
+        // Typed before sudo asks: it must not be read as the password.
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        tx.send(mdm_exec::StdinInput::Line {
+            text: "answer".into(),
+            hidden: false,
+        })
+        .unwrap();
+        tx.send(mdm_exec::StdinInput::Close).unwrap();
+        let cmd = script("id -un; read a; echo \"got $a\"; cat; echo end");
+        let (o, out, err) =
+            run_with_input(&s, &cmd, None, Some(&feed), &CancellationToken::new(), rx).await;
+        assert_eq!(o.end, RemoteEnd::Exited(0), "{err}");
+        assert_eq!(out, "root\ngot answer\nend\n");
+        assert_eq!(feed.asked(), vec![1]);
     }
 
     #[tokio::test]

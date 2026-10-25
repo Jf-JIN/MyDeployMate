@@ -13,11 +13,12 @@ use std::time::Duration;
 
 use mdm_core::{Message, OutputEncoding, Shell};
 use process_wrap::tokio::{ChildWrapper, CommandWrap, KillOnDrop};
-use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::time::{Instant, sleep_until};
 use tokio_util::sync::CancellationToken;
 
-use crate::decode::OutputDecoder;
+use crate::coordinator::{StdinInput, StdinReceiver};
+use crate::decode::{OutputDecoder, encode_input_line};
 use crate::shell::Invocation;
 
 /// How long output pipes may stay open after the shell exits.
@@ -102,11 +103,13 @@ impl LocalError {
     }
 }
 
-/// Run `cmd` to the end, passing output to `on_output`. A cancel or timeout terminates the
-/// process tree and still returns an outcome.
+/// Run `cmd` to the end, passing output to `on_output` and the operator's lines from `stdin`
+/// to the process (RUN-08). A cancel or timeout terminates the process tree and still returns
+/// an outcome.
 pub async fn run_local(
     cmd: &LocalCommand,
     cancel: &CancellationToken,
+    mut stdin: StdinReceiver,
     mut on_output: impl FnMut(OutputChunk),
 ) -> Result<LocalOutcome, LocalError> {
     if let Some(dir) = cmd.invocation.cwd()
@@ -119,6 +122,7 @@ pub async fn run_local(
     let mut child = spawn(&cmd.invocation)?;
     let mut stdout = child.stdout().take();
     let mut stderr = child.stderr().take();
+    let mut input = child.stdin().take();
     let wsl = cmd.shell == Shell::Wsl;
     let mut out_decoder = OutputDecoder::new(cmd.encoding, wsl);
     let mut err_decoder = OutputDecoder::new(cmd.encoding, wsl);
@@ -152,6 +156,25 @@ pub async fn run_local(
             }
             n = read_some(&mut stderr, &mut err_buf) => {
                 forward(n, &mut stderr, &err_buf, &mut err_decoder, Stream::Stderr, &mut on_output);
+            }
+            line = stdin.recv(), if input.is_some() && status.is_none() && !killed => {
+                let pipe = input.as_mut().expect("checked");
+                match line {
+                    Some(StdinInput::Line { text, .. }) => {
+                        let mut bytes = encode_input_line(
+                            secrecy::ExposeSecret::expose_secret(&text),
+                            cmd.encoding,
+                            !wsl,
+                        );
+                        // A process that no longer reads closed its end; nothing to do.
+                        if pipe.write_all(&bytes).await.is_err() || pipe.flush().await.is_err() {
+                            input = None;
+                        }
+                        zeroize::Zeroize::zeroize(&mut bytes);
+                    }
+                    // No more input can come: let the process read end of input.
+                    Some(StdinInput::Close) | None => input = None,
+                }
             }
             _ = sleep_until(grace_until.unwrap_or_else(Instant::now)),
                 if grace_until.is_some() && !killed => {
@@ -192,7 +215,7 @@ pub async fn run_local(
 fn spawn(inv: &Invocation) -> Result<Box<dyn ChildWrapper>, LocalError> {
     let mut command = CommandWrap::with_new(&inv.program, |c| {
         c.args(inv.os_args())
-            .stdin(std::process::Stdio::null())
+            .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
         #[cfg(windows)]
@@ -290,9 +313,14 @@ mod tests {
         }
     }
 
+    /// No operator input: stdin reads end of input.
+    fn no_input() -> StdinReceiver {
+        tokio::sync::mpsc::unbounded_channel().1
+    }
+
     async fn run(cmd: &LocalCommand, cancel: &CancellationToken) -> (LocalOutcome, String, String) {
         let (mut out, mut err) = (String::new(), String::new());
-        let outcome = run_local(cmd, cancel, |c| match c.stream {
+        let outcome = run_local(cmd, cancel, no_input(), |c| match c.stream {
             Stream::Stdout => out.push_str(&c.text),
             Stream::Stderr => err.push_str(&c.text),
         })
@@ -353,17 +381,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn operator_lines_reach_stdin() {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        tx.send(StdinInput::Line {
+            text: "deploy".into(),
+            hidden: false,
+        })
+        .unwrap();
+        tx.send(StdinInput::Close).unwrap();
+        let cmd = sh(
+            "read a; echo \"got $a\"; cat; echo end",
+            Some(Duration::from_secs(5)),
+        );
+        let mut out = String::new();
+        let outcome = run_local(&cmd, &CancellationToken::new(), rx, |c| {
+            out.push_str(&c.text)
+        })
+        .await
+        .unwrap();
+        assert_eq!(outcome.end, LocalEnd::Exited);
+        // The test shell is not Windows, but the line end follows `!wsl`: `read` drops `\r`
+        // only with IFS, so compare without it.
+        assert_eq!(out.replace('\r', ""), "got deploy\nend\n");
+    }
+
+    #[tokio::test]
     async fn missing_cwd_and_program_are_errors() {
         let mut cmd = sh("true", None);
         cmd.invocation.cwd = Some(PathBuf::from("/definitely/missing"));
-        let err = run_local(&cmd, &CancellationToken::new(), |_| {})
+        let err = run_local(&cmd, &CancellationToken::new(), no_input(), |_| {})
             .await
             .unwrap_err();
         assert!(matches!(err, LocalError::MissingCwd(_)));
 
         let mut cmd = sh("true", None);
         cmd.invocation.program = PathBuf::from("/definitely/missing-shell");
-        let err = run_local(&cmd, &CancellationToken::new(), |_| {})
+        let err = run_local(&cmd, &CancellationToken::new(), no_input(), |_| {})
             .await
             .unwrap_err();
         assert!(matches!(err, LocalError::Spawn { .. }));

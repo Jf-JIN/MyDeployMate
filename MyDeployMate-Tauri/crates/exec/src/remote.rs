@@ -21,6 +21,12 @@
 //!
 //! With sudo (see [`crate::sudo`]) the elevation words go in front of the command; a password
 //! is written to stdin only when sudo's prompt marker shows up on stderr.
+//!
+//! The operator's input lines go to stdin as they are typed (RUN-08); with no input source
+//! stdin is closed at once, so a command that reads it gets end of input instead of waiting
+//! forever. With a sudo password, stdin belongs to sudo until the command prints its first
+//! output on stdout; input typed before that is held back, so it can never be read as a
+//! password.
 
 use std::time::Duration;
 
@@ -30,7 +36,8 @@ use russh::ChannelMsg;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
-use crate::decode::OutputDecoder;
+use crate::coordinator::{StdinInput, StdinReceiver};
+use crate::decode::{OutputDecoder, encode_input_line};
 use crate::local::{OutputChunk, Stream};
 use crate::ssh::SshSession;
 use crate::ssh::session::signal_name_text;
@@ -125,13 +132,15 @@ pub struct Elevation<'a> {
     pub password: Option<(&'a str, &'a dyn PasswordFeed)>,
 }
 
-/// Run `wrapped` (from [`wrap_command`]) and stream its output to `on_output`.
+/// Run `wrapped` (from [`wrap_command`]), stream its output to `on_output` and pass the lines
+/// from `stdin` to it.
 pub async fn run_remote(
     session: &SshSession,
     wrapped: &str,
     timeout: Option<Duration>,
     cancel: &CancellationToken,
     elevation: Option<Elevation<'_>>,
+    mut stdin: StdinReceiver,
     mut on_output: impl FnMut(OutputChunk),
 ) -> Result<RemoteOutcome, russh::Error> {
     let mut channel = session.exec_channel(wrapped).await?;
@@ -146,6 +155,10 @@ pub async fn run_remote(
     let mut exit_signal = None;
     let mut refused = false;
     let deadline = timeout.map(|t| Instant::now() + t);
+    // Operator input: whether more can come, and what waits for sudo to hand stdin over.
+    let mut input_open = true;
+    let mut held: Option<Vec<StdinInput>> = password.map(|_| Vec::new());
+    let mut stdin_closed = false;
 
     let interrupted = loop {
         let msg = tokio::select! {
@@ -153,10 +166,29 @@ pub async fn run_remote(
             _ = cancel.cancelled() => break Some(false),
             _ = sleep_until(deadline) => break Some(true),
             msg = channel.wait() => msg,
+            input = stdin.recv(), if input_open => {
+                let input = input.unwrap_or(StdinInput::Close);
+                input_open = !matches!(input, StdinInput::Close);
+                match &mut held {
+                    Some(queue) => queue.push(input),
+                    None => send_input(&channel, &mut stdin_closed, input).await,
+                }
+                continue;
+            }
         };
         match msg {
             None => break None,
-            Some(ChannelMsg::Data { data }) => out.push(&data, &mut on_output),
+            Some(ChannelMsg::Data { data }) => {
+                // The command itself is talking, so sudo is done with stdin.
+                if !data.is_empty()
+                    && let Some(queue) = held.take()
+                {
+                    for input in queue {
+                        send_input(&channel, &mut stdin_closed, input).await;
+                    }
+                }
+                out.push(&data, &mut on_output)
+            }
             Some(ChannelMsg::ExtendedData { data, .. }) => {
                 let mut pass = scan.push(&data);
                 let mut asked = 0;
@@ -246,6 +278,34 @@ pub async fn run_remote(
         pgid,
         sudo: report,
     })
+}
+
+/// Write one input to the command's stdin; nothing is written once stdin is closed.
+async fn send_input(
+    channel: &russh::Channel<russh::client::Msg>,
+    closed: &mut bool,
+    input: StdinInput,
+) {
+    if *closed {
+        return;
+    }
+    match input {
+        StdinInput::Line { text, .. } => {
+            let mut line = encode_input_line(
+                secrecy::ExposeSecret::expose_secret(&text),
+                OutputEncoding::Utf8,
+                false,
+            );
+            if channel.data(&line[..]).await.is_err() {
+                *closed = true;
+            }
+            zeroize::Zeroize::zeroize(&mut line);
+        }
+        StdinInput::Close => {
+            *closed = true;
+            let _ = channel.eof().await;
+        }
+    }
 }
 
 fn keep_head(head: &mut Vec<u8>, data: &[u8]) {

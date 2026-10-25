@@ -22,6 +22,7 @@ import { credentialTitle } from '@/components/credentials/credentialLabels'
 import EmptyState from '@/components/EmptyState.vue'
 import PageLayout from '@/components/PageLayout.vue'
 import { taskCommand, taskDetails } from '@/components/preview/preview'
+import RunInputBar from '@/components/run/RunInputBar.vue'
 import RunLogView from '@/components/run/RunLogView.vue'
 import HostTrustDialog from '@/components/servers/HostTrustDialog.vue'
 import {
@@ -250,6 +251,13 @@ async function cancel() {
     cancelling.value = false
   }
 }
+// RUN-08: the running command task takes input lines while the run is live.
+const inputTask = computed(() => {
+  const item = current.value
+  if (!item || !detail.value?.live || item.task.status !== 'running') return null
+  const type = item.plan.action.type
+  return type === 'local' || type === 'remote' ? item.task.seq : null
+})
 const cancelReason = computed(() => {
   if (run.value?.status === 'cancelling') return t('runView.stopping')
   return null
@@ -665,6 +673,7 @@ const uploadStopped = computed(() =>
             </div>
           </section>
           <RunLogView :detail="detail" :selected="picked" />
+          <RunInputBar v-if="inputTask !== null" :run-id="detail.runId" :seq="inputTask" />
         </div>
       </div>
     </div>
