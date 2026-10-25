@@ -12,6 +12,7 @@ mod state;
 mod trust;
 mod update;
 mod values;
+mod window;
 
 use tauri::Manager;
 
@@ -30,6 +31,11 @@ pub fn run() {
         // App updates from GitHub Releases, verified against the key in tauri.conf.json (NFR-04).
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(state::AppState::init())
+        // The window starts hidden and is fitted to its monitor's work area before showing.
+        .setup(|app| {
+            window::place_main(app);
+            Ok(())
+        })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 run::close_requested(window, api);
