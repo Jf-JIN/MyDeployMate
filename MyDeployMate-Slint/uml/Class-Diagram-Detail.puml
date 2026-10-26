@@ -1,0 +1,438 @@
+@startuml=
+skinparam classAttributeIconSize 0
+'skinparam dpi 300
+left to right direction
+
+'******************** Shell 会话层 ********************
+package "Shell 会话层" {
+    enum CommandKind {
+        Cmd
+        WindowsPowerShell
+        PowerShell7
+        Bash
+        Sh
+        Custom
+    }
+
+    enum CommandEvent {
+        Stdout(Bytes)
+        Stderr(Bytes)
+        Exit(Option<i32>)
+    }
+
+    enum SessionState {
+        Starting
+        Running
+        Exited
+        Failed
+    }
+
+    enum SessionError {
+        {field} Local(std::io::Error)
+        {field} SSH(russh::Error)
+        SessionClosed
+        InvalidState
+        Timeout
+    }
+
+    class SessionInfo <<struct>> {
+        +session_info_id: Ulid
+        +kind: CommandKind
+        +executable: PathBuf
+        +version: Option<String>
+    }
+
+    abstract SessionBase <<trait>> {
+        -session_id: Ulid
+        -kind: CommandKind
+        +send_input(data: Bytes): Future<Result<(), SessionError>>
+        +recv_event(): Future<Result<CommandEvent, SessionError>>
+        +get_state(): SessionState
+        +terminate(): Future<Result<(), SessionError>>
+        +get_session_id(): Ulid
+        +get_kind(): CommandKind
+    }
+}
+
+'******************** 本地系统层 ********************
+package "本地系统层" {
+
+    class LocalCommandSession {
+        -process: Child
+        -env_var: HashMap<String, String>
+        +env_var: HashMap<String, String>
+    }
+
+    class LocalSessionManager {
+        -available_shells: Vec<SessionInfo>
+        -sessions: HashMap<SessionId, Arc<LocalCommandSession>>
+        +scan(): Result<()>
+        +create_session(shell_id: Ulid, options): Result<Arc<LocalCommandSession>>
+        +get_session(session_id): Option<Arc<LocalCommandSession>>
+        +close_session(session_id): Result<()>
+        +close_all(): Result<()>
+    }
+
+    class PathManager {
+        +get_executable(): Result<PathBuf>
+        +get_cwd(): Result<PathBuf>
+        +get_home(): Result<PathBuf>
+        +get_user_data_dir(): Result<PathBuf>
+        +config_path(): PathBuf
+        +database_path(): PathBuf
+    }
+}
+
+'******************** SSH通信层 ********************
+package "SSH通信层" {
+
+    enum SshConnectionState {
+        Connecting
+        Connected
+        Disconnected
+    }
+
+'   Struct 配置结构体
+    class SSHConfig <<struct>> {
+        +config_id: Ulid
+        +host: String
+        +port: u16
+        +username: String
+        +auth_ref: CredentialRef
+    }
+
+    class SSHBinding <<struct>> {
+        +binding_id: Ulid
+        +name: String
+        +env_name: String
+        +config: SSHConfig
+    }
+
+'   SSH 连接管理
+    class SSHConnection {
+        -connection_id: Ulid
+        -handle: ClientHandle
+        -sessions: Map<SessionId: Ulid, Arc<SSHSession>>
+        -connection_state: SshConnectionState
+
+        +connect(): Future<Result<(), SessionError>>
+        +open_session(): Future<Result<Arc<SSHSession>, SessionError>>
+        +close_session(id: Ulid): Future<Result<(), SessionError>>
+        +upload(local: PathBuf, remote: String): Future<Result<(), TransferError>>
+        +download(remote: String, local: PathBuf): Future<Result<(), TransferError>>
+        +disconnect(): Future<Result<(), SessionError>>
+        +connection_state: SshConnectionState
+    }
+
+'   SSH 会话
+    class SSHSession {
+        -session_id: Ulid
+        -channel: russh::Channel
+        -session_state: SessionState
+    }
+
+'   SSH 总管理
+    class SSHManager {
+        -connections: Map<SSHConnectionId, Arc<SSHConnection>>
+
+        +get_or_connect(binding: SSHBinding): Future<Result<Arc<SSHConnection>, SessionError>>
+        +open_session(binding: SSHBinding): Future<Result<Arc<SSHSession>, SessionError>>
+        +disconnect(key: ConnectionKey): Future<Result<(), SessionError>>
+    }
+
+}
+
+'******************** 数据层 ********************
+package "数据与文件管理层" {
+
+' 用于管理输入输出导入导出文件
+    class FileManager {
+        +import_data(path: PathBuf): Result
+        +export_data(path: PathBuf): Result
+    }
+
+' 用于存储管理配置文件, 主要是软件的配置
+    class ConfigManager {
+        -config_path: PathBuf
+        +load(): Result<AppConfig>
+        +save(config: AppConfig): Result
+    }
+
+' 用于管理数据库, 管理实际数据
+    class DataManager {
+        -db_path: PathBuf
+        -db: DbHandle
+
+        -projects: HashMap<ProjectId, WorkProject>
+        -histories: HashMap<RunId, RunHistory>
+
+        ' Project
+        +list_projects(): Result<Vec<WorkProject>, DataError>
+        +load_project(id: ProjectId): Result<Option<WorkProject>, DataError>
+        +save_project(project: &WorkProject): Result<(), DataError>
+        +delete_project(project_ids: Vec<ProjectId>): Result<(), DataError>
+        +delete_flow(flow_ids: Vec<FlowId>): Result<(), DataError>
+        +delete_step(step_ids: Vec<StepId>): Result<(), DataError>
+
+        ' SSHBinding
+        +list_bindings(project_id: ProjectId): Result<Vec<SSHBinding>, DataError>
+        +save_binding(project_id: ProjectId, binding: &SSHBinding): Result<(), DataError>
+        +delete_binding(project_id: ProjectId, binding_id: Ulid): Result<(), DataError>
+
+        ' History
+        +list_run_histories(project_id: ProjectId): Result<Vec<RunHistory>, DataError>
+        +load_run_history(id: RunHistoryId): Result<Option<RunHistory>, DataError>
+        +save_run_history(history: &RunHistory): Result<(), DataError>
+        +delete_run_histories(history_ids: Vec<RunHistoryId>): Result<(), DataError>
+    }
+}
+
+'******************** 业务定义层 ********************
+package "业务定义层" {
+
+    enum FailPolicyKind {
+        Continue
+        Stop
+    }
+
+    enum ReusePolicy {
+        ShareWithinRun
+        Independent
+    }
+
+'   项目
+    class WorkProject <<struct>> {
+        +project_id: ProjectId:Ulid
+        +name: String
+        +flows: Vec<ProjectFlowRef>
+        +ssh_bindings: Vec<SSHBinding>
+        +cross_dependencies: Vec<CrossFlowDependency>
+        +validate(): Result
+    }
+
+'   流程
+    class WorkFlow <<struct>> {
+         +flow_id: FlowId:Ulid
+         +name: String
+         +steps: Vec<WorkStep>
+         +depends_on: Vec<FlowId>
+         +enable: bool
+     }
+
+'   步骤
+    class WorkStep <<struct>> {
+        +step_id: WorkStepId:Ulid
+        +name: String
+        +depends_on: Vec<WorkStepId>
+        +enabled: bool
+        +step_config: StepConfig
+    }
+
+'   步骤配置
+    class StepConfig <<struct>> {
+        body: StepBody
+        policy: StepPolicy
+    }
+
+    class StepPolicy <<struct>> {
+        timeout: u32 = 10
+        max_retries: u32 = 0
+        retry_delay: u32 = 0
+        reuse: ReusePolicy = ReusePolicy::Independent
+        fail_policy: FailPolicyKind = FailPolicyKind::Stop
+    }
+
+    enum StepBody {
+        {field} LocalCommand(LocalCommandConfig)
+        {field} RemoteCommand(RemoteCommandConfig)
+        {field} Upload(UploadConfig)
+        {field} Download(DownloadConfig)
+    }
+
+    class LocalCommandConfig <<struct>> {
+        +config_id: Ulid
+        +kind: CommandKind
+        +command: String
+        +cwd: Option<String>
+    }
+
+    class RemoteCommandConfig <<struct>> {
+        +binding_id: Ulid
+        +kind: CommandKind
+        +command: String
+        +cwd: Option<String>
+    }
+
+    class UploadConfig <<struct>> {
+        +binding_id: Ulid
+        +local_path: PathBuf
+        +remote_path: String
+    }
+
+    class DownloadConfig <<struct>> {
+        +binding_id: Ulid
+        +remote_path: String
+        +local_path: PathBuf
+    }
+}
+
+'******************** 业务执行层 ********************
+package "业务执行层" {
+
+    enum ExecutionError {
+        Session
+        Transfer
+        InvalidConfig
+        Timeout
+    }
+
+    enum ExecutorError {
+        Closed
+        DuplicateTask
+        WorkerJoin
+    }
+
+    enum SchedulerError {
+        InvalidDag
+        MissingBinding
+        InvalidTask
+        Executor
+    }
+
+    enum TaskState {
+        Pending
+        Running
+        Success
+        Failed
+        Skipped
+        Cancelled
+    }
+
+    class TaskConfig <<struct>> {
+
+    }
+
+'   实际的执行单元
+    class TaskUnit {
+        +unit_id: Ulid
+        +config: TaskConfig
+        +source_steps: HashSet<WorkStepId>
+        +unit_state: TaskState
+        +result: Option<TaskResult>
+    }
+
+'   步骤结果, 用于复用结果和状态通知
+    class TaskResult {
+        +exit_code: Option<i32>
+        +error: Option<ExecutionError>
+        +started_at: DateTime
+        +finished_at: DateTime
+        +log_ref: Option<LogRef>
+    }
+
+    class ExecutionPlan <<struct>> {
+        +units: HashMap<TaskUnitId, TaskUnit>
+        +work_to_task: HashMap<WorkStepId, TaskUnitId>
+        +dependencies: HashMap<WorkStepId, HashSet<WorkStepId>>
+    }
+
+    class TaskBuildResult <<struct>> {
+        +units: HashMap<TaskUnitId, TaskUnit>
+        +work_to_task: HashMap<WorkStepId, TaskUnitId>
+    }
+
+'   任务调度器, 用于实际调度各个任务步骤
+    class TaskScheduler {
+        -dag: DAGScheduler
+        -executor: TaskExecutor
+        -current_plan: Option<ExecutionPlan>
+        -task_build_result: Option<TaskBuildResult>
+
+        +run(projects: &[WorkProject]): Future<Result<RunResult, SchedulerError>>
+        -build_task_units(projects: &[WorkProject]): Result<TaskBuildResult, SchedulerError>
+    }
+
+'   步骤执行器, 经任务调度器分配后实际执行
+    class TaskExecutor {
+        -max_concurrent: usize
+        -ready: VecDeque<TaskUnit>
+        -running: JoinSet<TaskUnit>
+        -finished: HashMap<TaskUnitId, TaskUnit>
+
+        +run(plan: ExecutionPlan): Future<Result<RunResult, ExecutorError>>
+        -dispatch_available(): Result<(), ExecutorError>
+        -next_completed(): Future<Result<Option<TaskUnitId>, ExecutorError>>
+    }
+
+'   DAG调度器, 用于分析各任务节点, 并向任务调度器返回参考计划
+    class DAGScheduler {
+        +build(projects: &[WorkProject], tasks: TaskBuildResult): Result<ExecutionPlan, DAGError>
+        -validate(projects: &[WorkProject], tasks: &TaskBuildResult): Result<(), DAGError>
+    }
+}
+
+
+
+'================================== 关系 ==================================
+
+' 会话接口
+SessionBase <|.. LocalCommandSession
+SessionBase <|.. SSHSession
+
+' 本地系统层
+LocalSessionManager "1" o-- "0..*" SessionInfo
+LocalSessionManager "1" o-- "0..*" LocalCommandSession
+
+' SSH 通信层
+SSHBinding "1" *-- "1" SSHConfig
+SSHManager "1" o-- "0..*" SSHConnection
+SSHManager ..> SSHBinding : uses
+SSHConnection "1" *-- "0..*" SSHSession
+
+' 数据管理层
+ConfigManager ..> PathManager
+DataManager ..> PathManager
+DataManager ..> WorkProject
+DataManager ..> WorkFlow
+DataManager ..> WorkStep
+DataManager ..> SSHBinding
+
+' 业务定义层
+WorkProject "1" *-- "0..*" SSHBinding
+WorkProject ..> WorkFlow : via ProjectFlowRef
+WorkFlow "1" *- "0..*" WorkStep
+
+WorkStep "1" *- "1" StepConfig
+StepConfig "1" *- "1" StepBody
+StepConfig "1" *- "1" StepPolicy
+
+StepBody ..> LocalCommandConfig
+StepBody ..> RemoteCommandConfig
+StepBody ..> UploadConfig
+StepBody ..> DownloadConfig
+
+LocalCommandConfig ..> SessionInfo
+RemoteCommandConfig ..> SSHBinding
+UploadConfig ..> SSHBinding
+DownloadConfig ..> SSHBinding
+
+' 业务执行层
+TaskScheduler "1" *- "1" DAGScheduler
+TaskScheduler "1" *- "1" TaskExecutor
+
+TaskScheduler ..> TaskBuildResult
+DAGScheduler ..> TaskBuildResult
+DAGScheduler ..> ExecutionPlan
+TaskExecutor ..> ExecutionPlan
+
+TaskBuildResult ..> TaskUnit
+ExecutionPlan "1" *- "0..*" TaskUnit
+TaskUnit "1" *- "0..1" TaskResult
+TaskUnit "1" *- "1" TaskConfig
+
+TaskExecutor ..> LocalSessionManager
+TaskExecutor ..> SSHManager
+
+
+
+@enduml
