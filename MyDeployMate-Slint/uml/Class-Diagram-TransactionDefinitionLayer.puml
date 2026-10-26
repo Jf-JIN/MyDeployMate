@@ -1,0 +1,10 @@
+@startuml
+skinparam classAttributeIconSize 0
+'skinparam dpi 300
+left to right direction
+
+'******************** 业务定义层 ********************
+!includesub Class-Diagram-Detail.puml!TransactionDefinitionLayer
+!includesub Class-Diagram-Detail.puml!TransactionDefinitionRelations
+
+@enduml

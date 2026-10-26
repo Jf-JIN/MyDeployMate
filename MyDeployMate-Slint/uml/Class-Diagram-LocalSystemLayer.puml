@@ -1,0 +1,12 @@
+@startuml
+skinparam classAttributeIconSize 0
+'skinparam dpi 300
+left to right direction
+
+'******************** 本地系统层 ********************
+!includesub Class-Diagram-Detail.puml!ShellSessionLayer
+!includesub Class-Diagram-Detail.puml!LocalSystemLayer
+
+!includesub Class-Diagram-Detail.puml!ShellSessionRelations
+!includesub Class-Diagram-Detail.puml!LocalSystemRelations
+@enduml

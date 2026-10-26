@@ -1,0 +1,10 @@
+@startuml
+skinparam classAttributeIconSize 0
+'skinparam dpi 300
+left to right direction
+
+'******************** 数据层 ********************
+!includesub Class-Diagram-Detail.puml!DataLayer
+!includesub Class-Diagram-Detail.puml!DataRelations
+
+@enduml

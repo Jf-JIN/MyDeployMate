@@ -1,0 +1,12 @@
+@startuml
+skinparam classAttributeIconSize 0
+left to right direction
+
+'******************** SSH通信层 ********************
+!includesub Class-Diagram-Detail.puml!ShellSessionLayer
+!includesub Class-Diagram-Detail.puml!SSHCommunicationLayer
+
+!includesub Class-Diagram-Detail.puml!ShellSessionRelations
+!includesub Class-Diagram-Detail.puml!SSHCommunicationRelations
+
+@enduml

@@ -1,9 +1,10 @@
-@startuml=
+@startuml
 skinparam classAttributeIconSize 0
-'skinparam dpi 300
+skinparam dpi 600
 left to right direction
 
 '******************** Shell 会话层 ********************
+!startsub ShellSessionLayer
 package "Shell 会话层" {
     enum CommandKind {
         Cmd
@@ -53,8 +54,10 @@ package "Shell 会话层" {
         +get_kind(): CommandKind
     }
 }
+!endsub
 
 '******************** 本地系统层 ********************
+!startsub LocalSystemLayer
 package "本地系统层" {
 
     class LocalCommandSession {
@@ -82,8 +85,10 @@ package "本地系统层" {
         +database_path(): PathBuf
     }
 }
+!endsub
 
 '******************** SSH通信层 ********************
+!startsub SSHCommunicationLayer
 package "SSH通信层" {
 
     enum SshConnectionState {
@@ -92,13 +97,19 @@ package "SSH通信层" {
         Disconnected
     }
 
+    enum SSHAuth {
+        {field} Password(String)
+        {field} PrivateKeyFile(PathBuf)
+        Agent,
+    }
+
 '   Struct 配置结构体
     class SSHConfig <<struct>> {
         +config_id: Ulid
         +host: String
         +port: u16
         +username: String
-        +auth_ref: CredentialRef
+        +auth: SSHAuth
     }
 
     class SSHBinding <<struct>> {
@@ -139,10 +150,11 @@ package "SSH通信层" {
         +open_session(binding: SSHBinding): Future<Result<Arc<SSHSession>, SessionError>>
         +disconnect(key: ConnectionKey): Future<Result<(), SessionError>>
     }
-
 }
+!endsub
 
 '******************** 数据层 ********************
+!startsub DataLayer
 package "数据与文件管理层" {
 
 ' 用于管理输入输出导入导出文件
@@ -186,8 +198,10 @@ package "数据与文件管理层" {
         +delete_run_histories(history_ids: Vec<RunHistoryId>): Result<(), DataError>
     }
 }
+!endsub
 
 '******************** 业务定义层 ********************
+!startsub TransactionDefinitionLayer
 package "业务定义层" {
 
     enum FailPolicyKind {
@@ -257,6 +271,7 @@ package "业务定义层" {
     }
 
     class RemoteCommandConfig <<struct>> {
+        +config_id: Ulid
         +binding_id: Ulid
         +kind: CommandKind
         +command: String
@@ -264,19 +279,23 @@ package "业务定义层" {
     }
 
     class UploadConfig <<struct>> {
+        +config_id: Ulid
         +binding_id: Ulid
         +local_path: PathBuf
         +remote_path: String
     }
 
     class DownloadConfig <<struct>> {
+        +config_id: Ulid
         +binding_id: Ulid
         +remote_path: String
         +local_path: PathBuf
     }
 }
+!endsub
 
 '******************** 业务执行层 ********************
+!startsub TransactionExecutionLayer
 package "业务执行层" {
 
     enum ExecutionError {
@@ -370,69 +389,99 @@ package "业务执行层" {
         -validate(projects: &[WorkProject], tasks: &TaskBuildResult): Result<(), DAGError>
     }
 }
+!endsub
 
 
+'****************************************   关系   ****************************************
 
-'================================== 关系 ==================================
+'------------ ShellSessionRelations ------------
+!startsub ShellSessionRelations
+    SessionInfo ..> CommandKind
+    SessionBase <|.. LocalCommandSession
+    SessionBase <|.. SSHSession
+    SessionBase ..> CommandKind
+    SessionBase ..> CommandEvent
+    SessionBase ..> SessionState
+    SessionBase ..> SessionError
+!endsub
 
-' 会话接口
-SessionBase <|.. LocalCommandSession
-SessionBase <|.. SSHSession
+'------------ LocalSystemRelations ------------
+!startsub LocalSystemRelations
+    LocalSessionManager "1" o-- "0..*" SessionInfo
+    LocalSessionManager "1" o-- "0..*" LocalCommandSession
+!endsub
 
-' 本地系统层
-LocalSessionManager "1" o-- "0..*" SessionInfo
-LocalSessionManager "1" o-- "0..*" LocalCommandSession
+'------------ SSHCommunicationRelations ------------
+!startsub SSHCommunicationRelations
+    SSHConfig ..> SSHAuth
+    SSHBinding "1" *-- "1" SSHConfig
+    SSHSession ..> SessionState
+    SSHConnection "1" *-- "0..*" SSHSession
+    SSHConnection ..> SessionError
+    SSHConnection ..> SshConnectionState
+    SSHManager "1" o-- "0..*" SSHConnection
+    SSHManager ..> SSHBinding
+    SSHManager ..> SessionError
+!endsub
 
-' SSH 通信层
-SSHBinding "1" *-- "1" SSHConfig
-SSHManager "1" o-- "0..*" SSHConnection
-SSHManager ..> SSHBinding : uses
-SSHConnection "1" *-- "0..*" SSHSession
+'------------ DataRelations ------------
+!startsub DataRelations
+    ConfigManager ..> PathManager
+    DataManager ..> PathManager
+    DataManager ..> WorkProject
+    DataManager ..> WorkFlow
+    DataManager ..> WorkStep
+    DataManager ..> SSHBinding
+!endsub
 
-' 数据管理层
-ConfigManager ..> PathManager
-DataManager ..> PathManager
-DataManager ..> WorkProject
-DataManager ..> WorkFlow
-DataManager ..> WorkStep
-DataManager ..> SSHBinding
+'------------ TransactionDefinitionRelations ------------
+!startsub TransactionDefinitionRelations
+    WorkProject "1" *-- "0..*" SSHBinding
+    WorkProject ..> WorkFlow
+    WorkFlow "1" *-up- "0..*" WorkStep
 
-' 业务定义层
-WorkProject "1" *-- "0..*" SSHBinding
-WorkProject ..> WorkFlow : via ProjectFlowRef
-WorkFlow "1" *- "0..*" WorkStep
+    WorkStep "1" *-up- "1" StepConfig
+    StepConfig "1" *-- "1" StepBody
+    StepConfig "1" *-- "1" StepPolicy
 
-WorkStep "1" *- "1" StepConfig
-StepConfig "1" *- "1" StepBody
-StepConfig "1" *- "1" StepPolicy
+    StepPolicy ..> FailPolicyKind
+    StepPolicy ..> ReusePolicy
 
-StepBody ..> LocalCommandConfig
-StepBody ..> RemoteCommandConfig
-StepBody ..> UploadConfig
-StepBody ..> DownloadConfig
+    StepBody ..> LocalCommandConfig
+    StepBody ..> RemoteCommandConfig
+    StepBody ..> UploadConfig
+    StepBody ..> DownloadConfig
 
-LocalCommandConfig ..> SessionInfo
-RemoteCommandConfig ..> SSHBinding
-UploadConfig ..> SSHBinding
-DownloadConfig ..> SSHBinding
+    LocalCommandConfig ..> CommandKind
+    RemoteCommandConfig ..> SSHBinding
+    RemoteCommandConfig ..> CommandKind
+    UploadConfig ..> SSHBinding
+    DownloadConfig ..> SSHBinding
+!endsub
 
-' 业务执行层
-TaskScheduler "1" *- "1" DAGScheduler
-TaskScheduler "1" *- "1" TaskExecutor
+'------------ TransactionExecutionRelations ------------
+!startsub TransactionExecutionRelations
+    TaskScheduler "1" *-up- "1" DAGScheduler
+    TaskScheduler "1" *- "1" TaskExecutor
 
-TaskScheduler ..> TaskBuildResult
-DAGScheduler ..> TaskBuildResult
-DAGScheduler ..> ExecutionPlan
-TaskExecutor ..> ExecutionPlan
+    TaskScheduler ..> TaskBuildResult
+    TaskScheduler ..> SchedulerError
+    DAGScheduler ..> TaskBuildResult
+    DAGScheduler ..> ExecutionPlan
+    TaskExecutor ..> ExecutionPlan
 
-TaskBuildResult ..> TaskUnit
-ExecutionPlan "1" *- "0..*" TaskUnit
-TaskUnit "1" *- "0..1" TaskResult
-TaskUnit "1" *- "1" TaskConfig
+    TaskBuildResult ..> TaskUnit
+    ExecutionPlan "1" *- "0..*" TaskUnit
+    TaskUnit "1" *- "0..1" TaskResult
+    TaskUnit "1" *- "1" TaskConfig
+    TaskUnit ..> TaskState
 
-TaskExecutor ..> LocalSessionManager
-TaskExecutor ..> SSHManager
+    TaskExecutor ..> LocalSessionManager
+    TaskExecutor ..> SSHManager
+    TaskExecutor ..> ExecutorError
 
+    TaskResult ..> ExecutionError
+!endsub
 
 
 @enduml
