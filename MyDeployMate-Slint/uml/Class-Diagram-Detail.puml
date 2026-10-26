@@ -327,8 +327,15 @@ package "业务执行层" {
         Cancelled
     }
 
-    class TaskConfig <<struct>> {
+    class TaskPolicy <<struct>> {
+        +timeout: u32
+        +max_retries: u32
+        +retry_delay: u32
+    }
 
+    class TaskConfig <<struct>> {
+        +body: StepBody
+        +policy: TaskPolicy
     }
 
 '   实际的执行单元
@@ -474,6 +481,7 @@ package "业务执行层" {
     ExecutionPlan "1" *- "0..*" TaskUnit
     TaskUnit "1" *- "0..1" TaskResult
     TaskUnit "1" *- "1" TaskConfig
+    TaskConfig ..> TaskPolicy
     TaskUnit ..> TaskState
 
     TaskExecutor ..> LocalSessionManager
